@@ -65,9 +65,10 @@ WHATSAPP_GRAPH_VERSION = "v21.0"
 # Orígenes extra (Pages separado). Vacío = mismo origen + localhost.
 ALLOWED_ORIGINS = ""
 
-# Binding KV: Wrangler provisiona el namespace en el primer deploy si no hay id.
+# Binding KV: namespace existente (no buscar ni crear por nombre).
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
+id = "b1e82b40fb04c7db54934b2b84bc4ab"
 
 # Purga diaria del historial de campo (retención 30 días).
 [triggers]
