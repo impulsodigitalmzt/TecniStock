@@ -1,0 +1,9 @@
+# Copy to .dev.vars (gitignored) and fill real values for wrangler dev.
+SECRET_KEY=CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING
+DATABASE_URL=postgresql://USER:PASSWORD@HOST/neondb?sslmode=require
+GROQ_API_KEY=YOUR_GROQ_API_KEY
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_VISION_MODEL=qwen/qwen3.6-27b
+WHATSAPP_TOKEN=YOUR_WHATSAPP_CLOUD_API_TOKEN
+VERIFY_TOKEN=token_secreto_123
+WHATSAPP_APP_SECRET=YOUR_META_APP_SECRET

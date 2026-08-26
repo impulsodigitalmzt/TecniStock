@@ -1,0 +1,282 @@
+{
+  "moneda": "MXN",
+  "piezas": [
+    {
+      "sku": "TUB-PVC-20",
+      "nombre": "Tubo PVC sanitario 20 mm",
+      "aliases": ["tubo pvc 1/2", "caño pvc 20", "pvc 20mm", "tuberia pvc 20", "pipe pvc 1/2"],
+      "material": "PVC",
+      "medida": "20 mm (1/2\")",
+      "categoria": "plomeria",
+      "existencia": 48,
+      "precio": 32.5,
+      "sustituto_sku": "TUB-CPVC-20"
+    },
+    {
+      "sku": "TUB-CPVC-20",
+      "nombre": "Tubo CPVC 20 mm agua caliente",
+      "aliases": ["cpvc 1/2", "tubo agua caliente 20", "cpvc 20mm"],
+      "material": "CPVC",
+      "medida": "20 mm (1/2\")",
+      "categoria": "plomeria",
+      "existencia": 22,
+      "precio": 41.9
+    },
+    {
+      "sku": "COD-PVC-90-20",
+      "nombre": "Codo PVC 90° 20 mm",
+      "aliases": ["codo 90 1/2", "codo pvc 20", "elbow pvc 20"],
+      "material": "PVC",
+      "medida": "20 mm 90°",
+      "categoria": "plomeria",
+      "existencia": 80,
+      "precio": 6.5,
+      "sustituto_sku": "COD-CPVC-90-20"
+    },
+    {
+      "sku": "COD-CPVC-90-20",
+      "nombre": "Codo CPVC 90° 20 mm",
+      "aliases": ["codo cpvc 1/2", "codo 90 cpvc"],
+      "material": "CPVC",
+      "medida": "20 mm 90°",
+      "categoria": "plomeria",
+      "existencia": 16,
+      "precio": 9.2
+    },
+    {
+      "sku": "CPL-PVC-20",
+      "nombre": "Cople PVC 20 mm",
+      "aliases": ["cople 1/2", "union pvc 20", "manguito pvc"],
+      "material": "PVC",
+      "medida": "20 mm",
+      "categoria": "plomeria",
+      "existencia": 60,
+      "precio": 5.8
+    },
+    {
+      "sku": "TEE-PVC-20",
+      "nombre": "Tee PVC 20 mm",
+      "aliases": ["t pvc 1/2", "tee 20mm", "derivacion pvc"],
+      "material": "PVC",
+      "medida": "20 mm",
+      "categoria": "plomeria",
+      "existencia": 35,
+      "precio": 8.4
+    },
+    {
+      "sku": "VAL-ESF-20-LAT",
+      "nombre": "Válvula de esfera 1/2\" latón",
+      "aliases": ["llave de paso 1/2", "valvula esfera 20", "ball valve 1/2", "llave esfera laton"],
+      "material": "Latón",
+      "medida": "1/2\" (20 mm)",
+      "categoria": "plomeria",
+      "existencia": 14,
+      "precio": 89.0,
+      "sustituto_sku": "VAL-ESF-20-PVC"
+    },
+    {
+      "sku": "VAL-ESF-20-PVC",
+      "nombre": "Válvula de esfera PVC 20 mm",
+      "aliases": ["llave pvc 1/2", "valvula pvc esfera"],
+      "material": "PVC",
+      "medida": "20 mm",
+      "categoria": "plomeria",
+      "existencia": 9,
+      "precio": 42.0
+    },
+    {
+      "sku": "TEF-12",
+      "nombre": "Cinta teflón 12 m",
+      "aliases": ["cinta teflon", "pta tape", "sello rosca", "teflon plomeria"],
+      "material": "PTFE",
+      "medida": "12 m x 12 mm",
+      "categoria": "plomeria",
+      "existencia": 120,
+      "precio": 12.5
+    },
+    {
+      "sku": "NIP-GALV-13",
+      "nombre": "Niple galvanizado 1/2\" x 10 cm",
+      "aliases": ["niple 1/2", "niple galv", "tubo niple galvanizado"],
+      "material": "Acero galvanizado",
+      "medida": "1/2\" x 10 cm",
+      "categoria": "plomeria",
+      "existencia": 0,
+      "precio": 18.0,
+      "sustituto_sku": "NIP-LAT-13"
+    },
+    {
+      "sku": "NIP-LAT-13",
+      "nombre": "Niple de latón 1/2\" x 10 cm",
+      "aliases": ["niple laton 1/2", "niple bronce"],
+      "material": "Latón",
+      "medida": "1/2\" x 10 cm",
+      "categoria": "plomeria",
+      "existencia": 11,
+      "precio": 36.0
+    },
+    {
+      "sku": "TOR-6X40",
+      "nombre": "Tornillo autorroscante 6 x 40 mm",
+      "aliases": ["pija 6x40", "tornillo 6 40", "self tapping 6x40"],
+      "material": "Acero zincado",
+      "medida": "6 x 40 mm",
+      "categoria": "ferreteria",
+      "existencia": 400,
+      "precio": 1.2
+    },
+    {
+      "sku": "TOR-8X50",
+      "nombre": "Tornillo autorroscante 8 x 50 mm",
+      "aliases": ["pija 8x50", "tornillo 8 50"],
+      "material": "Acero zincado",
+      "medida": "8 x 50 mm",
+      "categoria": "ferreteria",
+      "existencia": 260,
+      "precio": 1.8
+    },
+    {
+      "sku": "TAQ-8",
+      "nombre": "Taquete plástico 8 mm",
+      "aliases": ["taquete 8", "bucha 8mm", "taco 8", "anchor 8mm"],
+      "material": "Nylon",
+      "medida": "8 mm",
+      "categoria": "ferreteria",
+      "existencia": 500,
+      "precio": 0.6
+    },
+    {
+      "sku": "TUER-M8",
+      "nombre": "Tuerca hexagonal M8",
+      "aliases": ["tuerca 8mm", "nut m8", "tuerca 5/16"],
+      "material": "Acero zincado",
+      "medida": "M8",
+      "categoria": "ferreteria",
+      "existencia": 180,
+      "precio": 1.1
+    },
+    {
+      "sku": "ARR-M8",
+      "nombre": "Arandela plana M8",
+      "aliases": ["rondana 8", "washer m8", "arandela 8mm"],
+      "material": "Acero zincado",
+      "medida": "M8",
+      "categoria": "ferreteria",
+      "existencia": 220,
+      "precio": 0.4
+    },
+    {
+      "sku": "CIN-NYL-200",
+      "nombre": "Cincho de nylon 200 mm",
+      "aliases": ["cincho 20cm", "zip tie 200", "amarre plastico", "brida 200"],
+      "material": "Nylon",
+      "medida": "200 mm",
+      "categoria": "ferreteria",
+      "existencia": 300,
+      "precio": 0.9
+    },
+    {
+      "sku": "LLAVE-EST-10",
+      "nombre": "Llave española 10 mm",
+      "aliases": ["llave 10", "wrench 10mm", "llave fija 10"],
+      "material": "Acero al cromo vanadio",
+      "medida": "10 mm",
+      "categoria": "ferreteria",
+      "existencia": 7,
+      "precio": 48.0,
+      "sustituto_sku": "LLAVE-COMB-10"
+    },
+    {
+      "sku": "LLAVE-COMB-10",
+      "nombre": "Llave combinada 10 mm",
+      "aliases": ["llave combo 10", "combination wrench 10"],
+      "material": "Acero al cromo vanadio",
+      "medida": "10 mm",
+      "categoria": "ferreteria",
+      "existencia": 12,
+      "precio": 55.0
+    },
+    {
+      "sku": "CAB-THW-12",
+      "nombre": "Cable THW calibre 12 AWG",
+      "aliases": ["thw 12", "cable 12", "cable electrico 12", "awg 12"],
+      "material": "Cobre PVC",
+      "medida": "12 AWG",
+      "categoria": "electricidad",
+      "existencia": 85,
+      "precio": 18.9
+    },
+    {
+      "sku": "CAB-THW-14",
+      "nombre": "Cable THW calibre 14 AWG",
+      "aliases": ["thw 14", "cable 14", "awg 14"],
+      "material": "Cobre PVC",
+      "medida": "14 AWG",
+      "categoria": "electricidad",
+      "existencia": 0,
+      "precio": 14.5,
+      "sustituto_sku": "CAB-THW-12"
+    },
+    {
+      "sku": "INT-SENC-127",
+      "nombre": "Interruptor sencillo 127 V",
+      "aliases": ["apagon", "switch sencillo", "interruptor luz"],
+      "material": "Policarbonato / contactos de cobre",
+      "medida": "127 V 10 A",
+      "categoria": "electricidad",
+      "existencia": 40,
+      "precio": 28.0
+    },
+    {
+      "sku": "CTO-DUP-127",
+      "nombre": "Contacto dúplex 127 V",
+      "aliases": ["tomacorriente", "enchufe duplex", "contacto pared", "outlet"],
+      "material": "Policarbonato / contactos de cobre",
+      "medida": "127 V 15 A",
+      "categoria": "electricidad",
+      "existencia": 33,
+      "precio": 34.5
+    },
+    {
+      "sku": "TUB-CON-20",
+      "nombre": "Tubo conduit PVC 20 mm",
+      "aliases": ["conduit 1/2", "tuberia electrica 20", "conduit pvc"],
+      "material": "PVC rígido",
+      "medida": "20 mm (1/2\")",
+      "categoria": "electricidad",
+      "existencia": 27,
+      "precio": 24.0
+    },
+    {
+      "sku": "TERM-20A",
+      "nombre": "Termomagnético 1 polo 20 A",
+      "aliases": ["breaker 20", "pastilla 20a", "interruptor termomagnetico 20"],
+      "material": "Caja termoplástica",
+      "medida": "20 A 1P",
+      "categoria": "electricidad",
+      "existencia": 8,
+      "precio": 96.0,
+      "sustituto_sku": "TERM-15A"
+    },
+    {
+      "sku": "TERM-15A",
+      "nombre": "Termomagnético 1 polo 15 A",
+      "aliases": ["breaker 15", "pastilla 15a"],
+      "material": "Caja termoplástica",
+      "medida": "15 A 1P",
+      "categoria": "electricidad",
+      "existencia": 15,
+      "precio": 89.0
+    },
+    {
+      "sku": "CINTA-AISL",
+      "nombre": "Cinta de aislar 18 m",
+      "aliases": ["cinta electrica", "electrical tape", "cinta negra aislar"],
+      "material": "PVC adhesivo",
+      "medida": "18 m x 19 mm",
+      "categoria": "electricidad",
+      "existencia": 70,
+      "precio": 16.0
+    }
+  ]
+}

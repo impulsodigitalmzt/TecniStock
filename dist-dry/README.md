@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "medscribe" generated at 2026-08-25T05:06:12.988Z.

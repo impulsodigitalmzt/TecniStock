@@ -1,0 +1,16 @@
+{
+  "name": "TecniStock",
+  "short_name": "TecniStock",
+  "description": "Tu Asesor Técnico en Campo 24/7",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f4",
+  "theme_color": "#ea580c",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

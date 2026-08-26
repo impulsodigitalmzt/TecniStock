@@ -1,0 +1,33 @@
+{
+  "name": "medscribe",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "predev": "node -e \"require('fs').existsSync('dist/client/index.html')||require('child_process').execSync('npm run build:vite --prefix frontend',{stdio:'inherit'})\"",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm install --prefix frontend && npm run build --prefix frontend",
+    "build:vite": "npm run build --prefix frontend",
+    "build:frontend": "npm run build --prefix frontend",
+    "deploy": "npm run build && wrangler deploy",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "seed:inventario-espejo": "node scripts/copiar-fotos-productos.mjs && node scripts/poblar-inventario-espejo.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "hono": "^4.9.8",
+    "jose": "^6.1.0",
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "@types/node": "^26.2.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.28.0"
+  }
+}

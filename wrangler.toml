@@ -1,0 +1,70 @@
+# TecniStock — Cloudflare Workers & Pages
+# La IA (Groq visión multimodal) corre en el Worker.
+# El SPA se publica como Assets del Worker (mismo origen) o, si se separa,
+# en Cloudflare Pages con VITE_API_BASE_URL apuntando a este Worker.
+#
+# Dashboard Workers & Pages (integración Git):
+#   Build command:      npm run build
+#   Output directory:   dist/client
+#   Root directory:     /
+#   Node version:       20
+#
+# Frontend en Pages aparte (opcional):
+#   VITE_API_BASE_URL=https://<worker>.workers.dev npm run build --prefix frontend
+#   wrangler secret / vars: ALLOWED_ORIGINS=https://<proyecto>.pages.dev
+#
+# No uses pages_build_output_dir: este proyecto es un Worker con assets
+# (API Hono + SPA). wrangler deploy publica ambos en el mismo origen.
+#
+# Secretos: no se declaran aquí. Local → .dev.vars | Producción → wrangler secret put
+#
+#   npx wrangler secret put DATABASE_URL
+#   npx wrangler secret put SECRET_KEY
+#   npx wrangler secret put GROQ_API_KEY
+#   npx wrangler secret put WHATSAPP_TOKEN
+#   npx wrangler secret put VERIFY_TOKEN
+#   npx wrangler secret put WHATSAPP_APP_SECRET
+
+"$schema" = "./node_modules/wrangler/config-schema.json"
+name = "medscribe"
+main = "src/index.ts"
+compatibility_date = "2026-08-16"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+# SPA compilada (Vite → dist/client). No usar ./public ni un subdirectorio
+# llamado "assets": en Windows Wrangler lo estatúa como 128 TiB y falla.
+directory = "./dist/client"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+# El Worker decide: /api /webhook /health → Hono; el resto → SPA.
+run_worker_first = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Variables públicas inyectadas en env (c.env.APP_NAME, etc.)
+[vars]
+APP_NAME = "TecniStock"
+APP_VERSION = "2.0.0"
+ENVIRONMENT = "production"
+GROQ_MODEL = "openai/gpt-oss-120b"
+GROQ_VISION_MODEL = "qwen/qwen3.6-27b"
+GROQ_WHISPER_MODEL = "whisper-large-v3"
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = "15"
+JWT_REFRESH_TOKEN_EXPIRE_DAYS = "7"
+PHONE_NUMBER_ID = "130281826638326"
+RATE_LIMIT_AUTH_ATTEMPTS = "5"
+RATE_LIMIT_AUTH_WINDOW_MINUTES = "15"
+WHATSAPP_GRAPH_VERSION = "v21.0"
+# Orígenes extra (Pages separado). Vacío = mismo origen + localhost.
+ALLOWED_ORIGINS = ""
+
+# Binding KV: Wrangler provisiona el namespace en el primer deploy si no hay id.
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+
+# Purga diaria del historial de campo (retención 30 días).
+[triggers]
+crons = ["0 8 * * *"]

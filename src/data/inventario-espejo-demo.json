@@ -1,0 +1,404 @@
+[
+  {
+    "sku": "INT-PASO-DOBLE",
+    "nombre_pieza": "Interruptor de paso doble empotrado",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Apagador de 3 vías, interruptor conmutador empotrado 127 V, switch de paso doble",
+    "stock_disponible": 0,
+    "precio": 46.5,
+    "url_imagen": "/static/productos/INT-DOB-127.jpg",
+    "ubicacion_tienda": "Pasillo eléctrico A-2",
+    "descontinuado": false
+  },
+  {
+    "sku": "INT-SENC-127",
+    "nombre_pieza": "Interruptor sencillo 127 V",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Apagador sencillo, switch de luz 10 A, compatible con caja 4x2",
+    "stock_disponible": 42,
+    "precio": 28.0,
+    "url_imagen": "/static/productos/INT-SENC-127.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "INT-TRIP-127",
+    "nombre_pieza": "Interruptor triple 127 V",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Apagador triple empotrado, 3 palancas, 127 V 10 A",
+    "stock_disponible": 18,
+    "precio": 62.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "CTO-DUP-127",
+    "nombre_pieza": "Contacto dúplex 127 V",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tomacorriente dúplex, enchufe de pared 15 A, outlet polarizado",
+    "stock_disponible": 35,
+    "precio": 34.5,
+    "url_imagen": "/static/productos/CONT-DUP-127.png",
+    "ubicacion_tienda": "Pasillo eléctrico A-3"
+  },
+  {
+    "sku": "CAB-THW-12",
+    "nombre_pieza": "Cable THW calibre 12 AWG",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Cable THW 12, cobre recubierto PVC, venta por metro",
+    "stock_disponible": 120,
+    "precio": 18.9,
+    "url_imagen": "/static/productos/CAB-12-THW.jpg",
+    "ubicacion_tienda": "Carrete eléctrico B-1"
+  },
+  {
+    "sku": "CAB-THW-14",
+    "nombre_pieza": "Cable THW calibre 14 AWG",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Cable THW 14, cobre PVC, sustituto ligero de calibre 12 en circuitos de iluminación",
+    "stock_disponible": 80,
+    "precio": 14.5,
+    "url_imagen": "",
+    "ubicacion_tienda": "Carrete eléctrico B-1"
+  },
+  {
+    "sku": "TERM-20A",
+    "nombre_pieza": "Termomagnético 1 polo 20 A",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Breaker 20 A, pastilla termomagnética 1P, interruptor termomagnético 20",
+    "stock_disponible": 9,
+    "precio": 96.0,
+    "url_imagen": "/static/productos/TMT-1P-20A.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-4"
+  },
+  {
+    "sku": "TERM-15A",
+    "nombre_pieza": "Termomagnético 1 polo 15 A",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Breaker 15 A, pastilla 1P, compatible en el mismo riel que 20 A",
+    "stock_disponible": 16,
+    "precio": 89.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Pasillo eléctrico A-4"
+  },
+  {
+    "sku": "CINTA-AISL",
+    "nombre_pieza": "Cinta de aislar 18 m",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Cinta eléctrica negra PVC, 18 m x 19 mm",
+    "stock_disponible": 70,
+    "precio": 16.0,
+    "url_imagen": "/static/productos/CIN-AIS-3M.webp",
+    "ubicacion_tienda": "Mostrador eléctrico"
+  },
+  {
+    "sku": "LED-9W-E27",
+    "nombre_pieza": "Foco LED 9 W E27",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Lámpara LED 9 watts rosca E27, luz fría, equivalente 60 W",
+    "stock_disponible": 55,
+    "precio": 29.9,
+    "url_imagen": "",
+    "ubicacion_tienda": "Pasillo eléctrico A-5"
+  },
+  {
+    "sku": "TORN-MAD-8X2",
+    "nombre_pieza": "Tornillo para madera 8 x 2 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Tornillo de madera cabeza plana, pavonado, 8 x 2\"",
+    "stock_disponible": 400,
+    "precio": 1.2,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-1"
+  },
+  {
+    "sku": "TAQ-PLA-14",
+    "nombre_pieza": "Taquete de plástico 1/4 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Taquete pared 1/4, ancla de plástico para concreto y tablaroca",
+    "stock_disponible": 260,
+    "precio": 0.85,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-1"
+  },
+  {
+    "sku": "BRO-CON-14",
+    "nombre_pieza": "Broca para concreto 1/4 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Broca SDS/concreto 1/4, vidia, para taladro percutor",
+    "stock_disponible": 22,
+    "precio": 38.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-2"
+  },
+  {
+    "sku": "CLA-CON-2",
+    "nombre_pieza": "Clavo para concreto 2 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Clavo de acero para concreto 2\", pavonado",
+    "stock_disponible": 180,
+    "precio": 1.5,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-1"
+  },
+  {
+    "sku": "CAND-40",
+    "nombre_pieza": "Candado laminado 40 mm",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Candado de acero laminado 40 mm, 3 llaves",
+    "stock_disponible": 14,
+    "precio": 79.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-3"
+  },
+  {
+    "sku": "BIS-AC-35",
+    "nombre_pieza": "Bisagra de acero 3.5 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Bisagra rectangular 3.5\", acero, para puerta de madera",
+    "stock_disponible": 48,
+    "precio": 24.5,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-3"
+  },
+  {
+    "sku": "TEF-12",
+    "nombre_pieza": "Cinta de teflón 1/2 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Cinta PTFE sella roscas 1/2\", fontanería y gas",
+    "stock_disponible": 90,
+    "precio": 8.5,
+    "url_imagen": "",
+    "ubicacion_tienda": "Mostrador ferretería"
+  },
+  {
+    "sku": "DISCO-4-5",
+    "nombre_pieza": "Disco de corte 4.5 pulg",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Disco abrasivo 4-1/2\" para metal, amoladora",
+    "stock_disponible": 36,
+    "precio": 22.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Ferretería C-2"
+  },
+  {
+    "sku": "GUAN-CAR",
+    "nombre_pieza": "Guantes de carnaza",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Guante de carnaza para obra, talla unitalla",
+    "stock_disponible": 25,
+    "precio": 45.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Mostrador ferretería"
+  },
+  {
+    "sku": "CINTA-5M",
+    "nombre_pieza": "Cinta métrica 5 m",
+    "categoria": "ferreteria",
+    "descripcion_tecnica": "Flexómetro 5 metros, cinta métrica de acero, freno",
+    "stock_disponible": 19,
+    "precio": 68.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Mostrador ferretería"
+  },
+  {
+    "sku": "INT-PALANCA-OLD",
+    "nombre_pieza": "Interruptor de palanca vintage 127 V",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Apagador de palanca antiguo, switch vintage empotrado, ya no se maneja",
+    "stock_disponible": 0,
+    "precio": 52.0,
+    "url_imagen": "/static/productos/INT-PALANCA-OLD.avif",
+    "ubicacion_tienda": "Pasillo eléctrico A-2",
+    "descontinuado": true
+  },
+  {
+    "sku": "INT-DOB-127",
+    "nombre_pieza": "Interruptor doble 127 V",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Interruptor de paso doble empotrado con placa plástica blanca",
+    "stock_disponible": 30,
+    "precio": 45.0,
+    "url_imagen": "/static/productos/INT-DOB-127.jpg",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "INT-ESC-03",
+    "nombre_pieza": "Apagador de escalera 3 vías",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Interruptor de tres vías para control de iluminación desde dos puntos",
+    "stock_disponible": 25,
+    "precio": 38.0,
+    "url_imagen": "/static/productos/INT-ESC-03.jpg",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "CONT-DUP-127",
+    "nombre_pieza": "Contacto dúplex aterrizado",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tomacorriente doble con ranura de tierra, 15A 127V",
+    "stock_disponible": 60,
+    "precio": 35.0,
+    "url_imagen": "/static/productos/CONT-DUP-127.png",
+    "ubicacion_tienda": "Pasillo eléctrico A-3"
+  },
+  {
+    "sku": "CONT-USB-01",
+    "nombre_pieza": "Contacto dúplex con puertos USB",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tomacorriente doble con dos puertos de carga USB integrados de 2.1A",
+    "stock_disponible": 12,
+    "precio": 210.0,
+    "url_imagen": "/static/productos/CONT-USB-01.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-3"
+  },
+  {
+    "sku": "PLAC-ACEO-01",
+    "nombre_pieza": "Placa de acero inoxidable 1 ganga",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tapa o placa decorativa de acero cepillado Artlite APL-102",
+    "stock_disponible": 18,
+    "precio": 65.0,
+    "url_imagen": "/static/productos/PLAC-ACEO-01.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "PLAC-ACEO-02",
+    "nombre_pieza": "Placa de acero inoxidable 2 gangas",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tapa o placa de acero inoxidable cepillado para dos espacios",
+    "stock_disponible": 15,
+    "precio": 78.0,
+    "url_imagen": "/static/productos/PLAC-ACEO-02.jpg",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "TMT-1P-20A",
+    "nombre_pieza": "Interruptor termomagnético 1x20A",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Pastilla termomagnética unipolar de 20 amperes para riel DIN",
+    "stock_disponible": 22,
+    "precio": 125.0,
+    "url_imagen": "/static/productos/TMT-1P-20A.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-4"
+  },
+  {
+    "sku": "TMT-2P-30A",
+    "nombre_pieza": "Interruptor termomagnético 2x30A",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Pastilla termomagnética bipolar de 30 amperes",
+    "stock_disponible": 10,
+    "precio": 260.0,
+    "url_imagen": "/static/productos/TMT-2P-30A.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-4"
+  },
+  {
+    "sku": "CC-2Q-01",
+    "nombre_pieza": "Centro de carga para 2 pastillas",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Gabinete metálico compacto para dos interruptores termomagnéticos",
+    "stock_disponible": 8,
+    "precio": 195.0,
+    "url_imagen": "/static/productos/CC-2Q-01.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-4"
+  },
+  {
+    "sku": "CAB-12-THW",
+    "nombre_pieza": "Rollo de cable THW-LS Calibre 12 (100m)",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Conductor eléctrico de cobre calibre 12 AWG antiflama",
+    "stock_disponible": 6,
+    "precio": 950.0,
+    "url_imagen": "/static/productos/CAB-12-THW.jpg",
+    "ubicacion_tienda": "Carrete eléctrico B-1"
+  },
+  {
+    "sku": "CAB-10-THW",
+    "nombre_pieza": "Rollo de cable THW-LS Calibre 10 (100m)",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Conductor eléctrico de cobre calibre 10 AWG antiflama",
+    "stock_disponible": 5,
+    "precio": 1450.0,
+    "url_imagen": "/static/productos/CAB-10-THW.jpg",
+    "ubicacion_tienda": "Carrete eléctrico B-1"
+  },
+  {
+    "sku": "CIN-AIS-3M",
+    "nombre_pieza": "Cinta de aislar vinílica profesional",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Cinta aislante de alta resistencia color negro rollo de 18 metros",
+    "stock_disponible": 100,
+    "precio": 24.0,
+    "url_imagen": "/static/productos/CIN-AIS-3M.webp",
+    "ubicacion_tienda": "Mostrador eléctrico"
+  },
+  {
+    "sku": "INT-TIM-01",
+    "nombre_pieza": "Botón pulsador para timbre",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Interruptor tipo botón de presión momentánea para sistema de timbre",
+    "stock_disponible": 20,
+    "precio": 32.0,
+    "url_imagen": "/static/productos/INT-TIM-01.webp",
+    "ubicacion_tienda": "Pasillo eléctrico A-2"
+  },
+  {
+    "sku": "CLV-IND-01",
+    "nombre_pieza": "Clavija industrial polarizada",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Clavija de uso rudo reforzada color amarillo con tierra",
+    "stock_disponible": 14,
+    "precio": 85.0,
+    "url_imagen": "/static/productos/CLV-IND-01.jpg",
+    "ubicacion_tienda": "Mostrador eléctrico"
+  },
+  {
+    "sku": "CONT-INT-01",
+    "nombre_pieza": "Contacto dúplex para intemperie con tapa",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tomacorriente protegido con tapa plástica de cierre hermético contra humedad",
+    "stock_disponible": 9,
+    "precio": 140.0,
+    "url_imagen": "/static/productos/CONT-INT-01.avif",
+    "ubicacion_tienda": "Pasillo eléctrico A-3"
+  },
+  {
+    "sku": "FOCO-LED-10W",
+    "nombre_pieza": "Foco LED A19 10W Luz de Día",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Bombilla LED ahorradora de 10 watts rosca estándar E27",
+    "stock_disponible": 80,
+    "precio": 22.0,
+    "url_imagen": "/static/productos/FOCO-LED-10W.jpg",
+    "ubicacion_tienda": "Pasillo eléctrico A-5"
+  },
+  {
+    "sku": "LAMP-LED-40W",
+    "nombre_pieza": "Lámpara lineal LED sobreponer 40W",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Luminaria lineal tipo regleta LED de 1.20 metros para techo o pared",
+    "stock_disponible": 16,
+    "precio": 280.0,
+    "url_imagen": "/static/productos/LAMP-LED-40W.jpg",
+    "ubicacion_tienda": "Pasillo eléctrico A-5"
+  },
+  {
+    "sku": "TUBO-CON-50",
+    "nombre_pieza": "Tubo conduit pared delgada 1/2 pulgada",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Tubo metálico galvanizado ligero de 3 metros para protección de cableado",
+    "stock_disponible": 25,
+    "precio": 92.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Pasillo eléctrico B-2"
+  },
+  {
+    "sku": "COPL-CON-05",
+    "nombre_pieza": "Cople para tubo conduit 1/2 pulgada",
+    "categoria": "electricidad",
+    "descripcion_tecnica": "Conector o cople de compresión metálico para unión de tubo conduit",
+    "stock_disponible": 50,
+    "precio": 12.0,
+    "url_imagen": "",
+    "ubicacion_tienda": "Pasillo eléctrico B-2"
+  }
+]

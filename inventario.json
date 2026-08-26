@@ -1,0 +1,185 @@
+{
+  "modo": "upsert",
+  "piezas": [
+    {
+      "sku": "INT-SENC-127",
+      "nombre_pieza": "Interruptor sencillo 127 V",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Apagador o switch sencillo color blanco, diseùo estùndar de empotrar",
+      "stock_disponible": 45,
+      "precio": 28.5,
+      "url_imagen": "/static/productos/INT-SENC-127.webp"
+    },
+    {
+      "sku": "INT-DOB-127",
+      "nombre_pieza": "Interruptor doble 127 V",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Interruptor de paso doble empotrado con placa plùstica blanca",
+      "stock_disponible": 30,
+      "precio": 45.0,
+      "url_imagen": "/static/productos/INT-DOB-127.jpg"
+    },
+    {
+      "sku": "INT-ESC-03",
+      "nombre_pieza": "Apagador de escalera 3 vùas",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Interruptor de tres vùas para control de iluminaciùn desde dos puntos",
+      "stock_disponible": 25,
+      "precio": 38.0,
+      "url_imagen": "/static/productos/INT-ESC-03.jpg"
+    },
+    {
+      "sku": "CONT-DUP-127",
+      "nombre_pieza": "Contacto dùplex aterrizado",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Tomacorriente doble con ranura de tierra, 15A 127V",
+      "stock_disponible": 60,
+      "precio": 35.0,
+      "url_imagen": "/static/productos/CONT-DUP-127.png"
+    },
+    {
+      "sku": "CONT-USB-01",
+      "nombre_pieza": "Contacto dùplex con puertos USB",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Tomacorriente doble con dos puertos de carga USB integrados de 2.1A",
+      "stock_disponible": 12,
+      "precio": 210.0,
+      "url_imagen": "/static/productos/CONT-USB-01.webp"
+    },
+    {
+      "sku": "PLAC-ACEO-01",
+      "nombre_pieza": "Placa de acero inoxidable 1 ganga",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Tapa o placa decorativa de acero cepillado para una pastilla/interruptor, Artlite APL-102",
+      "stock_disponible": 18,
+      "precio": 65.0,
+      "url_imagen": "/static/productos/PLAC-ACEO-01.webp"
+    },
+    {
+      "sku": "PLAC-ACEO-02",
+      "nombre_pieza": "Placa de acero inoxidable 2 gangas",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Tapa o placa de acero inoxidable cepillado para dos espacios",
+      "stock_disponible": 15,
+      "precio": 78.0,
+      "url_imagen": "/static/productos/PLAC-ACEO-02.jpg"
+    },
+    {
+      "sku": "TMT-1P-20A",
+      "nombre_pieza": "Interruptor termomagnùtico 1x20A",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Pastilla termomagnùtica unipolar de 20 amperes para riel DIN",
+      "stock_disponible": 22,
+      "precio": 125.0,
+      "url_imagen": "/static/productos/TMT-1P-20A.webp"
+    },
+    {
+      "sku": "TMT-2P-30A",
+      "nombre_pieza": "Interruptor termomagnùtico 2x30A",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Pastilla termomagnùtica bipolar de 30 amperes",
+      "stock_disponible": 10,
+      "precio": 260.0,
+      "url_imagen": "/static/productos/TMT-2P-30A.webp"
+    },
+    {
+      "sku": "CC-2Q-01",
+      "nombre_pieza": "Centro de carga para 2 pastillas",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Gabinete metùlico compacto para dos interruptores termomagnùticos",
+      "stock_disponible": 8,
+      "precio": 195.0,
+      "url_imagen": "/static/productos/CC-2Q-01.webp"
+    },
+    {
+      "sku": "CAB-12-THW",
+      "nombre_pieza": "Rollo de cable THW-LS Calibre 12 (100m)",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Conductor elùctrico de cobre calibre 12 AWG antiflama color rojo",
+      "stock_disponible": 6,
+      "precio": 950.0,
+      "url_imagen": "/static/productos/CAB-12-THW.jpg"
+    },
+    {
+      "sku": "CAB-10-THW",
+      "nombre_pieza": "Rollo de cable THW-LS Calibre 10 (100m)",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Conductor elùctrico de cobre calibre 10 AWG antiflama color negro",
+      "stock_disponible": 5,
+      "precio": 1450.0,
+      "url_imagen": "/static/productos/CAB-10-THW.jpg"
+    },
+    {
+      "sku": "CIN-AIS-3M",
+      "nombre_pieza": "Cinta de aislar vinùlica profesional",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Cinta aislante de alta resistencia color negro rollo de 18 metros",
+      "stock_disponible": 100,
+      "precio": 24.0,
+      "url_imagen": "/static/productos/CIN-AIS-3M.webp"
+    },
+    {
+      "sku": "INT-TIM-01",
+      "nombre_pieza": "Botùn pulsador para timbre",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Interruptor tipo botùn de presiùn momentùnea para sistema de timbre",
+      "stock_disponible": 20,
+      "precio": 32.0,
+      "url_imagen": "/static/productos/INT-TIM-01.webp"
+    },
+    {
+      "sku": "CLV-IND-01",
+      "nombre_pieza": "Clavija industrial polarizada",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Clavija de uso rudo reforzada color amarillo con tierra",
+      "stock_disponible": 14,
+      "precio": 85.0,
+      "url_imagen": "/static/productos/CLV-IND-01.jpg"
+    },
+    {
+      "sku": "CONT-INT-01",
+      "nombre_pieza": "Contacto dùplex para intemperie con tapa",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Tomacorriente protegido con tapa plùstica de cierre hermùtico contra humedad",
+      "stock_disponible": 9,
+      "precio": 140.0,
+      "url_imagen": "/static/productos/CONT-INT-01.avif"
+    },
+    {
+      "sku": "FOCO-LED-10W",
+      "nombre_pieza": "Foco LED A19 10W Luz de Dùa",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Bombilla LED ahorradora de 10 watts rosca estùndar E27",
+      "stock_disponible": 80,
+      "precio": 22.0,
+      "url_imagen": "/static/productos/FOCO-LED-10W.jpg"
+    },
+    {
+      "sku": "LAMP-LED-40W",
+      "nombre_pieza": "Lùmpara lineal LED sobreponer 40W",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Luminaria lineal tipo regleta LED de 1.20 metros para techo o pared",
+      "stock_disponible": 16,
+      "precio": 280.0,
+      "url_imagen": "/static/productos/LAMP-LED-40W.jpg"
+    },
+    {
+      "sku": "TUBO-CON-50",
+      "nombre_pieza": "Tubo conduit pared delgada 1/2 pulgada",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Tubo metùlico galvanizado ligero de 3 metros para protecciùn de cableado",
+      "stock_disponible": 25,
+      "precio": 92.0,
+      "url_imagen": ""
+    },
+    {
+      "sku": "COPL-CON-05",
+      "nombre_pieza": "Cople para tubo conduit 1/2 pulgada",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Conector o cople de compresiùn metùlico para uniùn de tubo conduit",
+      "stock_disponible": 50,
+      "precio": 12.0,
+      "url_imagen": ""
+    }
+  ]
+}
