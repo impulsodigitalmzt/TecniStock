@@ -342,7 +342,7 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
         502,
         authFail
           ? "Groq rechazó la autenticación (API key inválida o ausente)."
-          : "No se pudo analizar la imagen con Groq.",
+          : `No se pudo analizar la imagen (${response.status} ${model}): ${snippet(lastFailText) || "error de Groq."}`,
         authFail ? "GROQ_AUTH_FAILED" : "GROQ_VISION_FAILED"
       );
     }
