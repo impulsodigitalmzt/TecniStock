@@ -68,7 +68,7 @@ ALLOWED_ORIGINS = ""
 # Binding KV: namespace existente (no buscar ni crear por nombre).
 [[kv_namespaces]]
 binding = "RATE_LIMIT"
-id = "b1e82b40fb04c7db54934b2b84bc4ab"
+id = "b1e82bc40fb04c7db54934b2b84bc4ab"
 
 # Purga diaria del historial de campo (retención 30 días).
 [triggers]
