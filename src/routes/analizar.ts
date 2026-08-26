@@ -1,9 +1,8 @@
 import { Hono, type Context } from "hono";
 import { AppError } from "../lib/errors";
-import { consultarStock, type BloqueStock, type StockItem } from "../lib/stock";
+import { consultarStock, type StockItem } from "../lib/stock";
 import { createSql } from "../db";
-import { ensureProductosSchema, listarProductos } from "../lib/productos-schema";
-import { ensureInventarioEspejoSchema, listarInventarioEspejo } from "../lib/inventario-espejo";
+import { ensureInventarioLocalSchema, listarInventarioLocal } from "../lib/inventario-local";
 import {
   actualizarConsultaCampo,
   crearConsultaCampo,
@@ -110,14 +109,10 @@ function esUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
-async function catalogoAnalisis(sql: ReturnType<typeof createSql>): Promise<{ origen: NonNullable<BloqueStock["fuente"]>; piezas: StockItem[] }> {
-  await ensureInventarioEspejoSchema(sql);
-  const espejo = await listarInventarioEspejo(sql);
-  if (espejo.length > 0) return { origen: "espejo", piezas: espejo };
-  await ensureProductosSchema(sql);
-  const productos = await listarProductos(sql);
-  if (productos.length > 0) return { origen: "productos", piezas: productos };
-  return { origen: "mock", piezas: [] };
+async function catalogoAnalisis(sql: ReturnType<typeof createSql>): Promise<{ origen: "inventario_local"; piezas: StockItem[] }> {
+  await ensureInventarioLocalSchema(sql);
+  const piezas = await listarInventarioLocal(sql);
+  return { origen: "inventario_local", piezas };
 }
 
 analizarRoutes.post("/", async (c) => {
@@ -131,7 +126,7 @@ analizarRoutes.post("/", async (c) => {
     if (c.env.DATABASE_URL) {
       const sql = createSql(c.env.DATABASE_URL);
       const catalogo = await catalogoAnalisis(sql);
-      const stock = consultarStock(pieza, catalogo.piezas.length > 0 ? catalogo.piezas : undefined);
+      const stock = consultarStock(pieza, catalogo.piezas, { estricta: true });
       stock.fuente = catalogo.origen;
       await ensureConsultasCampoSchema(sql);
       await purgarConsultasVencidas(sql);
@@ -154,7 +149,7 @@ analizarRoutes.post("/", async (c) => {
       retencion_dias: 30,
       modelo: modeloGroqVision(c.env),
       pieza: piezaPublica(pieza),
-      stock: consultarStock(pieza),
+      stock: consultarStock(pieza, [], { estricta: true }),
     });
   } catch (error) {
     console.log(error);

@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, PROMPT_CHAT_CAMPO } from "../ia/prompts";
-import { limitarAlternativas, type BloqueStock, type SustitutoStock } from "../lib/stock";
+import { consultarStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import { conMarcaFicha, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
 import { procesarFlujoApartado } from "../lib/apartados";
+import { listarInventarioLocal } from "../lib/inventario-local";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -114,6 +115,44 @@ consultasCampoRoutes.post("/:id/voz", async (c) => {
   return c.json({ ok: true, transcripcion: whisper.text, mensajes });
 });
 
+function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
+  const pieza = consulta.pieza ?? {};
+  const claves = pieza.palabras_clave;
+  return {
+    nombre: String(pieza.nombre ?? consulta.pieza_nombre ?? ""),
+    material: String(pieza.material ?? consulta.pieza_material ?? ""),
+    medida: String(pieza.medida ?? consulta.pieza_medida ?? ""),
+    categoria: String(pieza.categoria ?? consulta.pieza_categoria ?? ""),
+    palabras_clave: Array.isArray(claves) ? claves.map((item) => String(item)) : [],
+  };
+}
+
+async function stockDesdeInventarioLocal(
+  sql: Awaited<ReturnType<typeof sqlCampo>>,
+  consulta: ConsultaCampo
+): Promise<BloqueStock> {
+  try {
+    const piezas = await listarInventarioLocal(sql);
+    const stock = consultarStock(identidadDesdeConsulta(consulta), piezas, { estricta: true });
+    stock.fuente = "inventario_local";
+    stock.consulta_ok = true;
+    stock.filas_catalogo = piezas.length;
+    return stock;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "inventario_local_query_failed",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+    const vacio = consultarStock(identidadDesdeConsulta(consulta), [], { estricta: true });
+    vacio.fuente = "inventario_local";
+    vacio.consulta_ok = false;
+    vacio.filas_catalogo = 0;
+    return vacio;
+  }
+}
+
 async function responderConsultaCampo(
   env: Env,
   sql: Awaited<ReturnType<typeof sqlCampo>>,
@@ -122,14 +161,14 @@ async function responderConsultaCampo(
 ): Promise<MensajeCampo[]> {
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
-  const stockSnap = consulta.stock as unknown as BloqueStock;
-  const crudas = Array.isArray(stockSnap.alternativas) && stockSnap.alternativas.length > 0
-    ? stockSnap.alternativas
-    : stockSnap.sustituto
-      ? [stockSnap.sustituto]
+  const stockVivo = await stockDesdeInventarioLocal(sql, consulta);
+  const crudas = Array.isArray(stockVivo.alternativas) && stockVivo.alternativas.length > 0
+    ? stockVivo.alternativas
+    : stockVivo.sustituto
+      ? [stockVivo.sustituto]
       : [];
   const alternativas = limitarAlternativas(crudas as SustitutoStock[]);
-  const stockParaFicha = { ...stockSnap, alternativas, sustituto: alternativas[0] ?? stockSnap.sustituto ?? null };
+  const stockParaFicha = { ...stockVivo, alternativas, sustituto: alternativas[0] ?? stockVivo.sustituto ?? null };
 
   if (pideMostrarProducto(texto)) {
     const ficha = resolverFichaSolicitada(texto, historial, stockParaFicha);
@@ -167,14 +206,24 @@ async function responderConsultaCampo(
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto de la pieza (solo texto, sin foto). Distingue stock.motivo_indisponible. Si el cliente aún no eligió camino, NO listes alternativas ni sueltes la ficha: confirma y pregunta. Si pide alternativas, ofrece máximo 3 de stock.alternativas con precio. Si pide VER o MOSTRAR una alternativa, responde en una línea y termina con [[ficha:SKU]] del snapshot. Si pide fecha de resurtido, no inventes fechas; en descontinuado/fuera_de_surtido aclara que no se resurtirá. Si pide apartar, NUNCA confirmes: pide nombre completo, teléfono y hora de recoger (máximo 24 horas):\n${JSON.stringify({
+        content: `Contexto (sin foto). FUENTE DE VERDAD: consulta SQL a inventario_local. Cita precio/stock/SKU/ubicación SOLO si vienen en stock. Si encontrado=false o filas_catalogo=0, NO inventes alternativas; di que no hay ese artículo ni alternativa en el inventario local. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           pieza: {
             ...consulta.pieza,
             pregunta: "",
             descripcion: compactarTextoAsesor(String(consulta.pieza.descripcion ?? "")),
           },
           stock: {
-            ...consulta.stock,
+            fuente: stockParaFicha.fuente,
+            consulta_ok: stockParaFicha.consulta_ok,
+            filas_catalogo: stockParaFicha.filas_catalogo,
+            encontrado: stockParaFicha.encontrado,
+            sku: stockParaFicha.sku,
+            nombre: stockParaFicha.nombre,
+            existencia: stockParaFicha.existencia,
+            precio: stockParaFicha.precio,
+            ubicacion_tienda: stockParaFicha.ubicacion_tienda ?? null,
+            estado: stockParaFicha.estado,
+            motivo_indisponible: stockParaFicha.motivo_indisponible ?? null,
             alternativas,
             sustituto: alternativas[0] ?? null,
           },

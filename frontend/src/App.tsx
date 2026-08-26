@@ -58,6 +58,8 @@ type BloqueStock = {
   url_imagen?: string;
   ubicacion_tienda?: string;
   motivo_indisponible?: 'faltante_temporal' | 'descontinuado' | 'fuera_de_surtido' | null;
+  consulta_ok?: boolean;
+  filas_catalogo?: number;
 };
 
 type Mensaje = { id: string; rol: string; texto: string; created_at: string };
@@ -276,17 +278,21 @@ function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
 function openerDesdeStock(nombre: string, stock: BloqueStock): string {
   const pieza = (nombre.trim() || 'esta pieza').replace(/^un\s+/i, '').replace(/\.$/, '');
   const hayExacto = stock.encontrado && stock.existencia > 0 && !stock.requiere_sustituto;
-  const motivo = stock.motivo_indisponible;
+  const catalogoVacio = stock.consulta_ok === false || (stock.filas_catalogo ?? 0) === 0;
+  if (catalogoVacio && !stock.encontrado) {
+    return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
+  }
   if (hayExacto) {
-    return `He identificado un ${pieza}. Hay existencia en anaquel. ¿Te lo aparto o quieres que revisemos algo más?`;
+    const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : '';
+    return `He identificado un ${pieza}. Hay existencia en inventario local (${stock.existencia} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
-  if (motivo === 'descontinuado') {
-    return `He identificado un ${pieza}. Este modelo ya no se maneja y no se va a resurtir. ¿Quieres que revisemos alternativas compatibles?`;
+  if (stock.encontrado && stock.existencia <= 0) {
+    if (stock.alternativas && stock.alternativas.length > 0) {
+      return `He identificado un ${pieza}. Está en inventario local pero hoy no hay existencia. ¿Quieres ver alternativas que sí aparecen en el inventario?`;
+    }
+    return `He identificado un ${pieza}. Está en inventario local pero sin existencia. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
-  if (motivo === 'faltante_temporal' || (stock.encontrado && stock.existencia <= 0)) {
-    return `He identificado un ${pieza}. Este artículo no se encuentra en anaquel hoy. ¿Prefieres que revisemos alternativas compatibles o que consultemos fecha de resurtido?`;
-  }
-  return `He identificado un ${pieza}. Esa referencia no está en el surtido vigente. ¿Quieres que revisemos alternativas compatibles de anaquel?`;
+  return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
 }
 
 function usuarioPidioAlternativas(mensajes: Mensaje[]): boolean {

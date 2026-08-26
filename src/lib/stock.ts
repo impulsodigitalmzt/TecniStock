@@ -49,8 +49,10 @@ export type BloqueStock = {
   coincidencia: number;
   url_imagen?: string;
   ubicacion_tienda?: string;
-  fuente?: "espejo" | "productos" | "mock";
+  fuente?: "inventario_local" | "espejo" | "productos" | "mock";
   motivo_indisponible?: MotivoIndisponible | null;
+  consulta_ok?: boolean;
+  filas_catalogo?: number;
 };
 
 export type IdentidadPieza = {
@@ -270,11 +272,31 @@ function bloqueVacio(coincidencia = 0): BloqueStock {
     alternativas: [],
     coincidencia,
     motivo_indisponible: "fuera_de_surtido",
+    consulta_ok: true,
+    filas_catalogo: 0,
   };
 }
 
-export function consultarStock(pieza: IdentidadPieza, piezas: StockItem[] = PIEZAS): BloqueStock {
-  if (piezas.length === 0) return bloqueVacio();
+function conCatalogo(bloque: BloqueStock, filas: number): BloqueStock {
+  bloque.consulta_ok = true;
+  bloque.filas_catalogo = filas;
+  return bloque;
+}
+
+export type ConsultarStockOpciones = {
+  /** Si no hay match, no rellenar alternativas (fuente de verdad: inventario_local). */
+  estricta?: boolean;
+};
+
+export function consultarStock(
+  pieza: IdentidadPieza,
+  piezas: StockItem[] = PIEZAS,
+  opciones: ConsultarStockOpciones = {}
+): BloqueStock {
+  const estricta = Boolean(opciones.estricta);
+  if (piezas.length === 0) {
+    return conCatalogo(bloqueVacio(), 0);
+  }
 
   let mejor: StockItem | null = null;
   let mejorScore = 0;
@@ -287,11 +309,13 @@ export function consultarStock(pieza: IdentidadPieza, piezas: StockItem[] = PIEZ
   }
 
   if (!mejor || mejorScore < 0.28) {
-    const cercano = mejor && mejorScore >= 0.18 && mejor.existencia > 0 ? mejor : null;
-    const alternativas = limitarAlternativas(buscarAlternativas(pieza, piezas, "", cercano ? [cercano] : []));
-    const bloque = bloqueVacio(Number(mejorScore.toFixed(3)));
-    bloque.alternativas = alternativas;
-    bloque.sustituto = alternativas[0] ?? null;
+    const bloque = conCatalogo(bloqueVacio(Number(mejorScore.toFixed(3))), piezas.length);
+    if (!estricta) {
+      const cercano = mejor && mejorScore >= 0.18 && mejor.existencia > 0 ? mejor : null;
+      const alternativas = limitarAlternativas(buscarAlternativas(pieza, piezas, "", cercano ? [cercano] : []));
+      bloque.alternativas = alternativas;
+      bloque.sustituto = alternativas[0] ?? null;
+    }
     bloque.requiere_sustituto = true;
     bloque.motivo_indisponible = "fuera_de_surtido";
     return bloque;
@@ -299,7 +323,36 @@ export function consultarStock(pieza: IdentidadPieza, piezas: StockItem[] = PIEZ
 
   const sinExistencia = mejor.existencia <= 0;
   if (!sinExistencia) {
-    return {
+    return conCatalogo(
+      {
+        encontrado: true,
+        sku: mejor.sku,
+        nombre: mejor.nombre,
+        material: mejor.material,
+        medida: mejor.medida,
+        existencia: mejor.existencia,
+        precio: mejor.precio,
+        moneda: MONEDA,
+        estado: mejor.estado === "bajo" ? "bajo" : "disponible",
+        requiere_sustituto: false,
+        sustituto: null,
+        alternativas: [],
+        coincidencia: Number(mejorScore.toFixed(3)),
+        url_imagen: mejor.url_imagen,
+        ubicacion_tienda: mejor.ubicacion_tienda,
+        motivo_indisponible: null,
+      },
+      piezas.length
+    );
+  }
+
+  const preferido = estricta ? null : buscarSustituto(mejor, piezas);
+  const alternativas = estricta
+    ? limitarAlternativas(buscarAlternativas(pieza, piezas, mejor.sku, []))
+    : limitarAlternativas(buscarAlternativas(pieza, piezas, mejor.sku, preferido ? [preferido] : []));
+
+  return conCatalogo(
+    {
       encontrado: true,
       sku: mejor.sku,
       nombre: mejor.nombre,
@@ -308,36 +361,15 @@ export function consultarStock(pieza: IdentidadPieza, piezas: StockItem[] = PIEZ
       existencia: mejor.existencia,
       precio: mejor.precio,
       moneda: MONEDA,
-      estado: mejor.estado === "bajo" ? "bajo" : "disponible",
-      requiere_sustituto: false,
-      sustituto: null,
-      alternativas: [],
+      estado: "agotado",
+      requiere_sustituto: true,
+      sustituto: alternativas[0] ?? (preferido ? aSustituto(mejor, preferido, true) : null),
+      alternativas,
       coincidencia: Number(mejorScore.toFixed(3)),
       url_imagen: mejor.url_imagen,
       ubicacion_tienda: mejor.ubicacion_tienda,
-      motivo_indisponible: null,
-    };
-  }
-
-  const preferido = buscarSustituto(mejor, piezas);
-  const alternativas = limitarAlternativas(buscarAlternativas(pieza, piezas, mejor.sku, preferido ? [preferido] : []));
-
-  return {
-    encontrado: true,
-    sku: mejor.sku,
-    nombre: mejor.nombre,
-    material: mejor.material,
-    medida: mejor.medida,
-    existencia: mejor.existencia,
-    precio: mejor.precio,
-    moneda: MONEDA,
-    estado: "agotado",
-    requiere_sustituto: true,
-    sustituto: alternativas[0] ?? (preferido ? aSustituto(mejor, preferido, true) : null),
-    alternativas,
-    coincidencia: Number(mejorScore.toFixed(3)),
-    url_imagen: mejor.url_imagen,
-    ubicacion_tienda: mejor.ubicacion_tienda,
-    motivo_indisponible: mejor.descontinuado ? "descontinuado" : "faltante_temporal",
-  };
+      motivo_indisponible: mejor.descontinuado ? "descontinuado" : "faltante_temporal",
+    },
+    piezas.length
+  );
 }

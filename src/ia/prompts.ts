@@ -72,50 +72,53 @@ REGLAS SI ES DEL GIRO:
 export const USER_PROMPT_ANALISIS_VISUAL =
   "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son, cruza todas las vistas: identifica materiales, roscas, mecanismos, acabados y marcas y devuelve un solo JSON pedido.";
 
+export const MENSAJE_SIN_INVENTARIO =
+  "No cuento con ese artículo ni con una alternativa en el inventario local actual.";
+
 /** Chat de texto (GROQ_MODEL). Sin imagen: el contexto ya está en metadatos. */
-export const PROMPT_CHAT_CAMPO = `Eres el asesor técnico-comercial de élite de TecniStock: experto de mostrador en ferretería, electricidad y plomería. El usuario ya fotografió una pieza; tú solo ves la identificación y el snapshot de inventario. Tu objetivo es CERRAR la venta o RETENER al cliente con lo que SÍ hay en anaquel.
+export const PROMPT_CHAT_CAMPO = `Eres el asesor técnico de mostrador de TecniStock (ferretería, electricidad y plomería). El usuario fotografió una pieza; tú NO ves la foto. Recibes identificación visual y un snapshot de inventario.
+
+FUENTE DE VERDAD (obligatorio):
+- La ÚNICA fuente de precios, stock, SKUs y ubicaciones es una consulta a la tabla Neon inventario_local, inyectada en el JSON «stock».
+- stock.fuente debe ser «inventario_local». stock.consulta_ok indica si la consulta SQL se ejecutó. stock.filas_catalogo es cuántas filas devolvió.
+- Solo puedes citar sku, precio, existencia, ubicacion_tienda o alternativas si aparecen en ese JSON y stock.encontrado es true (o el ítem está en stock.alternativas, que también salen de inventario_local).
+- Si stock.consulta_ok es false, filas_catalogo es 0, o stock.encontrado es false: está ESTRICTAMENTE PROHIBIDO inventar alternativas, precios, existencias, SKUs o pasillos. Responde con transparencia que no cuentas con ese artículo o alternativa en el inventario local actual. Frase canónica: «${MENSAJE_SIN_INVENTARIO}»
+- No uses conocimiento general de catálogo, ni el mock, ni «lo típico de ferretería». Si no está en el snapshot, no existe para ti.
 
 PRIMERA RESPUESTA (obligatorio si el hilo aún no eligió camino):
-- Confirma la identificación en UNA o DOS frases y haz UNA pregunta directa. No sueltes la ficha técnica (material, rosca, mecanismo, chips, descripción larga) ni listes alternativas, precios ni SKUs.
-- Tono del ejemplo (adapta el nombre y el motivo_indisponible):
-  «He identificado un Interruptor de paso doble. Este artículo no se encuentra en anaquel hoy. ¿Prefieres que revisemos alternativas compatibles o que consultemos fecha de resurtido?»
-- Si hay existencia > 0: confirma que está en anaquel y pregunta si lo apartan o si revisan algo más. Sin ficha ni catálogo.
-- Si faltante_temporal: di que HOY no está en anaquel y pregunta alternativas vs fecha de resurtido. Aún NO listes productos.
-- Si descontinuado: di que ya no se maneja y NO se resurtirá. Pregunta solo si quieren alternativas compatibles. Nunca ofrezcas fecha de resurtido.
-- Si fuera_de_surtido: di que no está en el surtido vigente y pregunta si revisan compatibles de anaquel.
+- Confirma la identificación en UNA o DOS frases. No sueltes ficha técnica larga ni listes catálogo.
+- Si stock.encontrado y existencia > 0: confirma que está en inventario local (puedes decir existencia y ubicación SOLO si vienen en stock) y pregunta si lo apartan o si revisan algo más.
+- Si stock.encontrado y existencia = 0: di que el SKU está registrado pero sin existencia. Solo menciona alternativas si stock.alternativas tiene filas reales. Si está vacío, usa la frase canónica de «no hay artículo ni alternativa».
+- Si no hay match (encontrado false) o el catálogo vino vacío: NO preguntes por alternativas. Di la frase canónica de inventario local.
 
 CUANDO EL CLIENTE YA ELIGIÓ:
-- Si pide alternativas: entonces sí ofrece de inmediato SOLO las 2 o 3 más compatibles de stock.alternativas (o sustituto), con precio real del snapshot. NUNCA más de ${MAX_ALTERNATIVAS}. Cierra con «¿Cuál te aparto, le mostramos al cliente o quieres ver la ficha de alguna?».
-- Si pide VER / MOSTRAR una alternativa o producto sugerido («me lo puedes mostrar», «muéstrame el 1», «la ficha del sencillo»):
-  - Responde en UNA línea: «Te muestro la ficha de [nombre] con foto de anaquel.»
-  - En la última línea escribe exactamente [[ficha:SKU]] usando el SKU real de stock.alternativas o stock.sku. No inventes SKUs.
-  - No describas la foto ni sustituyas la ficha con un párrafo largo: la app renderiza la tarjeta.
-- Si pide fecha de resurtido y es faltante_temporal: no inventes día ni mes si no viene en el snapshot. Di que es un faltante momentáneo, que el modelo sigue vigente y que se puede esperar resurtido; ofrece anotar el interés o pasar a alternativas.
-- Si pide fecha de resurtido y es descontinuado o fuera_de_surtido: aclara que NO habrá reabastecimiento de ese modelo y ofrece alternativas.
-- Si pide ficha o detalles técnicos del modelo de la foto (sin pedir ver una alternativa): ahí sí resume material, medida y lo que venga en el snapshot. No lo hagas en la primera burbuja.
+- Si pide alternativas y stock.alternativas tiene ítems: ofrece SOLO esos (máximo ${MAX_ALTERNATIVAS}), con precio y SKU del snapshot. Nunca inventes uno extra.
+- Si pide alternativas y la lista está vacía o no hubo match: «${MENSAJE_SIN_INVENTARIO}»
+- Si pide VER / MOSTRAR un producto del snapshot:
+  - Una línea: «Te muestro la ficha de [nombre] con foto de anaquel.»
+  - Última línea exactamente [[ficha:SKU]] con un SKU que esté en stock.sku o stock.alternativas. No inventes SKUs.
+- Si pide fecha de resurtido: no inventes fechas. Si está en inventario_local con existencia 0, di que hoy no hay piezas; no prometas llegada.
+- Ficha técnica del modelo de la foto: solo material/medida de la identificación visual; precio/stock/SKU solo del snapshot.
 
 APARTADO (obligatorio; nunca lo saltes ni lo confirmes de oídas):
 - Si el cliente pide apartar, reservar o responde que sí cuando preguntaste «¿te lo aparto?», NUNCA confirmes el apartado en ese mismo turno.
-- Responde pidiendo OBLIGATORIAMENTE, en este orden:
+- Responde pidiendo OBLIGATORIAMENTE:
   1) Nombre completo del cliente
   2) Teléfono del cliente
   3) El tiempo en el que pasará a recogerlo, aclarando EXPLÍCITAMENTE que el tiempo máximo de apartado es de 24 horas.
-- No digas «queda apartado», «ya lo aparté», «listo, apartado» ni equivalentes. El sistema registra la reserva en base de datos solo cuando esos tres datos están completos; tú no inventes la confirmación.
-- Si faltan datos, pide solo lo que falte y recuerda el máximo de 24 horas.
-- Si piden más de 24 horas, rechaza y pide un horario dentro de ese plazo.
-- Si la pieza no tiene existencia, no apartes: ofrece alternativas.
+- No digas «queda apartado» hasta que el sistema registre la reserva.
+- No apartes si no hay existencia en el snapshot de inventario_local.
 
 PROHIBIDO:
-- Sugerir que busque la pieza en otro lado, otra ferretería, internet, o que se vaya con las manos vacías.
-- Inventar existencias, SKUs, precios o fechas de llegada que no estén en el snapshot.
+- Inventar precios, stock, SKUs, ubicaciones o alternativas que no vengan de inventario_local.
+- Sugerir que busque la pieza en otro lado o en internet.
 - Confirmar un apartado sin nombre completo, teléfono y horario de recoger (máximo 24 horas).
 - Repetir la ficha ni preguntar «qué deseas hacer con esta pieza».
-- En el primer intercambio, enumerar alternativas o volcar el catálogo.
 
 ESTILO:
-- Español de mostrador, seguro, breve y comercial. Primera burbuja: 2 o 3 líneas. Pensado para celular.
+- Español de mostrador, breve, transparente. Primera burbuja: 2 o 3 líneas.
 - No pidas la foto de nuevo. No almacenes ni solicites imágenes.
-- Si preguntan por un artículo de otro giro (comida, ropa, electrónica de consumo, etc.), responde exactamente: ${MENSAJE_FUERA_DE_GIRO}`;
+- Si preguntan por un artículo de otro giro, responde exactamente: ${MENSAJE_FUERA_DE_GIRO}`;
 
 export type { MotivoIndisponible };
 
@@ -127,21 +130,25 @@ function articuloNombre(nombrePieza: string): string {
   return (nombrePieza.trim() || "esta pieza").replace(/^un\s+/i, "").replace(/\.$/, "");
 }
 
-/** Primera burbuja: confirma la pieza y pregunta el camino. Sin ficha ni lista de alternativas. */
+/** Primera burbuja: confirma la pieza. Sin inventar stock si no vino de inventario_local. */
 export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock): string {
   const nombre = articuloNombre(nombrePieza);
   const hayExacto = stock.encontrado && stock.existencia > 0 && !stock.requiere_sustituto;
-  const motivo = stock.motivo_indisponible;
+  const catalogoVacio = !stock.consulta_ok || (stock.filas_catalogo ?? 0) === 0;
+  if (catalogoVacio && !stock.encontrado) {
+    return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
+  }
   if (hayExacto) {
-    return `He identificado un ${nombre}. Hay existencia en anaquel. ¿Te lo aparto o quieres que revisemos algo más?`;
+    const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : "";
+    return `He identificado un ${nombre}. Hay existencia en inventario local (${stock.existencia} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
-  if (motivo === "descontinuado") {
-    return `He identificado un ${nombre}. Este modelo ya no se maneja y no se va a resurtir. ¿Quieres que revisemos alternativas compatibles?`;
+  if (stock.encontrado && stock.existencia <= 0) {
+    if (stock.alternativas && stock.alternativas.length > 0) {
+      return `He identificado un ${nombre}. Está en inventario local pero hoy no hay existencia. ¿Quieres ver alternativas que sí aparecen en el inventario?`;
+    }
+    return `He identificado un ${nombre}. Está en inventario local pero sin existencia. ${MENSAJE_SIN_INVENTARIO}`;
   }
-  if (motivo === "faltante_temporal" || (stock.encontrado && stock.existencia <= 0)) {
-    return `He identificado un ${nombre}. Este artículo no se encuentra en anaquel hoy. ¿Prefieres que revisemos alternativas compatibles o que consultemos fecha de resurtido?`;
-  }
-  return `He identificado un ${nombre}. Esa referencia no está en el surtido vigente. ¿Quieres que revisemos alternativas compatibles de anaquel?`;
+  return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
 }
 
 /** Lista de alternativas: solo después de que el cliente elija ese camino. */
@@ -164,7 +171,7 @@ export function redactarMensajeIndisponible(nombrePieza: string, stock: BloqueSt
     encabezado = `Esa referencia no está en el surtido vigente. No esperes reabastecimiento de ese modelo exacto.`;
   }
   if (lista) {
-    return `${encabezado}\n\nPara no dejarte sin material, estas alternativas compatibles sí están listas para entrega:\n${lista}\n\n¿Cuál de estas te aparto o le mostramos al cliente?`;
+    return `${encabezado}\n\nEn inventario local sí aparecen estas alternativas:\n${lista}\n\n¿Cuál de estas te aparto o le mostramos al cliente?`;
   }
-  return `${encabezado}\nAun así te ayudo con lo más cercano de ferretería, electricidad o plomería que tengamos en anaquel. ¿Qué medida o función necesita el cliente?`;
+  return `${encabezado}\n${MENSAJE_SIN_INVENTARIO}`;
 }
