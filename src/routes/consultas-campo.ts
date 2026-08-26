@@ -4,6 +4,7 @@ import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, PROMPT_CHAT_CAMPO } from "../ia/prompts";
 import { limitarAlternativas, type BloqueStock, type SustitutoStock } from "../lib/stock";
 import { conMarcaFicha, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
+import { procesarFlujoApartado } from "../lib/apartados";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -143,13 +144,30 @@ async function responderConsultaCampo(
     }
   }
 
+  const apartado = await procesarFlujoApartado({
+    sql,
+    consulta: {
+      id: consulta.id,
+      dispositivo_id: consulta.dispositivo_id,
+      pieza_nombre: consulta.pieza_nombre,
+      apartado: consulta.apartado,
+    },
+    texto,
+    historial,
+    stock: stockParaFicha,
+  });
+  if (apartado) {
+    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", apartado.mensaje);
+    return [userMsg, assistantMsg];
+  }
+
   const respuesta = await groqChatPlainText(
     env,
     [
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto de la pieza (solo texto, sin foto). Distingue stock.motivo_indisponible. Si el cliente aún no eligió camino, NO listes alternativas ni sueltes la ficha: confirma y pregunta. Si pide alternativas, ofrece máximo 3 de stock.alternativas con precio. Si pide VER o MOSTRAR una alternativa, responde en una línea y termina con [[ficha:SKU]] del snapshot. Si pide fecha de resurtido, no inventes fechas; en descontinuado/fuera_de_surtido aclara que no se resurtirá:\n${JSON.stringify({
+        content: `Contexto de la pieza (solo texto, sin foto). Distingue stock.motivo_indisponible. Si el cliente aún no eligió camino, NO listes alternativas ni sueltes la ficha: confirma y pregunta. Si pide alternativas, ofrece máximo 3 de stock.alternativas con precio. Si pide VER o MOSTRAR una alternativa, responde en una línea y termina con [[ficha:SKU]] del snapshot. Si pide fecha de resurtido, no inventes fechas; en descontinuado/fuera_de_surtido aclara que no se resurtirá. Si pide apartar, NUNCA confirmes: pide nombre completo, teléfono y hora de recoger (máximo 24 horas):\n${JSON.stringify({
           pieza: {
             ...consulta.pieza,
             pregunta: "",
@@ -198,6 +216,7 @@ function resumenConsulta(consulta: ConsultaCampo) {
 function detalleConsulta(consulta: ConsultaCampo) {
   return {
     ...resumenConsulta(consulta),
+    apartado: consulta.apartado,
     pieza_material: consulta.pieza_material,
     pieza_medida: consulta.pieza_medida,
     pieza: consulta.pieza,

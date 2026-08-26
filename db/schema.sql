@@ -455,6 +455,7 @@ CREATE TABLE IF NOT EXISTS consultas_campo (
   pieza_categoria TEXT NOT NULL DEFAULT '',
   pieza_json      JSONB NOT NULL DEFAULT '{}'::jsonb,
   stock_json      JSONB NOT NULL DEFAULT '{}'::jsonb,
+  apartado_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at      TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days')
@@ -473,3 +474,22 @@ CREATE TABLE IF NOT EXISTS mensajes_campo (
 );
 
 CREATE INDEX IF NOT EXISTS ix_mensajes_campo_consulta ON mensajes_campo (consulta_id, created_at);
+
+-- Apartados de mostrador: solo se insertan con nombre, teléfono y horario (vencen a 24 h)
+CREATE TABLE IF NOT EXISTS apartados (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  consulta_id       UUID REFERENCES consultas_campo(id) ON DELETE SET NULL,
+  dispositivo_id    TEXT NOT NULL DEFAULT '',
+  sku               TEXT NOT NULL,
+  nombre_pieza      TEXT NOT NULL,
+  cliente_nombre    TEXT NOT NULL,
+  cliente_telefono  TEXT NOT NULL,
+  recoger_en        TEXT NOT NULL,
+  estatus           TEXT NOT NULL DEFAULT 'activo',
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at        TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours')
+);
+
+CREATE INDEX IF NOT EXISTS ix_apartados_expires ON apartados (expires_at);
+CREATE INDEX IF NOT EXISTS ix_apartados_consulta ON apartados (consulta_id);
+CREATE INDEX IF NOT EXISTS ix_apartados_dispositivo ON apartados (dispositivo_id, created_at DESC);

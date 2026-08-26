@@ -4,6 +4,7 @@ import { AppError } from "./errors";
 import type { PiezaDetectada } from "./pieza-ia";
 import type { BloqueStock } from "./stock";
 import { redactarMensajeInicial } from "../ia/prompts";
+import { ensureApartadosSchema, parseBorradorApartado, type BorradorApartado } from "./apartados";
 
 export const RETENCION_DIAS = 30;
 
@@ -19,6 +20,7 @@ export type ConsultaCampo = {
   pieza_categoria: string;
   pieza: Record<string, unknown>;
   stock: Record<string, unknown>;
+  apartado: BorradorApartado | null;
   created_at: string;
   updated_at: string;
   expires_at: string;
@@ -35,7 +37,10 @@ export type MensajeCampo = {
 let schemaReady = false;
 
 export async function ensureConsultasCampoSchema(sql: Sql): Promise<void> {
-  if (schemaReady) return;
+  if (schemaReady) {
+    await ensureApartadosSchema(sql);
+    return;
+  }
   await sql`
     CREATE TABLE IF NOT EXISTS consultas_campo (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -49,6 +54,7 @@ export async function ensureConsultasCampoSchema(sql: Sql): Promise<void> {
       pieza_categoria TEXT NOT NULL DEFAULT '',
       pieza_json JSONB NOT NULL DEFAULT '{}'::jsonb,
       stock_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      apartado_json JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '30 days')
@@ -67,6 +73,7 @@ export async function ensureConsultasCampoSchema(sql: Sql): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS ix_consultas_campo_expires ON consultas_campo (expires_at)`;
   await sql`CREATE INDEX IF NOT EXISTS ix_mensajes_campo_consulta ON mensajes_campo (consulta_id, created_at)`;
   schemaReady = true;
+  await ensureApartadosSchema(sql);
 }
 
 export async function purgarConsultasVencidas(sql: Sql): Promise<number> {
@@ -148,6 +155,7 @@ function mapConsulta(row: Record<string, unknown>): ConsultaCampo {
     pieza_categoria: String(row.pieza_categoria ?? ""),
     pieza: asObject(row.pieza_json),
     stock: asObject(row.stock_json),
+    apartado: parseBorradorApartado(asObject(row.apartado_json)),
     created_at: iso(row.created_at),
     updated_at: iso(row.updated_at),
     expires_at: iso(row.expires_at),
@@ -228,7 +236,7 @@ export async function listarConsultasCampo(sql: Sql, dispositivoId: string): Pro
   const rows = await sql`
     SELECT id, dispositivo_id, titulo, estatus, pieza_estatus,
            pieza_nombre, pieza_material, pieza_medida, pieza_categoria,
-           pieza_json, stock_json, created_at, updated_at, expires_at
+           pieza_json, stock_json, apartado_json, created_at, updated_at, expires_at
     FROM consultas_campo
     WHERE dispositivo_id = ${dispositivoId}
       AND expires_at >= NOW()
@@ -246,7 +254,7 @@ export async function obtenerConsultaCampo(
   const rows = await sql`
     SELECT id, dispositivo_id, titulo, estatus, pieza_estatus,
            pieza_nombre, pieza_material, pieza_medida, pieza_categoria,
-           pieza_json, stock_json, created_at, updated_at, expires_at
+           pieza_json, stock_json, apartado_json, created_at, updated_at, expires_at
     FROM consultas_campo
     WHERE id = ${id}::uuid
       AND dispositivo_id = ${dispositivoId}

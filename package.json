@@ -16,7 +16,8 @@
     "deploy": "npm run build && wrangler deploy",
     "types": "wrangler types",
     "check": "tsc --noEmit",
-    "seed:inventario-espejo": "node scripts/copiar-fotos-productos.mjs && node scripts/poblar-inventario-espejo.mjs"
+    "seed:inventario-espejo": "node scripts/copiar-fotos-productos.mjs && node scripts/poblar-inventario-espejo.mjs",
+    "seed:inventario-local": "node scripts/cargar-inventario-local.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

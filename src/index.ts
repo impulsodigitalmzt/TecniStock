@@ -14,6 +14,7 @@ import { isNom004Error, NORMA_EXPEDIENTE } from "./lib/guardia-legal";
 import { allowedBrowserOrigin, applyCorsHeaders, applySecurityHeaders } from "./lib/edge";
 import { createSql } from "./db";
 import { ensureConsultasCampoSchema, purgarConsultasVencidas } from "./lib/consultas-campo";
+import { purgarApartadosVencidos } from "./lib/apartados";
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -110,7 +111,16 @@ export default {
         const sql = createSql(env.DATABASE_URL);
         await ensureConsultasCampoSchema(sql);
         const borradas = await purgarConsultasVencidas(sql);
-        console.log(JSON.stringify({ event: "consultas_campo_purga", borradas, retencion_dias: 30 }));
+        const apartadosVencidos = await purgarApartadosVencidos(sql);
+        console.log(
+          JSON.stringify({
+            event: "consultas_campo_purga",
+            borradas,
+            retencion_dias: 30,
+            apartados_vencidos: apartadosVencidos,
+            apartado_horas: 24,
+          })
+        );
       })()
     );
   },
