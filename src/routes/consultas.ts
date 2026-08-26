@@ -22,7 +22,7 @@ import {
 import { exigirPaciente, isUuid, listHistorialPaciente } from "../lib/pacientes";
 import { forzarNotaTextoPlano, type NotaClinica, type RecetaPaciente } from "../lib/nota-clinica";
 import { extraerSoapOneshot, soapOneshotVacio } from "../lib/soap-oneshot";
-import { modeloGroqChat } from "../lib/groq";
+import { claveApiGroq, modeloGroqChat } from "../lib/groq";
 import { textoCampoClinico } from "../lib/texto-campo";
 import { registrarConsentimientoConsulta } from "../lib/consentimiento";
 import {
@@ -142,7 +142,7 @@ consultaRoutes.post("/texto", async (c) => {
       consultaId = (body.consulta_id ?? "").trim();
     }
 
-    if (!c.env.GROQ_API_KEY) {
+    if (!claveApiGroq(c.env)) {
       return c.json(
         {
           ok: false,
@@ -155,7 +155,7 @@ consultaRoutes.post("/texto", async (c) => {
     }
 
     logSinPhi("consulta_texto_start", {
-      hasGroqApiKey: Boolean(c.env.GROQ_API_KEY),
+      hasGroqApiKey: Boolean(claveApiGroq(c.env)),
       groqModel: modeloGroqChat(c.env),
       transcriptChars: transcripcion.trim().length,
       stream: wantsIaStream(c),
@@ -214,7 +214,7 @@ async function payloadSoapOneshot(env: Env, texto: string) {
 
 consultaRoutes.post("/soap", async (c) => {
   try {
-    if (!c.env.GROQ_API_KEY) {
+    if (!claveApiGroq(c.env)) {
       return c.json({ ...soapOneshotVacio(), motivo: "", medicamentos: [], error: "GROQ_API_KEY no está configurada." }, 500);
     }
     const body = (await c.req.json<{ texto?: string; transcripcion?: string }>().catch(() => ({}))) as {
@@ -229,7 +229,7 @@ consultaRoutes.post("/soap", async (c) => {
 
 consultaRoutes.post("/motivo-aislado", async (c) => {
   try {
-    if (!c.env.GROQ_API_KEY) {
+    if (!claveApiGroq(c.env)) {
       return c.json({ ...soapOneshotVacio(), motivo: "", medicamentos: [], error: "GROQ_API_KEY no está configurada." }, 500);
     }
     const body = (await c.req.json<{ texto?: string; transcripcion?: string }>().catch(() => ({}))) as {

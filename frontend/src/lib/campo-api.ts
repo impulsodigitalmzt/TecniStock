@@ -1,3 +1,5 @@
+import { mensajeErrorIa } from './ia-env';
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const DEVICE_KEY = "tecnistock.dispositivo_id";
 
@@ -34,6 +36,9 @@ export async function leerJson<T>(response: Response, fallback: string): Promise
       throw new Error(raw.slice(0, 180) || fallback);
     }
   }
-  if (!response.ok) throw new Error(data.detail || fallback);
+  if (!response.ok) {
+    const detalle = data.detail || fallback;
+    throw new Error(mensajeErrorIa(detalle, { apiOk: false }));
+  }
   return data;
 }

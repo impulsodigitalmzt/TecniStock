@@ -4,6 +4,7 @@ import {
   MessageCircle, Mic, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Send, Square, Tag, Trash2, Wrench, X,
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
+import { mensajeErrorIa } from './lib/ia-env';
 import {
   avisoGuardadoMiniatura,
   borrarFotoConsulta,
@@ -575,7 +576,7 @@ export default function App() {
         void cargarHistorial();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo analizar la foto.');
+      setError(mensajeErrorIa(err instanceof Error ? err.message : 'No se pudo analizar la foto.'));
     } finally {
       setAnalizando(false);
     }

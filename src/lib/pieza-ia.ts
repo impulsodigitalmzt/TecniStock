@@ -1,5 +1,5 @@
 import { AppError } from "./errors";
-import { GROQ_CHAT_URL, parseJsonObject } from "./groq";
+import { GROQ_CHAT_URL, claveApiGroq, parseJsonObject } from "./groq";
 import { GROQ_CHAT_TIMEOUT_MS, fetchTimeout, isTimeoutError } from "./edge";
 import { compactarTextoAsesor, PROMPT_ANALISIS_VISUAL, USER_PROMPT_ANALISIS_VISUAL, MENSAJE_FUERA_DE_GIRO } from "../ia/prompts";
 
@@ -216,7 +216,7 @@ function partesImagen(dataUrls: string[]): Array<{ type: "text"; text: string } 
 }
 
 export async function identificarPiezaConVision(env: Env, dataUrls: string | string[]): Promise<PiezaDetectada> {
-  if (!env.GROQ_API_KEY) {
+  if (!claveApiGroq(env)) {
     throw new AppError(503, "GROQ_API_KEY no está configurada.", "GROQ_NOT_CONFIGURED");
   }
 
@@ -257,7 +257,7 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
       response = await fetch(GROQ_CHAT_URL, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${claveApiGroq(env)}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),

@@ -38,6 +38,31 @@ const LANGUAGE_NAMES: Record<string, string> = {
 export const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const DEFAULT_GROQ_CHAT_MODEL = "openai/gpt-oss-120b";
 
+/**
+ * La clave de Groq es del Worker (.dev.vars / wrangler secret), no del SPA.
+ * Vite solo inyecta `VITE_*` en el frontend; si en Pages/dashboard quedó
+ * `VITE_GROQ_API_KEY`, también la aceptamos para no marcar "no configurada"
+ * cuando Groq sí está respondiendo.
+ */
+export function claveApiGroq(env: Env): string {
+  const bag = env as Env & Record<string, string | undefined>;
+  const processEnv =
+    typeof process !== "undefined" && process.env ? process.env : ({} as Record<string, string | undefined>);
+  const candidatos = [
+    bag.GROQ_API_KEY,
+    bag.VITE_GROQ_API_KEY,
+    processEnv.GROQ_API_KEY,
+    processEnv.VITE_GROQ_API_KEY,
+  ];
+  for (const valor of candidatos) {
+    const clave = String(valor ?? "")
+      .trim()
+      .replace(/^["']+|["']+$/g, "");
+    if (clave) return clave;
+  }
+  return "";
+}
+
 const MODELOS_GROQ_RETIRADOS = new Set([
   "llama-3.3-70b-versatile",
   "llama-3.1-8b-instant",
@@ -76,7 +101,7 @@ function logGroq(event: string, payload: Record<string, unknown>): void {
 
 function groqKeyMeta(env: Env): Record<string, unknown> {
   return {
-    hasGroqApiKey: Boolean(env.GROQ_API_KEY),
+    hasGroqApiKey: Boolean(claveApiGroq(env)),
     groqModel: modeloGroqChat(env),
     groqModelConfigured: env.GROQ_MODEL || "",
   };
@@ -84,7 +109,7 @@ function groqKeyMeta(env: Env): Record<string, unknown> {
 
 function groqPrivacyHeaders(env: Env): Record<string, string> {
   return {
-    Authorization: `Bearer ${env.GROQ_API_KEY}`,
+    Authorization: `Bearer ${claveApiGroq(env)}`,
     "Content-Type": "application/json",
   };
 }
@@ -142,7 +167,7 @@ export async function groqChatJson(
   messages: GroqChatMessage[],
   options?: { temperature?: number; maxTokens?: number; timeoutMs?: number; stream?: boolean }
 ): Promise<Record<string, unknown>> {
-  if (!env.GROQ_API_KEY) {
+  if (!claveApiGroq(env)) {
     logGroq("groq_chat_missing_key", {
       ...groqKeyMeta(env),
       detail: "GROQ_API_KEY no está en el Worker. Sin esta clave no hay llamada al modelo.",
@@ -315,7 +340,7 @@ export async function groqChatPlainText(
   messages: GroqChatMessage[],
   options?: { temperature?: number; maxTokens?: number; timeoutMs?: number }
 ): Promise<string> {
-  if (!env.GROQ_API_KEY) {
+  if (!claveApiGroq(env)) {
     throw new AppError(503, "GROQ_API_KEY no está configurada.", "GROQ_NOT_CONFIGURED");
   }
 
@@ -378,7 +403,7 @@ export async function polishNote(
   outputLanguage: string,
   encounterType: string
 ): Promise<PolishedNote> {
-  if (!env.GROQ_API_KEY) {
+  if (!claveApiGroq(env)) {
     return fallbackNote(mapToNoteSections(extractClinicalEntities(transcriptText)));
   }
 
@@ -454,7 +479,7 @@ export async function transcribeAudio(
   filename: string,
   _languageHint?: string
 ): Promise<TranscripcionWhisper> {
-  if (!env.GROQ_API_KEY) {
+  if (!claveApiGroq(env)) {
     throw new AppError(503, "GROQ_API_KEY no está configurada.", "GROQ_NOT_CONFIGURED");
   }
 
@@ -470,7 +495,7 @@ export async function transcribeAudio(
   try {
     response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${env.GROQ_API_KEY}` },
+      headers: { Authorization: `Bearer ${claveApiGroq(env)}` },
       body: form,
       signal: fetchTimeout(GROQ_WHISPER_TIMEOUT_MS),
     });
@@ -592,7 +617,7 @@ function fallbackNote(raw: Record<string, string>): PolishedNote {
     final_diagnosis: "[PENDING INVESTIGATIONS]",
     assessment: raw.assessment || "[NOT DISCUSSED]",
     plan: raw.plan || "[NOT DISCUSSED]",
-    recommended_plan: "AI recommendation not available — GROQ_API_KEY missing.",
+    recommended_plan: "",
     sbar_summary: "[NOT GENERATED]",
     primary_survey: "[N/A - Regular Encounter]",
     secondary_survey: "[N/A - Regular Encounter]",

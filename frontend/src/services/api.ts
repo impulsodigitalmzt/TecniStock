@@ -17,6 +17,7 @@ import type {
   PacienteExpediente, ConsultaHistorialItem, NotaClinica, DictamenNom004,
   AntecedentesImportantes, RecetaPaciente, NotaAclaracion, ContextoClinicoPaciente,
 } from '../types';
+import { mensajeErrorIa } from '../lib/ia-env';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -40,7 +41,7 @@ function throwConsultaFailure(
   data: { detail?: string; error?: string; code?: string; guia?: string[]; nota?: NotaClinica; faltantes?: Array<{ mensaje: string }> },
   fallback: string,
 ): never {
-  const message = data.detail || data.error || fallback;
+  const message = mensajeErrorIa(data.detail || data.error || fallback);
   if (data.code === 'NOM004_INCOMPLETA' || data.guia?.length || data.faltantes?.length) {
     throw new ConsultaValidacionError(
       message,
@@ -399,7 +400,14 @@ class ApiService {
         contentType,
         body: raw,
       });
-      throw new Error(raw.slice(0, 800) || 'No se pudo procesar la consulta médica.');
+      let detalle = raw.slice(0, 800);
+      try {
+        const parsed = JSON.parse(raw) as { detail?: string; error?: string };
+        detalle = parsed.detail || parsed.error || detalle;
+      } catch {
+        /* cuerpo no JSON */
+      }
+      throw new Error(mensajeErrorIa(detalle) || 'No se pudo procesar la consulta médica.');
     }
     if (!contentType.toLowerCase().includes('application/json')) {
       console.error('[SOAP fetch] Content-Type inesperado (se esperaba application/json):', contentType, raw.slice(0, 400));
@@ -491,7 +499,14 @@ class ApiService {
     const raw = await response.text();
     console.log('[SOAP aislado] HTTP', response.status, raw);
     if (!response.ok) {
-      throw new Error(raw.slice(0, 400) || 'No se pudo sintetizar el SOAP.');
+      let detalle = raw.slice(0, 400);
+      try {
+        const parsed = JSON.parse(raw) as { detail?: string; error?: string };
+        detalle = parsed.detail || parsed.error || detalle;
+      } catch {
+        /* cuerpo no JSON */
+      }
+      throw new Error(mensajeErrorIa(detalle) || 'No se pudo sintetizar el SOAP.');
     }
     try {
       const json = JSON.parse(raw) as Record<string, unknown>;
