@@ -51,8 +51,8 @@
       "nombre_pieza": "Placa de acero inoxidable 1 ganga",
       "categoria": "electricidad",
       "descripcion_tecnica": "Tapa o placa decorativa de acero cepillado para una pastilla/interruptor, Artlite APL-102",
-      "stock_disponible": 18,
-      "precio": 65.0,
+      "stock_disponible": 25,
+      "precio": 66.0,
       "url_imagen": "/static/productos/PLAC-ACEO-01.webp"
     },
     {

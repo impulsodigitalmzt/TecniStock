@@ -49,6 +49,8 @@ export type BloqueStock = {
   coincidencia: number;
   url_imagen?: string;
   ubicacion_tienda?: string;
+  /** Entero literal de inventario_local.stock_disponible. No interpolar. */
+  stock_disponible?: number | null;
   fuente?: "inventario_local" | "espejo" | "productos" | "mock";
   motivo_indisponible?: MotivoIndisponible | null;
   consulta_ok?: boolean;
@@ -93,8 +95,8 @@ function tokens(texto: string): string[] {
     .filter((token) => token.length > 1);
 }
 
-function textoBusqueda(pieza: IdentidadPieza): string {
-  return [pieza.nombre, pieza.material, pieza.medida, pieza.categoria, ...(pieza.palabras_clave ?? [])]
+function textoBusqueda(pieza: IdentidadPieza, incluirMaterial: boolean): string {
+  return [pieza.nombre, incluirMaterial ? pieza.material : "", pieza.medida, pieza.categoria, ...(pieza.palabras_clave ?? [])]
     .filter(Boolean)
     .join(" ");
 }
@@ -103,8 +105,55 @@ function textoCatalogo(item: StockItem): string {
   return [item.nombre, item.material, item.medida, item.sku, item.descripcion_tecnica, ...item.aliases].join(" ");
 }
 
-function puntuar(consulta: IdentidadPieza, item: StockItem): number {
-  const queryTokens = new Set(tokens(textoBusqueda(consulta)));
+const FAMILIAS: { id: string; claves: string[] }[] = [
+  { id: "breaker", claves: ["termomagnet", "pastilla", "breaker", "termomagnetico"] },
+  { id: "placa", claves: ["placa", "tapa", "embellecedor"] },
+  { id: "contacto", claves: ["contacto", "tomacorriente", "duplex", "duplez", "receptaculo"] },
+  { id: "interruptor", claves: ["interruptor", "apagador", "switch", "conmutador", "conmutar"] },
+  { id: "cable", claves: ["cable", "thw", "thhn", "conductor"] },
+  { id: "cinta", claves: ["cinta", "aislar", "aislante"] },
+  { id: "foco", claves: ["foco", "lampara", "luminaria", "bombilla"] },
+  { id: "conduit", claves: ["conduit", "cople"] },
+  { id: "clavija", claves: ["clavija"] },
+];
+
+function gangasEnTexto(texto: string): number | null {
+  const t = normalizar(texto);
+  if (/\b(triple|3 gangas|tres vias|3 vias)\b/.test(t)) return 3;
+  if (/\b(doble|2 gangas|dos gangas|2g)\b/.test(t)) return 2;
+  if (/\b(sencillo|1 ganga|una ganga|simple)\b/.test(t)) return 1;
+  return null;
+}
+
+/** Entero de anaquel: stock_disponible de Neon si llegó; si no, existencia. Nunca interpolar. */
+export function cantidadStock(stock: Pick<BloqueStock, "stock_disponible" | "existencia">): number {
+  if (typeof stock.stock_disponible === "number" && Number.isFinite(stock.stock_disponible)) {
+    return Math.trunc(stock.stock_disponible);
+  }
+  if (typeof stock.existencia === "number" && Number.isFinite(stock.existencia)) {
+    return Math.trunc(stock.existencia);
+  }
+  return 0;
+}
+
+export function familiaCatalogo(texto: string): string | null {
+  const t = normalizar(texto);
+  for (const familia of FAMILIAS) {
+    if (familia.claves.some((clave) => t.includes(clave))) return familia.id;
+  }
+  return null;
+}
+
+function mismasFamilias(consulta: IdentidadPieza, item: StockItem): boolean {
+  const familiaQuery = familiaCatalogo([consulta.nombre, consulta.medida, ...(consulta.palabras_clave ?? [])].join(" "));
+  const familiaItem = familiaCatalogo([item.nombre, item.sku, item.descripcion_tecnica ?? ""].join(" "));
+  if (!familiaQuery || !familiaItem) return true;
+  return familiaQuery === familiaItem;
+}
+
+function puntuar(consulta: IdentidadPieza, item: StockItem, incluirMaterial = true): number {
+  if (!mismasFamilias(consulta, item)) return 0;
+  const queryTokens = new Set(tokens(textoBusqueda(consulta, incluirMaterial)));
   const itemTokens = new Set(tokens(textoCatalogo(item)));
   if (queryTokens.size === 0 || itemTokens.size === 0) return 0;
 
@@ -134,7 +183,14 @@ function puntuar(consulta: IdentidadPieza, item: StockItem): number {
     score += 0.08;
   }
 
-  return Math.min(score, 1);
+  const gangasQuery = gangasEnTexto(textoBusqueda(consulta, false));
+  const gangasItem = gangasEnTexto(textoCatalogo(item));
+  if (gangasQuery && gangasItem) {
+    if (gangasQuery === gangasItem) score += 0.2;
+    else score -= 0.25;
+  }
+
+  return Math.max(0, Math.min(score, 1));
 }
 
 function razonSustituto(origen: StockItem, reemplazo: StockItem, sinExistencia: boolean): string {
@@ -272,6 +328,7 @@ function bloqueVacio(coincidencia = 0): BloqueStock {
     alternativas: [],
     coincidencia,
     motivo_indisponible: "fuera_de_surtido",
+    stock_disponible: null,
     consulta_ok: true,
     filas_catalogo: 0,
   };
@@ -290,7 +347,7 @@ export type ConsultarStockOpciones = {
 
 export function consultarStock(
   pieza: IdentidadPieza,
-  piezas: StockItem[] = PIEZAS,
+  piezas: StockItem[] = [],
   opciones: ConsultarStockOpciones = {}
 ): BloqueStock {
   const estricta = Boolean(opciones.estricta);
@@ -301,7 +358,7 @@ export function consultarStock(
   let mejor: StockItem | null = null;
   let mejorScore = 0;
   for (const item of piezas) {
-    const score = puntuar(pieza, item);
+    const score = puntuar(pieza, item, !estricta);
     if (score > mejorScore) {
       mejorScore = score;
       mejor = item;
@@ -340,6 +397,7 @@ export function consultarStock(
         coincidencia: Number(mejorScore.toFixed(3)),
         url_imagen: mejor.url_imagen,
         ubicacion_tienda: mejor.ubicacion_tienda,
+        stock_disponible: mejor.existencia,
         motivo_indisponible: null,
       },
       piezas.length
@@ -368,6 +426,7 @@ export function consultarStock(
       coincidencia: Number(mejorScore.toFixed(3)),
       url_imagen: mejor.url_imagen,
       ubicacion_tienda: mejor.ubicacion_tienda,
+      stock_disponible: mejor.existencia,
       motivo_indisponible: mejor.descontinuado ? "descontinuado" : "faltante_temporal",
     },
     piezas.length

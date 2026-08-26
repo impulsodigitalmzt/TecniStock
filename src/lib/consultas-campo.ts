@@ -2,7 +2,7 @@ import type { Sql } from "../db.js";
 import { toJsonbParam } from "../db.js";
 import { AppError } from "./errors";
 import type { PiezaDetectada } from "./pieza-ia";
-import type { BloqueStock } from "./stock";
+import { cantidadStock, type BloqueStock } from "./stock";
 import { redactarMensajeInicial } from "../ia/prompts";
 import { ensureApartadosSchema, parseBorradorApartado, type BorradorApartado } from "./apartados";
 
@@ -115,7 +115,7 @@ function piezaEstatusDesdeStock(stock: BloqueStock): string {
   if (stock.motivo_indisponible === "descontinuado") return "descontinuado";
   if (stock.motivo_indisponible === "faltante_temporal") return "faltante_temporal";
   if (stock.motivo_indisponible === "fuera_de_surtido" || !stock.encontrado) return "sin_coincidencia";
-  if (stock.requiere_sustituto || stock.existencia <= 0) return "agotado";
+  if (stock.requiere_sustituto || cantidadStock(stock) <= 0) return "agotado";
   if (stock.estado === "bajo") return "bajo";
   return "disponible";
 }

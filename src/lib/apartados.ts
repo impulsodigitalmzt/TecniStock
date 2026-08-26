@@ -1,7 +1,7 @@
 import type { Sql } from "../db.js";
 import { toJsonbParam } from "../db.js";
 import { candidatosFicha, type FichaCatalogo } from "./ficha-chat";
-import type { BloqueStock } from "./stock";
+import { cantidadStock, type BloqueStock } from "./stock";
 
 export const HORAS_APARTADO = 24;
 
@@ -194,11 +194,11 @@ function productoEnAnaquel(item: FichaCatalogo | null): item is FichaCatalogo {
 
 function productoExacto(stock: BloqueStock): FichaCatalogo | null {
   if (!stock.sku || !stock.nombre) return null;
-  if (stock.existencia <= 0 || stock.requiere_sustituto) return null;
+  if (cantidadStock(stock) <= 0 || stock.requiere_sustituto) return null;
   return {
     sku: stock.sku,
     nombre: stock.nombre,
-    existencia: stock.existencia,
+    existencia: cantidadStock(stock),
     precio: stock.precio ?? 0,
   };
 }

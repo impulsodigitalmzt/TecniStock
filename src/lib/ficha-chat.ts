@@ -1,4 +1,4 @@
-import { limitarAlternativas, type BloqueStock, type SustitutoStock } from "./stock";
+import { cantidadStock, limitarAlternativas, type BloqueStock, type SustitutoStock } from "./stock";
 
 export type FichaCatalogo = {
   sku: string;
@@ -65,7 +65,7 @@ export function candidatosFicha(stock: BloqueStock): FichaCatalogo[] {
       nombre: stock.nombre,
       material: stock.material ?? undefined,
       medida: stock.medida ?? undefined,
-      existencia: stock.existencia,
+      existencia: cantidadStock(stock),
       precio: stock.precio ?? 0,
       url_imagen: stock.url_imagen,
       ubicacion_tienda: stock.ubicacion_tienda,

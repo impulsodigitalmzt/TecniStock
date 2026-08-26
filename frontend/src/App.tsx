@@ -49,6 +49,8 @@ type BloqueStock = {
   material: string | null;
   medida: string | null;
   existencia: number;
+  /** Entero literal de inventario_local.stock_disponible. */
+  stock_disponible?: number | null;
   precio: number | null;
   moneda: string;
   estado?: string;
@@ -145,6 +147,22 @@ function compactarTextoChat(texto: string): string {
   return unicas.join('\n\n');
 }
 
+function cantidadStock(stock: Pick<BloqueStock, 'stock_disponible' | 'existencia'>): number {
+  if (typeof stock.stock_disponible === 'number' && Number.isFinite(stock.stock_disponible)) {
+    return Math.trunc(stock.stock_disponible);
+  }
+  if (typeof stock.existencia === 'number' && Number.isFinite(stock.existencia)) {
+    return Math.trunc(stock.existencia);
+  }
+  return 0;
+}
+
+function esOpenerInventario(texto: string): boolean {
+  return /^He identificado un .+\. (Hay existencia en inventario local \(\d+ pza\)|Está en inventario local|No cuento con ese artículo)/i.test(
+    texto.replace(/\s+/g, ' ').trim()
+  );
+}
+
 function normaTexto(texto: string): string {
   return texto.replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -178,6 +196,10 @@ function burbujasChat(
         if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku });
         continue;
       }
+      if (esOpenerInventario(cuerpo)) {
+        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku });
+        continue;
+      }
       if (/para no dejarte sin material|estas alternativas compatibles sí están listas/i.test(norma)) continue;
     }
     if (!cuerpo && !marca.sku) continue;
@@ -205,7 +227,7 @@ function buscarFichaVisible(sku: string, stock: BloqueStock, pieza: PiezaDetecta
       nombre: stock.nombre || pieza?.nombre || sku,
       url_imagen: stock.url_imagen,
       precio: stock.precio,
-      existencia: stock.existencia,
+      existencia: cantidadStock(stock),
       ubicacion_tienda: stock.ubicacion_tienda,
       esPrincipal: true,
     };
@@ -259,6 +281,7 @@ function FichaEnChat({ ficha, stock }: { ficha: FichaVisible; stock: BloqueStock
 }
 
 function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
+  const piezas = cantidadStock(stock);
   if (stock.motivo_indisponible === 'descontinuado') {
     return { texto: 'Descontinuado', clase: 'badge-red' };
   }
@@ -268,25 +291,26 @@ function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
   if (stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) {
     return { texto: 'No se maneja', clase: 'badge-slate' };
   }
-  if (stock.requiere_sustituto || stock.existencia <= 0 || stock.estado === 'agotado') {
+  if (stock.requiere_sustituto || piezas <= 0 || stock.estado === 'agotado') {
     return { texto: 'Faltante momentáneo', clase: 'badge-amber' };
   }
-  if (stock.estado === 'bajo') return { texto: `Bajo · ${stock.existencia}`, clase: 'badge-amber' };
-  return { texto: `${stock.existencia} en stock`, clase: 'badge-green' };
+  if (stock.estado === 'bajo') return { texto: `Bajo · ${piezas}`, clase: 'badge-amber' };
+  return { texto: `${piezas} en stock`, clase: 'badge-green' };
 }
 
 function openerDesdeStock(nombre: string, stock: BloqueStock): string {
   const pieza = (nombre.trim() || 'esta pieza').replace(/^un\s+/i, '').replace(/\.$/, '');
-  const hayExacto = stock.encontrado && stock.existencia > 0 && !stock.requiere_sustituto;
+  const piezas = cantidadStock(stock);
+  const hayExacto = stock.encontrado && piezas > 0 && !stock.requiere_sustituto;
   const catalogoVacio = stock.consulta_ok === false || (stock.filas_catalogo ?? 0) === 0;
   if (catalogoVacio && !stock.encontrado) {
     return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : '';
-    return `He identificado un ${pieza}. Hay existencia en inventario local (${stock.existencia} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    return `He identificado un ${pieza}. Hay existencia en inventario local (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
-  if (stock.encontrado && stock.existencia <= 0) {
+  if (stock.encontrado && piezas <= 0) {
     if (stock.alternativas && stock.alternativas.length > 0) {
       return `He identificado un ${pieza}. Está en inventario local pero hoy no hay existencia. ¿Quieres ver alternativas que sí aparecen en el inventario?`;
     }

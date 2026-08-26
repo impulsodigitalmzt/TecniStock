@@ -1,4 +1,4 @@
-import { MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible } from "../lib/stock";
+import { cantidadStock, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible } from "../lib/stock";
 
 import { extraerMarcaFicha, conMarcaFicha } from "../lib/ficha-chat";
 
@@ -81,14 +81,15 @@ export const PROMPT_CHAT_CAMPO = `Eres el asesor técnico de mostrador de TecniS
 FUENTE DE VERDAD (obligatorio):
 - La ÚNICA fuente de precios, stock, SKUs y ubicaciones es una consulta a la tabla Neon inventario_local, inyectada en el JSON «stock».
 - stock.fuente debe ser «inventario_local». stock.consulta_ok indica si la consulta SQL se ejecutó. stock.filas_catalogo es cuántas filas devolvió.
-- Solo puedes citar sku, precio, existencia, ubicacion_tienda o alternativas si aparecen en ese JSON y stock.encontrado es true (o el ítem está en stock.alternativas, que también salen de inventario_local).
+- Solo puedes citar sku, precio, stock_disponible, existencia, ubicacion_tienda o alternativas si aparecen en ese JSON y stock.encontrado es true (o el ítem está en stock.alternativas, que también salen de inventario_local).
+- stock.stock_disponible es un ENTERO LITERAL de Neon (campo inventario_local.stock_disponible). stock.cifra_stock_obligatoria es ese mismo número en texto. Si mencionas piezas, copia ESA cifra carácter por carácter. PROHIBIDO redondear, interpolar, estimar, promediar o «corregir» el número (no escribas 18 si el JSON dice 25).
 - Si stock.consulta_ok es false, filas_catalogo es 0, o stock.encontrado es false: está ESTRICTAMENTE PROHIBIDO inventar alternativas, precios, existencias, SKUs o pasillos. Responde con transparencia que no cuentas con ese artículo o alternativa en el inventario local actual. Frase canónica: «${MENSAJE_SIN_INVENTARIO}»
 - No uses conocimiento general de catálogo, ni el mock, ni «lo típico de ferretería». Si no está en el snapshot, no existe para ti.
 
 PRIMERA RESPUESTA (obligatorio si el hilo aún no eligió camino):
 - Confirma la identificación en UNA o DOS frases. No sueltes ficha técnica larga ni listes catálogo.
-- Si stock.encontrado y existencia > 0: confirma que está en inventario local (puedes decir existencia y ubicación SOLO si vienen en stock) y pregunta si lo apartan o si revisan algo más.
-- Si stock.encontrado y existencia = 0: di que el SKU está registrado pero sin existencia. Solo menciona alternativas si stock.alternativas tiene filas reales. Si está vacío, usa la frase canónica de «no hay artículo ni alternativa».
+- Si stock.encontrado y stock_disponible > 0: confirma que está en inventario local. Si citas piezas, usa exactamente stock.cifra_stock_obligatoria. Pregunta si lo apartan o si revisan algo más.
+- Si stock.encontrado y stock_disponible = 0: di que el SKU está registrado pero sin existencia. Solo menciona alternativas si stock.alternativas tiene filas reales. Si está vacío, usa la frase canónica de «no hay artículo ni alternativa».
 - Si no hay match (encontrado false) o el catálogo vino vacío: NO preguntes por alternativas. Di la frase canónica de inventario local.
 
 CUANDO EL CLIENTE YA ELIGIÓ:
@@ -110,7 +111,8 @@ APARTADO (obligatorio; nunca lo saltes ni lo confirmes de oídas):
 - No apartes si no hay existencia en el snapshot de inventario_local.
 
 PROHIBIDO:
-- Inventar precios, stock, SKUs, ubicaciones o alternativas que no vengan de inventario_local.
+- Inventar, estimar o alterar precios, stock, SKUs, ubicaciones o alternativas que no vengan de inventario_local.
+- Cambiar el entero de stock_disponible (ni +1, ni promedios, ni «alrededor de»).
 - Sugerir que busque la pieza en otro lado o en internet.
 - Confirmar un apartado sin nombre completo, teléfono y horario de recoger (máximo 24 horas).
 - Repetir la ficha ni preguntar «qué deseas hacer con esta pieza».
@@ -130,19 +132,27 @@ function articuloNombre(nombrePieza: string): string {
   return (nombrePieza.trim() || "esta pieza").replace(/^un\s+/i, "").replace(/\.$/, "");
 }
 
-/** Primera burbuja: confirma la pieza. Sin inventar stock si no vino de inventario_local. */
+/** Si Groq reescribe un «(N pza)», se sustituye por el entero de Neon. */
+export function alinearCifrasStock(texto: string, stock: BloqueStock): string {
+  if (!stock.encontrado) return texto;
+  const n = cantidadStock(stock);
+  return texto.replace(/\((\d+)\s*pzas?\.?\)/gi, `(${n} pza)`);
+}
+
+/** Primera burbuja: confirma la pieza. Cifra = stock_disponible de Neon, no Groq. */
 export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock): string {
   const nombre = articuloNombre(nombrePieza);
-  const hayExacto = stock.encontrado && stock.existencia > 0 && !stock.requiere_sustituto;
+  const piezas = cantidadStock(stock);
+  const hayExacto = stock.encontrado && piezas > 0 && !stock.requiere_sustituto;
   const catalogoVacio = !stock.consulta_ok || (stock.filas_catalogo ?? 0) === 0;
   if (catalogoVacio && !stock.encontrado) {
     return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
   }
   if (hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : "";
-    return `He identificado un ${nombre}. Hay existencia en inventario local (${stock.existencia} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    return `He identificado un ${nombre}. Hay existencia en inventario local (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
-  if (stock.encontrado && stock.existencia <= 0) {
+  if (stock.encontrado && piezas <= 0) {
     if (stock.alternativas && stock.alternativas.length > 0) {
       return `He identificado un ${nombre}. Está en inventario local pero hoy no hay existencia. ¿Quieres ver alternativas que sí aparecen en el inventario?`;
     }
@@ -153,7 +163,7 @@ export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock):
 
 /** Lista de alternativas: solo después de que el cliente elija ese camino. */
 export function redactarMensajeIndisponible(nombrePieza: string, stock: BloqueStock): string | null {
-  const hayExacto = stock.encontrado && stock.existencia > 0 && !stock.requiere_sustituto;
+  const hayExacto = stock.encontrado && cantidadStock(stock) > 0 && !stock.requiere_sustituto;
   if (hayExacto) return null;
   const crudas = stock.alternativas && stock.alternativas.length > 0 ? stock.alternativas : stock.sustituto ? [stock.sustituto] : [];
   const alternativas = crudas.filter((item) => item.existencia > 0).slice(0, MAX_ALTERNATIVAS);

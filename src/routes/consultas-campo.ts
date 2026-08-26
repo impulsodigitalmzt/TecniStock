@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
-import { compactarTextoAsesor, PROMPT_CHAT_CAMPO } from "../ia/prompts";
-import { consultarStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
+import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO } from "../ia/prompts";
+import { cantidadStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import { conMarcaFicha, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
 import { procesarFlujoApartado } from "../lib/apartados";
-import { listarInventarioLocal } from "../lib/inventario-local";
+import { resolverStockInventarioLocal } from "../lib/inventario-local";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -82,7 +82,12 @@ consultasCampoRoutes.get("/:id", async (c) => {
   const dispositivo = dispositivoDe(c);
   const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
   const mensajes = await listarMensajesCampo(sql, consulta.id);
-  return c.json({ ok: true, consulta: detalleConsulta(consulta), mensajes });
+  const stockVivo = await stockDesdeInventarioLocal(sql, consulta);
+  return c.json({
+    ok: true,
+    consulta: detalleConsulta({ ...consulta, stock: stockVivo as unknown as Record<string, unknown> }),
+    mensajes,
+  });
 });
 
 consultasCampoRoutes.delete("/:id", async (c) => {
@@ -132,12 +137,7 @@ async function stockDesdeInventarioLocal(
   consulta: ConsultaCampo
 ): Promise<BloqueStock> {
   try {
-    const piezas = await listarInventarioLocal(sql);
-    const stock = consultarStock(identidadDesdeConsulta(consulta), piezas, { estricta: true });
-    stock.fuente = "inventario_local";
-    stock.consulta_ok = true;
-    stock.filas_catalogo = piezas.length;
-    return stock;
+    return await resolverStockInventarioLocal(sql, identidadDesdeConsulta(consulta));
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -145,11 +145,26 @@ async function stockDesdeInventarioLocal(
         message: error instanceof Error ? error.message : "unknown",
       })
     );
-    const vacio = consultarStock(identidadDesdeConsulta(consulta), [], { estricta: true });
-    vacio.fuente = "inventario_local";
-    vacio.consulta_ok = false;
-    vacio.filas_catalogo = 0;
-    return vacio;
+    return {
+      encontrado: false,
+      sku: null,
+      nombre: null,
+      material: null,
+      medida: null,
+      existencia: 0,
+      precio: null,
+      moneda: "MXN",
+      estado: "sin_coincidencia",
+      requiere_sustituto: true,
+      sustituto: null,
+      alternativas: [],
+      coincidencia: 0,
+      stock_disponible: null,
+      fuente: "inventario_local",
+      consulta_ok: false,
+      filas_catalogo: 0,
+      motivo_indisponible: "fuera_de_surtido",
+    };
   }
 }
 
@@ -200,13 +215,14 @@ async function responderConsultaCampo(
     return [userMsg, assistantMsg];
   }
 
+  const piezas = cantidadStock(stockParaFicha);
   const respuesta = await groqChatPlainText(
     env,
     [
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto (sin foto). FUENTE DE VERDAD: consulta SQL a inventario_local. Cita precio/stock/SKU/ubicación SOLO si vienen en stock. Si encontrado=false o filas_catalogo=0, NO inventes alternativas; di que no hay ese artículo ni alternativa en el inventario local. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si encontrado=false o filas_catalogo=0, NO inventes alternativas; di que no hay ese artículo ni alternativa en el inventario local. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           pieza: {
             ...consulta.pieza,
             pregunta: "",
@@ -219,7 +235,9 @@ async function responderConsultaCampo(
             encontrado: stockParaFicha.encontrado,
             sku: stockParaFicha.sku,
             nombre: stockParaFicha.nombre,
-            existencia: stockParaFicha.existencia,
+            stock_disponible: stockParaFicha.encontrado ? piezas : null,
+            existencia: stockParaFicha.encontrado ? piezas : 0,
+            cifra_stock_obligatoria: stockParaFicha.encontrado ? String(piezas) : null,
             precio: stockParaFicha.precio,
             ubicacion_tienda: stockParaFicha.ubicacion_tienda ?? null,
             estado: stockParaFicha.estado,
@@ -240,6 +258,7 @@ async function responderConsultaCampo(
   let textoAsesor =
     compactarTextoAsesor(respuesta || "No pude completar la respuesta. Intenta de nuevo.").slice(0, 8000) ||
     "No pude completar la respuesta. Intenta de nuevo.";
+  textoAsesor = alinearCifrasStock(textoAsesor, stockParaFicha);
   const marca = extraerMarcaFicha(textoAsesor);
   if (!marca.sku && pideMostrarProducto(texto)) {
     const ficha = resolverFichaSolicitada(texto, historial, stockParaFicha);
