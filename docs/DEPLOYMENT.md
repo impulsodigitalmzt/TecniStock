@@ -1,4 +1,4 @@
-# MedScribe Deployment — Cloudflare Workers
+# TecniStock Deployment — Cloudflare Workers
 
 The production runtime is a single Cloudflare Worker that serves the React SPA
 (static assets) and the API / WhatsApp webhook on the same origin.
@@ -55,15 +55,17 @@ compatible with the Workers edge runtime. Do not use Node `net`/`tls` drivers.
 
 ## 4. Deploy (Workers & Pages)
 
-Compile the Vite SPA into `./public` and publish the Worker (API + static assets):
+Compile the Vite SPA into `./dist/client` and publish the Worker (API + static assets):
 
 ```bash
 npm run build
 npm run deploy
 ```
 
-`npm run build` installs frontend deps and runs Vite with `--outDir ../public`.
+`npm run build` installs frontend deps and runs Vite with `--outDir ../dist/client`.
 `npm run deploy` runs that build and then `wrangler deploy`.
+
+The Worker name is `tecnistock` (`wrangler.toml`). The first deploy creates a **new** Worker (it does not update a previous `medscribe` Worker). Set secrets on this Worker before or right after that deploy.
 
 ### Cloudflare dashboard (Git)
 
@@ -72,7 +74,7 @@ Create a **Worker** (not a static-only Pages site) so the Hono API ships with th
 | Setting | Value |
 |---------|--------|
 | Build command | `npm run build` |
-| Output directory | `public` |
+| Output directory | `dist/client` |
 | Root directory | `/` |
 | Node.js version | `20` |
 
@@ -80,7 +82,7 @@ Secrets still go in **Settings → Variables and Secrets** (or `wrangler secret 
 
 After the first deploy, note the URL:
 
-`https://medscribe.<subdomain>.workers.dev`
+`https://tecnistock.<subdomain>.workers.dev`
 
 Attach a custom domain in the Cloudflare dashboard if needed.
 

@@ -9,8 +9,11 @@
 #   Root directory:     /
 #   Node version:       20
 #
+# URL de workers.dev (primer deploy crea este Worker; no actualiza "medscribe"):
+#   https://tecnistock.<cuenta>.workers.dev
+#
 # Frontend en Pages aparte (opcional):
-#   VITE_API_BASE_URL=https://<worker>.workers.dev npm run build --prefix frontend
+#   VITE_API_BASE_URL=https://tecnistock.<cuenta>.workers.dev npm run build --prefix frontend
 #   wrangler secret / vars: ALLOWED_ORIGINS=https://<proyecto>.pages.dev
 #
 # No uses pages_build_output_dir: este proyecto es un Worker con assets
@@ -26,10 +29,11 @@
 #   npx wrangler secret put WHATSAPP_APP_SECRET
 
 "$schema" = "./node_modules/wrangler/config-schema.json"
-name = "medscribe"
+name = "tecnistock"
 main = "src/index.ts"
 compatibility_date = "2026-08-16"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
 
 [assets]
 # SPA compilada (Vite → dist/client). No usar ./public ni un subdirectorio
