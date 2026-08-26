@@ -831,22 +831,32 @@ export default function App() {
 
   const reiniciar = () => {
     soltarUrlsLocales();
+    soltarMic();
     setFotos([]);
     setFotoActiva(0);
     setMenuAgregar(false);
     setResultado(null);
     setConsultaId(null);
     setMensajes([]);
+    setBorrador('');
     setExpiresAt(undefined);
     setError('');
     setAvisoMiniatura('');
     setMenuExportar(false);
     setMenuCorreccion(false);
     setModoCorreccion(null);
+    setAnalizando(false);
+    setPreparando(false);
+    setEnviando(false);
+    setTranscribiendo(false);
     fotosAntesCorreccionRef.current = [];
-    soltarMic();
     if (cameraRef.current) cameraRef.current.value = '';
     if (galleryRef.current) galleryRef.current.value = '';
+  };
+
+  const irACapturaNueva = () => {
+    setTab('nueva');
+    reiniciar();
   };
 
   const stock = resultado?.stock;
@@ -889,7 +899,7 @@ export default function App() {
             <button
               type="button"
               className={`min-h-12 rounded-xl font-semibold ${tab === 'nueva' ? 'bg-orange-500 text-white' : 'bg-white/10 text-stone-200'}`}
-              onClick={() => setTab('nueva')}
+              onClick={irACapturaNueva}
             >
               Nueva foto
             </button>
