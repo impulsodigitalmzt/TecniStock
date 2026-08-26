@@ -121,40 +121,45 @@ async function catalogoAnalisis(sql: ReturnType<typeof createSql>): Promise<{ or
 }
 
 analizarRoutes.post("/", async (c) => {
-  const dispositivo = c.env.DATABASE_URL ? validarDispositivoId(c.req.header("X-Dispositivo-Id")) : "";
-  const extraido = await extraerImagenes(c);
-  const dataUrls = extraido.dataUrls;
-  const hiloId = esUuid(extraido.consultaId) ? extraido.consultaId : "";
-  const pieza = await identificarPiezaConVision(c.env, dataUrls);
-  // Las fotos no se persisten: solo alimentaron a Qwen y no se envían a Neon.
-  if (c.env.DATABASE_URL) {
-    const sql = createSql(c.env.DATABASE_URL);
-    const catalogo = await catalogoAnalisis(sql);
-    const stock = consultarStock(pieza, catalogo.piezas.length > 0 ? catalogo.piezas : undefined);
-    stock.fuente = catalogo.origen;
-    await ensureConsultasCampoSchema(sql);
-    await purgarConsultasVencidas(sql);
-    const consulta = hiloId
-      ? await actualizarConsultaCampo(sql, hiloId, dispositivo, { pieza, stock })
-      : await crearConsultaCampo(sql, { dispositivoId: dispositivo, pieza, stock });
+  try {
+    const dispositivo = c.env.DATABASE_URL ? validarDispositivoId(c.req.header("X-Dispositivo-Id")) : "";
+    const extraido = await extraerImagenes(c);
+    const dataUrls = extraido.dataUrls;
+    const hiloId = esUuid(extraido.consultaId) ? extraido.consultaId : "";
+    const pieza = await identificarPiezaConVision(c.env, dataUrls);
+    // Las fotos no se persisten: solo alimentaron al modelo de visión y no se envían a Neon.
+    if (c.env.DATABASE_URL) {
+      const sql = createSql(c.env.DATABASE_URL);
+      const catalogo = await catalogoAnalisis(sql);
+      const stock = consultarStock(pieza, catalogo.piezas.length > 0 ? catalogo.piezas : undefined);
+      stock.fuente = catalogo.origen;
+      await ensureConsultasCampoSchema(sql);
+      await purgarConsultasVencidas(sql);
+      const consulta = hiloId
+        ? await actualizarConsultaCampo(sql, hiloId, dispositivo, { pieza, stock })
+        : await crearConsultaCampo(sql, { dispositivoId: dispositivo, pieza, stock });
+      return c.json({
+        ok: true,
+        consulta_id: consulta.id,
+        retencion_dias: 30,
+        expires_at: consulta.expires_at,
+        modelo: modeloGroqVision(c.env),
+        pieza: piezaPublica(pieza),
+        stock,
+      });
+    }
     return c.json({
       ok: true,
-      consulta_id: consulta.id,
+      consulta_id: null,
       retencion_dias: 30,
-      expires_at: consulta.expires_at,
       modelo: modeloGroqVision(c.env),
       pieza: piezaPublica(pieza),
-      stock,
+      stock: consultarStock(pieza),
     });
+  } catch (error) {
+    console.log(error);
+    throw error;
   }
-  return c.json({
-    ok: true,
-    consulta_id: null,
-    retencion_dias: 30,
-    modelo: modeloGroqVision(c.env),
-    pieza: piezaPublica(pieza),
-    stock: consultarStock(pieza),
-  });
 });
 
 function piezaPublica(pieza: {

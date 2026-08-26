@@ -60,6 +60,7 @@ api.route("/webhook/whatsapp", whatsappRoutes);
 api.notFound((c) => c.json({ detail: "The requested resource was not found." }, 404));
 
 api.onError((err, c) => {
+  console.log(err);
   if (isNom004Error(err)) {
     return c.json(
       {

@@ -30,10 +30,10 @@ export const MENSAJE_FUERA_DE_GIRO =
   "Esta aplicación es exclusiva para la atención de ferretería, electricidad y plomería. No se pueden procesar artículos de otro giro.";
 
 /**
- * Guía base para Groq visión (`qwen/qwen3.6-27b`) en POST /api/analizar.
+ * Guía base para Groq visión (Llama 4 Scout / Qwen multimodal) en POST /api/analizar.
  * Giro estricto: ferretería, electricidad, plomería y materiales técnicos de esos rubros.
  */
-export const PROMPT_ANALISIS_VISUAL = `Eres el asesor técnico de campo de TecniStock. Analizas la foto con el modelo multimodal Qwen (qwen/qwen3.6-27b).
+export const PROMPT_ANALISIS_VISUAL = `Eres el asesor técnico de campo de TecniStock. Analizas la foto con un modelo multimodal de visión.
 
 GIRO PERMITIDO (únicos rubros válidos):
 - Ferretería: tornillería, herrajes, herramientas de mano, cerraduras, bisagras, abrasivos, adhesivos de construcción, perfiles y materiales de ferretería.
