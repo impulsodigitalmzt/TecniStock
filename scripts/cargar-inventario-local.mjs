@@ -25,7 +25,10 @@ function recortar(valor, max) {
 
 const databaseUrl = loadDatabaseUrl(root);
 
-const catalogo = JSON.parse(readFileSync(INVENTARIO_PATH, "utf8"));
+const catalogo = JSON.parse(readFileSync(INVENTARIO_PATH, { encoding: "utf8" }));
+if (/\uFFFD/.test(JSON.stringify(catalogo))) {
+  throw new Error(`${INVENTARIO_PATH} tiene caracteres de reemplazo (�). Guárdalo como UTF-8.`);
+}
 const piezas = Array.isArray(catalogo) ? catalogo : catalogo.piezas;
 if (!Array.isArray(piezas) || piezas.length === 0) {
   throw new Error(`No hay productos en ${INVENTARIO_PATH}.`);
@@ -99,6 +102,12 @@ const resumen = await sql.query(`
     count(*) FILTER (WHERE COALESCE(url_imagen, '') <> '')::int AS con_imagen
   FROM inventario_local
 `);
+const muestra = await sql.query(`
+  SELECT sku, nombre_pieza
+  FROM inventario_local
+  WHERE sku IN ('CONT-DUP-127', 'INT-TIM-01', 'LAMP-LED-40W', 'CIN-AIS-3M')
+  ORDER BY sku
+`);
 
 console.log(
   JSON.stringify({
@@ -110,5 +119,6 @@ console.log(
     cargados,
     omitidos,
     ...(resumen[0] ?? {}),
+    muestra,
   })
 );

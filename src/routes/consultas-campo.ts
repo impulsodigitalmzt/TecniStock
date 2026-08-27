@@ -2,12 +2,14 @@ import { Hono } from "hono";
 import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO } from "../ia/prompts";
-import { cantidadStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
+import { cantidadStock, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import { conTarjetas, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada, tarjetaDesdeCatalogo, type TarjetaChat } from "../lib/ficha-chat";
 import { cancelaApartado, pideApartar, procesarFlujoApartado } from "../lib/apartados";
 import {
   buscarInventarioLocal,
   extraerConsultaInventario,
+  esPreguntaSeguimientoPieza,
+  pideBusquedaNuevaInventario,
   resolverStockInventarioLocal,
   stockDesdeResultadosBusqueda,
   type ResultadoBusquedaInventario,
@@ -194,9 +196,18 @@ function fusionarHallazgosConversacion(stockFoto: BloqueStock, consulta: Consult
 }
 
 function debeBuscarInventarioPorTexto(texto: string): boolean {
-  if (pideApartar(texto) || cancelaApartado(texto)) return false;
+  if (pideApartar(texto) || cancelaApartado(texto) || pideMostrarProducto(texto)) return false;
   if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
-  return extraerConsultaInventario(texto).length > 0;
+  return pideBusquedaNuevaInventario(texto);
+}
+
+function stockParaSeguimiento(stockFoto: BloqueStock, consulta: ConsultaCampo, texto: string): BloqueStock {
+  const fusionado = fusionarHallazgosConversacion(stockFoto, consulta);
+  const famQuery = familiaCatalogo(extraerConsultaInventario(texto) || texto);
+  const famFoto = familiaCatalogo([consulta.pieza_nombre, consulta.pieza_categoria].filter(Boolean).join(" "));
+  const famConv = familiaCatalogo(String(fusionado.nombre ?? ""));
+  if (famQuery && famConv && famQuery !== famConv && famFoto === famQuery) return stockFoto;
+  return fusionado.sku ? fusionado : stockFoto;
 }
 
 async function stockDesdeInventarioLocal(
@@ -314,6 +325,8 @@ function adjuntarTarjetasRespuesta(opts: {
   } else if (pideMostrarProducto(opts.textoUsuario)) {
     const ficha = resolverFichaSolicitada(opts.textoUsuario, opts.historial, opts.stock);
     if (ficha) tarjetas.push(tarjetaDesdeCatalogo(ficha));
+  } else {
+    return extraidas.texto || opts.texto;
   }
 
   const cuerpo =
@@ -338,7 +351,10 @@ async function responderConsultaCampo(
   const queryBusqueda = extraerConsultaInventario(texto);
   let consultaSecundaria = false;
   let resultadosBusqueda: ResultadoBusquedaInventario[] = [];
-  let stockVivo = fusionarHallazgosConversacion(stockFoto, consulta);
+  const seguimiento = esPreguntaSeguimientoPieza(texto) && !debeBuscarInventarioPorTexto(texto);
+  let stockVivo = seguimiento
+    ? stockParaSeguimiento(stockFoto, consulta, texto)
+    : fusionarHallazgosConversacion(stockFoto, consulta);
 
   if (debeBuscarInventarioPorTexto(texto) && queryBusqueda) {
     resultadosBusqueda = await buscarInventarioLocal(sql, queryBusqueda, 8);
@@ -353,13 +369,16 @@ async function responderConsultaCampo(
     });
   }
 
-  const crudas = Array.isArray(stockVivo.alternativas) && stockVivo.alternativas.length > 0
-    ? stockVivo.alternativas
-    : stockVivo.sustituto
-      ? [stockVivo.sustituto]
-      : [];
+  const crudas =
+    seguimiento
+      ? []
+      : Array.isArray(stockVivo.alternativas) && stockVivo.alternativas.length > 0
+        ? stockVivo.alternativas
+        : stockVivo.sustituto
+          ? [stockVivo.sustituto]
+          : [];
   const alternativas = limitarAlternativas(crudas as SustitutoStock[]);
-  const stockParaFicha = { ...stockVivo, alternativas, sustituto: alternativas[0] ?? stockVivo.sustituto ?? null };
+  const stockParaFicha = { ...stockVivo, alternativas, sustituto: alternativas[0] ?? (seguimiento ? null : stockVivo.sustituto ?? null) };
 
   if (pideMostrarProducto(texto)) {
     const ficha = resolverFichaSolicitada(texto, historial, stockParaFicha);
@@ -398,19 +417,22 @@ async function responderConsultaCampo(
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si consulta_secundaria=true, el cliente preguntó por OTRA pieza: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales. Solo si la búsqueda va vacía (consulta_secundaria) o (encontrado false Y alternativas vacías), di que no hay ese artículo. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales (salvo seguimiento). Solo si la búsqueda va vacía (consulta_secundaria) o (encontrado false Y alternativas vacías Y no es seguimiento), di que no hay ese artículo. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
-          query_busqueda: queryBusqueda || null,
+          seguimiento_pieza: seguimiento,
+          query_busqueda: consultaSecundaria ? queryBusqueda || null : null,
           busqueda: {
-            query: queryBusqueda || null,
-            resultados: resultadosBusqueda.map((item) => ({
-              sku: item.sku,
-              nombre: item.nombre,
-              stock_disponible: item.stock_disponible,
-              precio: item.precio,
-              ubicacion_tienda: item.ubicacion_tienda || null,
-              url_imagen: item.url_imagen || null,
-            })),
+            query: consultaSecundaria ? queryBusqueda || null : null,
+            resultados: consultaSecundaria
+              ? resultadosBusqueda.map((item) => ({
+                  sku: item.sku,
+                  nombre: item.nombre,
+                  stock_disponible: item.stock_disponible,
+                  precio: item.precio,
+                  ubicacion_tienda: item.ubicacion_tienda || null,
+                  url_imagen: item.url_imagen || null,
+                }))
+              : [],
           },
           pieza_foto: {
             nombre: consulta.pieza_nombre,

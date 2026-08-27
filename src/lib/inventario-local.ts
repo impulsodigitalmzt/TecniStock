@@ -262,6 +262,7 @@ const RELLENO_CONSULTA = new Set([
   "tambien",
   "todavia",
   "aun",
+  "mas",
   "articulo",
   "pieza",
   "modelo",
@@ -284,6 +285,29 @@ const RELLENO_CONSULTA = new Set([
   "foto",
   "imagen",
   "ficha",
+  "tipo",
+  "tipos",
+  "es",
+  "son",
+  "ser",
+  "cual",
+  "cuales",
+  "porque",
+  "sirve",
+  "funciona",
+  "funcion",
+  "caracteristica",
+  "caracteristicas",
+  "informacion",
+  "dato",
+  "datos",
+  "detalle",
+  "detalles",
+  "descripcion",
+  "voltaje",
+  "material",
+  "medida",
+  "instalacion",
 ]);
 
 const SINONIMOS_BUSQUEDA: Record<string, string[]> = {
@@ -327,6 +351,36 @@ export function extraerConsultaInventario(texto: string): string {
   if (!q) return "";
   const tokens = q.split(" ").filter((token) => token && (!RELLENO_CONSULTA.has(token) || /^\d+$/.test(token)));
   return tokens.join(" ").trim();
+}
+
+const INTENTO_BUSQUEDA_RE =
+  /\b(tienes|tienen|hay|trae|traen|vende|venden|busco|busca|necesito|quiero|quisiera|consigue|consiguen|maneja|manejan|me das|me das|otra cosa|otro modelo|otro articulo|ademas|tambien tienen|tambien hay|en vez|en lugar)\b/;
+
+const SEGUIMIENTO_RE =
+  /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles|el apagador|esta pieza|este modelo|este articulo|esta pieza|del interruptor|de este|de esta)\b/;
+
+/** Pregunta técnica o descriptiva sobre la pieza que ya está en el hilo. No es búsqueda nueva. */
+export function esPreguntaSeguimientoPieza(texto: string): boolean {
+  const t = normalizarBusqueda(texto);
+  if (!t) return false;
+  if (INTENTO_BUSQUEDA_RE.test(t) && !SEGUIMIENTO_RE.test(t)) return false;
+  if (SEGUIMIENTO_RE.test(t)) return true;
+  if (/^(que|como|cual|para que|de que|dime|explica)\b/.test(t) && !INTENTO_BUSQUEDA_RE.test(t)) return true;
+  return false;
+}
+
+/**
+ * Solo true si el cliente pide de forma inequívoca OTRO artículo (tienes cinta, busco focos, hay de 3…).
+ * Las dudas sobre la pieza actual no disparan SELECT ni carrusel.
+ */
+export function pideBusquedaNuevaInventario(texto: string): boolean {
+  const t = normalizarBusqueda(texto);
+  if (!t) return false;
+  const query = extraerConsultaInventario(texto);
+  if (!query) return false;
+  if (INTENTO_BUSQUEDA_RE.test(t)) return true;
+  if (esPreguntaSeguimientoPieza(texto)) return false;
+  return query.length >= 3;
 }
 
 function consultaParaPuntaje(query: string): string {

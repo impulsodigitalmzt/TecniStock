@@ -1201,7 +1201,7 @@ export default function App() {
     mensajes,
     pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '',
     descripcion,
-    stock ? tarjetasDesdeStock(stock) : []
+    []
   );
 
   return (
