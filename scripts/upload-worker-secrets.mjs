@@ -1,10 +1,11 @@
 /**
  * Uploads only Worker secrets from .dev.vars (skips [vars] names already in wrangler.toml).
- * Does not print secret values.
+ * Does not print secret values. Refuses DATABASE_URL that is not TecniStock (ep-silent-hat).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { assertDatabaseTecniStock, loadDevVars } from "./lib/tecnistock-db.mjs";
 
 const SECRET_NAMES = new Set([
   "SECRET_KEY",
@@ -15,7 +16,9 @@ const SECRET_NAMES = new Set([
   "DATABASE_URL",
 ]);
 
-const raw = readFileSync(resolve(process.cwd(), ".dev.vars"), "utf8");
+const root = process.cwd();
+const raw = readFileSync(resolve(root, ".dev.vars"), "utf8");
+const parsed = loadDevVars(root);
 const lines = [];
 for (const line of raw.split(/\r?\n/)) {
   if (!line || line.startsWith("#")) continue;
@@ -30,6 +33,9 @@ for (const line of raw.split(/\r?\n/)) {
   if (!value.trim()) {
     console.log(`skip_empty ${name}`);
     continue;
+  }
+  if (name === "DATABASE_URL") {
+    assertDatabaseTecniStock(parsed.DATABASE_URL || value);
   }
   lines.push(`${name}=${value}`);
   console.log(`queue ${name}`);

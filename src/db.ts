@@ -2,8 +2,14 @@ import { neon, neonConfig } from "@neondatabase/serverless";
 import { AppError } from "./lib/errors";
 import { NEON_FETCH_TIMEOUT_MS } from "./lib/edge";
 
+/** Endpoint Neon de TecniStock. Cualquier otro host (incluido MediEscribe) se rechaza. */
+export const NEON_HOST_TECISTOCK = "ep-silent-hat";
 /** Hosts del proyecto Neon MediEscribe. TecniStock no puede escribir ahí. */
-const NEON_HOSTS_AJENOS = ["ep-bitter-moon-axamkkan"];
+export const NEON_HOSTS_AJENOS = ["ep-bitter-moon"];
+
+export function hostnameDeDatabaseUrl(databaseUrl: string): string {
+  return new URL(databaseUrl).hostname.toLowerCase();
+}
 
 export function assertDatabaseTecniStock(databaseUrl: string): void {
   if (!databaseUrl.trim()) {
@@ -11,7 +17,7 @@ export function assertDatabaseTecniStock(databaseUrl: string): void {
   }
   let host = "";
   try {
-    host = new URL(databaseUrl).hostname.toLowerCase();
+    host = hostnameDeDatabaseUrl(databaseUrl);
   } catch {
     throw new AppError(503, "DATABASE_URL no es una URL válida.", "DB_URL_INVALID");
   }
@@ -19,6 +25,13 @@ export function assertDatabaseTecniStock(databaseUrl: string): void {
     throw new AppError(
       503,
       "DATABASE_URL apunta al proyecto Neon de MediEscribe. TecniStock debe usar su propia base.",
+      "DB_WRONG_PROJECT"
+    );
+  }
+  if (!host.includes(NEON_HOST_TECISTOCK)) {
+    throw new AppError(
+      503,
+      "DATABASE_URL no apunta al Neon de TecniStock (ep-silent-hat).",
       "DB_WRONG_PROJECT"
     );
   }

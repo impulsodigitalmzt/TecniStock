@@ -1,9 +1,10 @@
-import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { neon } from "@neondatabase/serverless";
+import { loadDatabaseUrl } from "./lib/tecnistock-db.mjs";
 
-const raw = readFileSync(".dev.vars", "utf8");
-const line = raw.split(/\r?\n/).find((item) => item.startsWith("DATABASE_URL="));
-const url = (line?.slice("DATABASE_URL=".length) ?? "").replace("-pooler.", ".");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const url = loadDatabaseUrl(root, { preferEnv: false });
 const sql = neon(url);
 const rows = await sql`
   SELECT categoria, estado, count(*)::int AS n

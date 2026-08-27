@@ -6,34 +6,16 @@
  *   node scripts/cargar-inventario-local.mjs
  *
  * DATABASE_URL: variable de entorno, o .dev.vars si no está definida.
+ * Solo se acepta el Neon de TecniStock (ep-silent-hat).
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { neon } from "@neondatabase/serverless";
+import { loadDatabaseUrl } from "./lib/tecnistock-db.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const INVENTARIO_PATH = resolve(root, "inventario.json");
-
-function loadDevVar(name) {
-  try {
-    const raw = readFileSync(resolve(root, ".dev.vars"), "utf8");
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq < 1) continue;
-      if (trimmed.slice(0, eq) === name) return trimmed.slice(eq + 1).trim();
-    }
-  } catch {
-    return "";
-  }
-  return "";
-}
-
-function urlDirecta(url) {
-  return url.replace("-pooler.", ".");
-}
 
 function recortar(valor, max) {
   return String(valor ?? "")
@@ -41,10 +23,7 @@ function recortar(valor, max) {
     .slice(0, max);
 }
 
-const databaseUrl = urlDirecta((process.env.DATABASE_URL || loadDevVar("DATABASE_URL") || "").trim());
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL no está definida (entorno o .dev.vars).");
-}
+const databaseUrl = loadDatabaseUrl(root);
 
 const catalogo = JSON.parse(readFileSync(INVENTARIO_PATH, "utf8"));
 const piezas = Array.isArray(catalogo) ? catalogo : catalogo.piezas;

@@ -1,7 +1,8 @@
 # Copy to .dev.vars (gitignored) and fill real values for wrangler dev.
 SECRET_KEY=CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING
-# Neon de TecniStock (proyecto propio). Nunca uses el DATABASE_URL de MediEscribe.
-DATABASE_URL=postgresql://USER:PASSWORD@HOST/neondb?sslmode=require
+# Neon de TecniStock (ep-silent-hat). Nunca uses MediEscribe (ep-bitter-moon).
+# No dejes una línea comentada DATABASE_URL= de otro proyecto: Wrangler puede cargarla.
+# DATABASE_URL=postgresql://USER:PASSWORD@ep-silent-hat-XXXX-pooler.REGION.aws.neon.tech/neondb?sslmode=require
 GROQ_API_KEY=YOUR_GROQ_API_KEY
 GROQ_MODEL=openai/gpt-oss-120b
 GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct

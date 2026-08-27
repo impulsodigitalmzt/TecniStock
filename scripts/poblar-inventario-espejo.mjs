@@ -2,29 +2,10 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { neon } from "@neondatabase/serverless";
+import { loadDatabaseUrl } from "./lib/tecnistock-db.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-function loadDevVar(name) {
-  const raw = readFileSync(resolve(root, ".dev.vars"), "utf8");
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq < 1) continue;
-    if (trimmed.slice(0, eq) === name) return trimmed.slice(eq + 1).trim();
-  }
-  return "";
-}
-
-function urlDirecta(url) {
-  return url.replace("-pooler.", ".");
-}
-
-const databaseUrl = urlDirecta(loadDevVar("DATABASE_URL"));
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL no está en .dev.vars");
-}
+const databaseUrl = loadDatabaseUrl(root, { preferEnv: false });
 
 const piezas = JSON.parse(readFileSync(resolve(root, "src/data/inventario-espejo-demo.json"), "utf8"));
 if (!Array.isArray(piezas) || piezas.length === 0) {
