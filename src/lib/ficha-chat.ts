@@ -11,7 +11,13 @@ export type FichaCatalogo = {
   ubicacion_tienda?: string;
 };
 
+export type MiniaturaChat = {
+  sku: string;
+  url: string;
+};
+
 const MARCA_FICHA_RE = /\[\[ficha:([A-Za-z0-9._-]+)\]\]/gi;
+const MARCA_THUMB_RE = /\[\[thumb:([A-Za-z0-9._-]+)\|([^\]]+)\]\]/gi;
 
 function norm(texto: string): string {
   return texto
@@ -24,23 +30,49 @@ function norm(texto: string): string {
     .trim();
 }
 
-export function extraerMarcaFicha(texto: string): { texto: string; sku: string | null } {
+export function extraerMarcaFicha(texto: string): { texto: string; sku: string | null; miniaturas: MiniaturaChat[] } {
   let sku: string | null = null;
+  const miniaturas: MiniaturaChat[] = [];
   const limpio = texto
     .replace(MARCA_FICHA_RE, (_, code: string) => {
       const valor = String(code ?? "").trim();
       if (valor) sku = valor;
       return "";
     })
+    .replace(MARCA_THUMB_RE, (_, code: string, url: string) => {
+      const clave = String(code ?? "").trim();
+      const href = String(url ?? "").trim();
+      if (clave && href) miniaturas.push({ sku: clave, url: href });
+      return "";
+    })
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { texto: limpio, sku };
+  return { texto: limpio, sku, miniaturas };
 }
 
 export function conMarcaFicha(texto: string, sku: string): string {
-  const cuerpo = extraerMarcaFicha(texto).texto;
-  return `${cuerpo}\n\n[[ficha:${sku}]]`.trim();
+  const { texto: cuerpo, miniaturas } = extraerMarcaFicha(texto);
+  const conSku = `${cuerpo}\n\n[[ficha:${sku}]]`.trim();
+  return miniaturas.length ? conMiniaturas(conSku, miniaturas) : conSku;
+}
+
+export function conMiniaturas(texto: string, items: MiniaturaChat[]): string {
+  const { texto: cuerpo, sku, miniaturas } = extraerMarcaFicha(texto);
+  const todas: MiniaturaChat[] = [];
+  const vistos = new Set<string>();
+  for (const item of [...miniaturas, ...items]) {
+    const url = item.url.trim();
+    const clave = item.sku.trim();
+    if (!url || !clave) continue;
+    const id = `${clave}|${url}`;
+    if (vistos.has(id)) continue;
+    vistos.add(id);
+    todas.push({ sku: clave, url });
+  }
+  const marcas = todas.map((item) => `[[thumb:${item.sku}|${item.url}]]`).join("\n");
+  const base = sku ? `${cuerpo}\n\n[[ficha:${sku}]]`.trim() : cuerpo;
+  return marcas ? `${base}\n\n${marcas}`.trim() : base;
 }
 
 export function pideMostrarProducto(texto: string): boolean {

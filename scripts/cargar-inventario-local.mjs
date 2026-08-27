@@ -1,6 +1,6 @@
 /**
  * Carga inventario.json en Neon → public.inventario_local
- * Columnas reales: id, sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda
+ * Columnas reales: id, sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
  *
  * Uso:
  *   node scripts/cargar-inventario-local.mjs
@@ -41,9 +41,11 @@ await sql.query(`
     categoria VARCHAR(50) NOT NULL,
     stock_disponible INTEGER,
     precio NUMERIC(10, 2),
-    ubicacion_tienda VARCHAR(100)
+    ubicacion_tienda VARCHAR(100),
+    url_imagen VARCHAR(255)
   )
 `);
+await sql.query("ALTER TABLE inventario_local ADD COLUMN IF NOT EXISTS url_imagen VARCHAR(255)");
 await sql.query("CREATE UNIQUE INDEX IF NOT EXISTS inventario_local_sku_key ON inventario_local (sku)");
 
 const columnas = await sql.query(`
@@ -65,14 +67,15 @@ for (const pieza of piezas) {
   }
   await sql.query(
     `INSERT INTO inventario_local (
-       sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda
-     ) VALUES ($1, $2, $3, $4, $5, $6)
+       sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (sku) DO UPDATE SET
        nombre_pieza = EXCLUDED.nombre_pieza,
        categoria = EXCLUDED.categoria,
        stock_disponible = EXCLUDED.stock_disponible,
        precio = EXCLUDED.precio,
-       ubicacion_tienda = EXCLUDED.ubicacion_tienda`,
+       ubicacion_tienda = EXCLUDED.ubicacion_tienda,
+       url_imagen = EXCLUDED.url_imagen`,
     [
       sku,
       nombre,
@@ -80,6 +83,7 @@ for (const pieza of piezas) {
       Math.max(0, Math.floor(Number(pieza.stock_disponible ?? pieza.stock ?? 0) || 0)),
       Number(pieza.precio ?? 0) || 0,
       recortar(pieza.ubicacion_tienda ?? pieza.ubicacion ?? "", 100) || null,
+      recortar(pieza.url_imagen ?? pieza.imagen ?? pieza.image_url ?? "", 255) || null,
     ]
   );
   cargados += 1;

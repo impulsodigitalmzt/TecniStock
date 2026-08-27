@@ -1,6 +1,6 @@
 import { cantidadStock, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible, type SustitutoStock } from "../lib/stock";
 
-import { extraerMarcaFicha, conMarcaFicha } from "../lib/ficha-chat";
+import { extraerMarcaFicha, conMarcaFicha, conMiniaturas } from "../lib/ficha-chat";
 
 /** Pregunta de guía: va solo en una burbuja de chat, nunca en la ficha. */
 export const PREGUNTA_PROACTIVA =
@@ -8,9 +8,9 @@ export const PREGUNTA_PROACTIVA =
 
 const PREGUNTA_PROACTIVA_RE = /\s*¿Qué deseas hacer con esta pieza\?\s*(?:\([^)]*\))?\.?\s*/gi;
 
-/** Quita la CTA repetida y párrafos idénticos seguidos. Conserva [[ficha:SKU]]. */
+/** Quita la CTA repetida y párrafos idénticos seguidos. Conserva [[ficha:SKU]] y [[thumb:SKU|url]]. */
 export function compactarTextoAsesor(texto: string): string {
-  const { texto: cuerpo, sku } = extraerMarcaFicha(texto);
+  const { texto: cuerpo, sku, miniaturas } = extraerMarcaFicha(texto);
   const limpio = cuerpo.replace(PREGUNTA_PROACTIVA_RE, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   const partes = limpio
     .split(/\n{2,}/)
@@ -22,8 +22,10 @@ export function compactarTextoAsesor(texto: string): string {
     const previa = unicas[unicas.length - 1]?.replace(/\s+/g, " ").toLowerCase();
     if (norma && norma !== previa) unicas.push(parte);
   }
-  const compacto = unicas.join("\n\n");
-  return sku ? conMarcaFicha(compacto, sku) : compacto;
+  let compacto = unicas.join("\n\n");
+  if (sku) compacto = conMarcaFicha(compacto, sku);
+  if (miniaturas.length) compacto = conMiniaturas(compacto, miniaturas);
+  return compacto;
 }
 
 export const MENSAJE_FUERA_DE_GIRO =

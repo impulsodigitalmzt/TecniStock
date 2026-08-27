@@ -3,7 +3,7 @@ import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO } from "../ia/prompts";
 import { cantidadStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
-import { conMarcaFicha, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
+import { conMarcaFicha, conMiniaturas, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
 import { cancelaApartado, pideApartar, procesarFlujoApartado } from "../lib/apartados";
 import {
   buscarInventarioLocal,
@@ -171,6 +171,7 @@ function hallazgosGuardados(consulta: ConsultaCampo): ResultadoBusquedaInventari
         stock_disponible: Number(row.stock_disponible ?? row.existencia ?? 0) || 0,
         precio: Number(row.precio ?? 0) || 0,
         ubicacion_tienda: String(row.ubicacion_tienda ?? ""),
+        url_imagen: String(row.url_imagen ?? ""),
       } satisfies ResultadoBusquedaInventario;
     })
     .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
@@ -322,6 +323,7 @@ async function responderConsultaCampo(
               stock_disponible: item.stock_disponible,
               precio: item.precio,
               ubicacion_tienda: item.ubicacion_tienda || null,
+              url_imagen: item.url_imagen || null,
             })),
           },
           pieza_foto: {
@@ -357,7 +359,7 @@ async function responderConsultaCampo(
       },
       ...historial.slice(-12).map((msg) => ({
         role: msg.rol === "user" ? ("user" as const) : ("assistant" as const),
-        content: msg.texto,
+        content: extraerMarcaFicha(msg.texto).texto,
       })),
     ],
     { maxTokens: 700, temperature: 0.3 }
@@ -370,6 +372,13 @@ async function responderConsultaCampo(
   if (!marca.sku && pideMostrarProducto(texto)) {
     const ficha = resolverFichaSolicitada(texto, historial, stockParaFicha);
     if (ficha) textoAsesor = conMarcaFicha(marca.texto || `Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`, ficha.sku);
+  }
+  if (consultaSecundaria) {
+    const thumbs = resultadosBusqueda
+      .filter((item) => item.url_imagen.trim())
+      .slice(0, 3)
+      .map((item) => ({ sku: item.sku, url: item.url_imagen }));
+    if (thumbs.length) textoAsesor = conMiniaturas(textoAsesor, thumbs);
   }
   const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
   return [userMsg, assistantMsg];

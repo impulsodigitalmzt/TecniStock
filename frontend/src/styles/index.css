@@ -125,7 +125,13 @@
     @apply max-w-[82%] ml-auto rounded-2xl rounded-br-sm bg-orange-500 text-white px-3.5 py-2.5 text-sm leading-relaxed shadow-sm whitespace-pre-wrap;
   }
   .bubble-bot {
-    @apply max-w-[82%] mr-auto rounded-2xl rounded-bl-sm bg-white text-stone-800 px-3.5 py-2.5 text-sm leading-relaxed shadow-sm whitespace-pre-wrap;
+    @apply max-w-[82%] mr-auto rounded-2xl rounded-bl-sm bg-white text-stone-800 px-3.5 py-2.5 text-sm leading-relaxed shadow-sm;
+  }
+  .chat-thumbs {
+    @apply flex flex-wrap gap-2;
+  }
+  .chat-thumb {
+    @apply h-20 w-20 rounded-xl object-cover bg-stone-100 ring-1 ring-stone-200;
   }
   .ficha-chat {
     @apply mr-auto w-[min(100%,18rem)] overflow-hidden rounded-2xl rounded-bl-sm border border-stone-200 bg-white shadow-sm;

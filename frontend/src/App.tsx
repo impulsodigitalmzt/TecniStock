@@ -115,18 +115,29 @@ function textoDescripcion(pieza: PiezaDetectada): string {
 const PREGUNTA_GUIA =
   '¿Qué deseas hacer con esta pieza? (Ej: consultar disponibilidad en stock, buscar repuestos, ver ficha o registrar movimiento).';
 
-function extraerMarcaFicha(texto: string): { texto: string; sku: string | null } {
+function extraerMarcaFicha(texto: string): {
+  texto: string;
+  sku: string | null;
+  miniaturas: { sku: string; url: string }[];
+} {
   let sku: string | null = null;
+  const miniaturas: { sku: string; url: string }[] = [];
   const limpio = texto
     .replace(/\[\[ficha:([A-Za-z0-9._-]+)\]\]/gi, (_, code: string) => {
       const valor = String(code ?? '').trim();
       if (valor) sku = valor;
       return '';
     })
+    .replace(/\[\[thumb:([A-Za-z0-9._-]+)\|([^\]]+)\]\]/gi, (_, code: string, url: string) => {
+      const clave = String(code ?? '').trim();
+      const href = String(url ?? '').trim();
+      if (clave && href) miniaturas.push({ sku: clave, url: href });
+      return '';
+    })
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { texto: limpio, sku };
+  return { texto: limpio, sku, miniaturas };
 }
 
 function compactarTextoChat(texto: string): string {
@@ -165,6 +176,7 @@ type ResultadoBusquedaInventario = {
   stock_disponible: number;
   precio: number;
   ubicacion_tienda: string;
+  url_imagen?: string;
 };
 
 function esOpenerInventario(texto: string): boolean {
@@ -184,39 +196,39 @@ function burbujasChat(
   mensajes: Mensaje[],
   opener: string,
   descripcion: string
-): { id: string; rol: string; texto: string; fichaSku: string | null }[] {
+): { id: string; rol: string; texto: string; fichaSku: string | null; miniaturas: { sku: string; url: string }[] }[] {
   const diagnostico = normaTexto(descripcion);
   const pregunta = normaTexto(PREGUNTA_GUIA);
   const openerNorma = opener ? normaTexto(opener) : '';
-  const intro: { id: string; rol: string; texto: string; fichaSku: string | null }[] = [];
-  if (opener) intro.push({ id: 'opener-guia', rol: 'assistant', texto: opener, fichaSku: null });
-  const resto: { id: string; rol: string; texto: string; fichaSku: string | null }[] = [];
+  const intro: { id: string; rol: string; texto: string; fichaSku: string | null; miniaturas: { sku: string; url: string }[] }[] = [];
+  if (opener) intro.push({ id: 'opener-guia', rol: 'assistant', texto: opener, fichaSku: null, miniaturas: [] });
+  const resto: { id: string; rol: string; texto: string; fichaSku: string | null; miniaturas: { sku: string; url: string }[] }[] = [];
   for (const msg of mensajes) {
     const marca = extraerMarcaFicha(msg.texto);
     if (msg.rol !== 'assistant') {
-      if (marca.texto.trim()) resto.push({ id: msg.id, rol: msg.rol, texto: marca.texto, fichaSku: null });
+      if (marca.texto.trim()) resto.push({ id: msg.id, rol: msg.rol, texto: marca.texto, fichaSku: null, miniaturas: [] });
       continue;
     }
     const cuerpo = compactarTextoChat(marca.texto);
     const norma = normaTexto(cuerpo);
     if (cuerpo) {
       if (diagnostico && norma === diagnostico) {
-        if (marca.sku) resto.push({ id: msg.id, rol: 'assistant', texto: '', fichaSku: marca.sku });
+        if (marca.sku) resto.push({ id: msg.id, rol: 'assistant', texto: '', fichaSku: marca.sku, miniaturas: marca.miniaturas });
         continue;
       }
       if (norma === pregunta) continue;
       if (openerNorma && norma === openerNorma) {
-        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku });
+        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku, miniaturas: marca.miniaturas });
         continue;
       }
       if (esOpenerInventario(cuerpo)) {
-        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku });
+        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku, miniaturas: marca.miniaturas });
         continue;
       }
       if (/para no dejarte sin material|estas alternativas compatibles sí están listas/i.test(norma)) continue;
     }
-    if (!cuerpo && !marca.sku) continue;
-    resto.push({ id: msg.id, rol: 'assistant', texto: cuerpo, fichaSku: marca.sku });
+    if (!cuerpo && !marca.sku && marca.miniaturas.length === 0) continue;
+    resto.push({ id: msg.id, rol: 'assistant', texto: cuerpo, fichaSku: marca.sku, miniaturas: marca.miniaturas });
   }
   return [...intro, ...resto];
 }
@@ -1632,9 +1644,28 @@ export default function App() {
                           );
                         }
                         const ficha = msg.fichaSku && stock ? buscarFichaVisible(msg.fichaSku, stock, pieza) : null;
+                        const thumbs = (msg.miniaturas ?? [])
+                          .map((item) => ({ ...item, src: urlFotoCatalogo(item.url) }))
+                          .filter((item): item is { sku: string; url: string; src: string } => Boolean(item.src));
                         return (
                           <div key={msg.id} className="space-y-2">
-                            {msg.texto ? <div className="bubble-bot">{msg.texto}</div> : null}
+                            {msg.texto || thumbs.length > 0 ? (
+                              <div className="bubble-bot">
+                                {msg.texto ? <p className="whitespace-pre-wrap">{msg.texto}</p> : null}
+                                {thumbs.length > 0 ? (
+                                  <div className={`chat-thumbs ${msg.texto ? 'mt-2' : ''}`}>
+                                    {thumbs.map((item) => (
+                                      <img
+                                        key={`${msg.id}-${item.sku}`}
+                                        src={item.src}
+                                        alt=""
+                                        className="chat-thumb"
+                                      />
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {ficha ? <FichaEnChat ficha={ficha} stock={stock} /> : null}
                           </div>
                         );

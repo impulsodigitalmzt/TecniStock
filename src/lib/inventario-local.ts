@@ -18,6 +18,7 @@ export type FilaInventarioLocal = {
   stock_disponible: number;
   precio: number;
   ubicacion_tienda: string;
+  url_imagen: string;
 };
 
 /** Entero tal cual viene de Neon. Sin promedios ni estimaciones. */
@@ -46,10 +47,24 @@ export async function ensureInventarioLocalSchema(sql: Sql): Promise<void> {
       categoria VARCHAR(50) NOT NULL,
       stock_disponible INTEGER,
       precio NUMERIC(10, 2),
-      ubicacion_tienda VARCHAR(100)
+      ubicacion_tienda VARCHAR(100),
+      url_imagen VARCHAR(255)
     )
   `;
+  await sql`ALTER TABLE inventario_local ADD COLUMN IF NOT EXISTS url_imagen VARCHAR(255)`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS inventario_local_sku_key ON inventario_local (sku)`;
+  try {
+    await sql`
+      UPDATE inventario_local loc
+      SET url_imagen = espejo.url_imagen
+      FROM inventario_tienda_espejo espejo
+      WHERE loc.sku = espejo.sku
+        AND COALESCE(btrim(loc.url_imagen), '') = ''
+        AND COALESCE(btrim(espejo.url_imagen), '') <> ''
+    `;
+  } catch {
+    /* espejo puede no existir aún */
+  }
   schemaReady = true;
 }
 
@@ -64,6 +79,7 @@ function mapFila(row: Record<string, unknown>): FilaInventarioLocal | null {
     stock_disponible: enteroStock(row.stock_disponible),
     precio: precioLiteral(row.precio),
     ubicacion_tienda: String(row.ubicacion_tienda ?? "").trim(),
+    url_imagen: String(row.url_imagen ?? "").trim(),
   };
 }
 
@@ -79,6 +95,7 @@ function filaAStockItem(fila: FilaInventarioLocal): StockItem {
     precio: fila.precio,
     estado: estadoDesdeStock(fila.stock_disponible),
     ubicacion_tienda: fila.ubicacion_tienda || undefined,
+    url_imagen: fila.url_imagen || undefined,
   };
 }
 
@@ -91,7 +108,7 @@ export async function listarInventarioLocal(sql: Sql): Promise<StockItem[]> {
 export async function listarFilasInventarioLocal(sql: Sql): Promise<FilaInventarioLocal[]> {
   await ensureInventarioLocalSchema(sql);
   const rows = await sql`
-    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda
+    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
     FROM inventario_local
     ORDER BY nombre_pieza
   `;
@@ -106,7 +123,7 @@ export async function obtenerInventarioPorSku(sql: Sql, sku: string): Promise<Fi
   if (!codigo) return null;
   await ensureInventarioLocalSchema(sql);
   const rows = await sql`
-    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda
+    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
     FROM inventario_local
     WHERE sku = ${codigo}
     LIMIT 1
@@ -122,6 +139,7 @@ export function aplicarFilaLiteral(stock: BloqueStock, fila: FilaInventarioLocal
   stock.existencia = piezas;
   stock.precio = fila.precio;
   stock.ubicacion_tienda = fila.ubicacion_tienda || undefined;
+  stock.url_imagen = fila.url_imagen || undefined;
   stock.estado = estadoDesdeStock(piezas);
   stock.fuente = "inventario_local";
   stock.consulta_ok = true;
@@ -150,6 +168,7 @@ function bloqueDesdeFila(fila: FilaInventarioLocal, coincidencia = 1): BloqueSto
       alternativas: [],
       coincidencia,
       ubicacion_tienda: fila.ubicacion_tienda || undefined,
+      url_imagen: fila.url_imagen || undefined,
       stock_disponible: piezas,
       fuente: "inventario_local",
       consulta_ok: true,
@@ -325,6 +344,7 @@ export type ResultadoBusquedaInventario = {
   stock_disponible: number;
   precio: number;
   ubicacion_tienda: string;
+  url_imagen: string;
 };
 
 function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario {
@@ -335,6 +355,7 @@ function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario 
     stock_disponible: fila.stock_disponible,
     precio: fila.precio,
     ubicacion_tienda: fila.ubicacion_tienda,
+    url_imagen: fila.url_imagen,
   };
 }
 
@@ -394,6 +415,7 @@ function resultadoASustituto(item: ResultadoBusquedaInventario): {
   precio: number;
   razon: string;
   ubicacion_tienda?: string;
+  url_imagen?: string;
 } {
   return {
     sku: item.sku,
@@ -404,6 +426,7 @@ function resultadoASustituto(item: ResultadoBusquedaInventario): {
     precio: item.precio,
     razon: "Coincidencia por texto en inventario local",
     ubicacion_tienda: item.ubicacion_tienda || undefined,
+    url_imagen: item.url_imagen || undefined,
   };
 }
 
@@ -449,6 +472,7 @@ export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInvent
     alternativas,
     coincidencia: 1,
     ubicacion_tienda: mejor.ubicacion_tienda || undefined,
+    url_imagen: mejor.url_imagen || undefined,
     stock_disponible: piezas,
     fuente: "inventario_local",
     consulta_ok: true,
