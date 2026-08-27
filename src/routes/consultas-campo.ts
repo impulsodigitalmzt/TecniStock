@@ -3,7 +3,7 @@ import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO } from "../ia/prompts";
 import { cantidadStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
-import { conMarcaFicha, conMiniaturas, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
+import { conTarjetas, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada, tarjetaDesdeCatalogo, type TarjetaChat } from "../lib/ficha-chat";
 import { cancelaApartado, pideApartar, procesarFlujoApartado } from "../lib/apartados";
 import {
   buscarInventarioLocal,
@@ -240,6 +240,92 @@ async function stockDesdeInventarioLocal(
   }
 }
 
+function catalogoParaTarjetas(
+  stock: BloqueStock,
+  resultados: ResultadoBusquedaInventario[]
+): Array<{ sku: string; nombre: string; url_imagen?: string; precio: number; existencia: number }> {
+  const vistos = new Set<string>();
+  const out: Array<{ sku: string; nombre: string; url_imagen?: string; precio: number; existencia: number }> = [];
+  const meter = (item: { sku: string; nombre: string; url_imagen?: string; precio?: number | null; existencia?: number; stock_disponible?: number } | null) => {
+    const sku = item?.sku?.trim() ?? "";
+    const nombre = item?.nombre?.trim() ?? "";
+    if (!sku || !nombre || vistos.has(sku.toLowerCase())) return;
+    vistos.add(sku.toLowerCase());
+    out.push({
+      sku,
+      nombre,
+      url_imagen: item?.url_imagen,
+      precio: typeof item?.precio === "number" && Number.isFinite(item.precio) ? item.precio : 0,
+      existencia:
+        typeof item?.existencia === "number" && Number.isFinite(item.existencia)
+          ? Math.trunc(item.existencia)
+          : typeof item?.stock_disponible === "number" && Number.isFinite(item.stock_disponible)
+            ? Math.trunc(item.stock_disponible)
+            : 0,
+    });
+  };
+  meter(
+    stock.sku && stock.nombre
+      ? {
+          sku: stock.sku,
+          nombre: stock.nombre,
+          url_imagen: stock.url_imagen,
+          precio: stock.precio,
+          existencia: cantidadStock(stock),
+        }
+      : null
+  );
+  for (const item of stock.alternativas ?? []) meter(item);
+  if (stock.sustituto) meter(stock.sustituto);
+  for (const item of resultados) meter(item);
+  return out;
+}
+
+function adjuntarTarjetasRespuesta(opts: {
+  texto: string;
+  textoUsuario: string;
+  historial: { rol: string; texto: string }[];
+  consultaSecundaria: boolean;
+  resultadosBusqueda: ResultadoBusquedaInventario[];
+  stock: BloqueStock;
+}): string {
+  const extraidas = extraerMarcaFicha(opts.texto);
+  const tarjetas: TarjetaChat[] = [...extraidas.tarjetas];
+  const catalogo = catalogoParaTarjetas(opts.stock, opts.resultadosBusqueda);
+  const resolver = (sku: string) => catalogo.find((item) => item.sku.toLowerCase() === sku.trim().toLowerCase());
+
+  if (extraidas.sku) {
+    const hit = resolver(extraidas.sku);
+    if (hit) tarjetas.push(tarjetaDesdeCatalogo(hit));
+  }
+  for (const thumb of extraidas.miniaturas) {
+    const hit = resolver(thumb.sku);
+    tarjetas.push(
+      hit
+        ? tarjetaDesdeCatalogo({ ...hit, url_imagen: hit.url_imagen || thumb.url })
+        : tarjetaDesdeCatalogo({ sku: thumb.sku, nombre: thumb.sku, url_imagen: thumb.url, precio: 0, existencia: 0 })
+    );
+  }
+
+  if (opts.consultaSecundaria && opts.resultadosBusqueda.length) {
+    for (const item of opts.resultadosBusqueda.slice(0, 4)) {
+      tarjetas.push(tarjetaDesdeCatalogo(item));
+    }
+  } else if (pideMostrarProducto(opts.textoUsuario)) {
+    const ficha = resolverFichaSolicitada(opts.textoUsuario, opts.historial, opts.stock);
+    if (ficha) tarjetas.push(tarjetaDesdeCatalogo(ficha));
+  }
+
+  const cuerpo =
+    extraidas.texto ||
+    (tarjetas.length > 1
+      ? "Te muestro estas opciones con foto de anaquel."
+      : tarjetas[0]
+        ? `Te muestro la ficha de ${tarjetas[0].nombre} con foto de anaquel.`
+        : opts.texto);
+  return conTarjetas(cuerpo, tarjetas);
+}
+
 async function responderConsultaCampo(
   env: Env,
   sql: Awaited<ReturnType<typeof sqlCampo>>,
@@ -282,7 +368,7 @@ async function responderConsultaCampo(
         sql,
         consulta.id,
         "assistant",
-        conMarcaFicha(`Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`, ficha.sku)
+        conTarjetas(`Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`, [tarjetaDesdeCatalogo(ficha)])
       );
       return [userMsg, assistantMsg];
     }
@@ -368,18 +454,14 @@ async function responderConsultaCampo(
     compactarTextoAsesor(respuesta || "No pude completar la respuesta. Intenta de nuevo.").slice(0, 8000) ||
     "No pude completar la respuesta. Intenta de nuevo.";
   textoAsesor = alinearCifrasStock(textoAsesor, stockParaFicha);
-  const marca = extraerMarcaFicha(textoAsesor);
-  if (!marca.sku && pideMostrarProducto(texto)) {
-    const ficha = resolverFichaSolicitada(texto, historial, stockParaFicha);
-    if (ficha) textoAsesor = conMarcaFicha(marca.texto || `Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`, ficha.sku);
-  }
-  if (consultaSecundaria) {
-    const thumbs = resultadosBusqueda
-      .filter((item) => item.url_imagen.trim())
-      .slice(0, 3)
-      .map((item) => ({ sku: item.sku, url: item.url_imagen }));
-    if (thumbs.length) textoAsesor = conMiniaturas(textoAsesor, thumbs);
-  }
+  textoAsesor = adjuntarTarjetasRespuesta({
+    texto: textoAsesor,
+    textoUsuario: texto,
+    historial,
+    consultaSecundaria,
+    resultadosBusqueda,
+    stock: stockParaFicha,
+  });
   const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
   return [userMsg, assistantMsg];
 }

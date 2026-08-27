@@ -151,6 +151,42 @@
   .ficha-chat-cuerpo {
     @apply px-3 pb-3 pt-2;
   }
+  .carrusel-chat {
+    @apply flex gap-2 overflow-x-auto pb-1;
+    width: 100%;
+    align-items: stretch;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+  .carrusel-chat-uno {
+    display: block;
+  }
+  .tarjeta-chat {
+    @apply mr-auto overflow-hidden rounded-2xl rounded-bl-sm border border-stone-200 bg-white shadow-sm;
+    flex: 0 0 11.5rem;
+    max-width: 12.5rem;
+    scroll-snap-align: start;
+  }
+  .carrusel-chat-uno .tarjeta-chat {
+    width: min(100%, 18rem);
+    max-width: 18rem;
+    flex-basis: auto;
+  }
+  .tarjeta-chat-foto {
+    @apply flex w-full items-center justify-center overflow-hidden bg-white;
+    aspect-ratio: 3 / 4;
+    max-height: 14rem;
+  }
+  .tarjeta-chat-foto img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    background-color: transparent;
+  }
+  .tarjeta-chat-cuerpo {
+    @apply px-2.5 pb-2.5 pt-2;
+  }
   .mic-recording {
     animation: mic-pulse 1.1s ease-in-out infinite;
   }

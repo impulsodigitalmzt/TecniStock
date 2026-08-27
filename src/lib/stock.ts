@@ -119,11 +119,38 @@ const FAMILIAS: { id: string; claves: string[] }[] = [
   { id: "clavija", claves: ["clavija"] },
 ];
 
-function gangasEnTexto(texto: string): number | null {
+/** «Paso doble / 3 vías» es función (suele ser 1 ganga), no el número de módulos de la placa. */
+function textoSinFuncionTresVias(texto: string): string {
+  return texto
+    .replace(/\bpaso doble\b/g, " ")
+    .replace(/\bconmutador\b/g, " ")
+    .replace(/\b3 vias\b/g, " ")
+    .replace(/\btres vias\b/g, " ")
+    .replace(/\b3 way\b/g, " ")
+    .replace(/\bescalera\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function esFuncionTresVias(texto: string): boolean {
   const t = normalizar(texto);
-  if (/\b(triple|3 gangas|tres vias|3 vias)\b/.test(t)) return 3;
-  if (/\b(doble|2 gangas|dos gangas|2g)\b/.test(t)) return 2;
-  if (/\b(sencillo|1 ganga|una ganga|simple)\b/.test(t)) return 1;
+  if (/\b(\d+\s*gangas?|triple)\b/.test(t)) return false;
+  return /\b(paso doble|3 vias|tres vias|escalera|3 way)\b/.test(t);
+}
+
+/** Cuenta de gangas/módulos de la placa. No usa «doble» suelto ni «3 vías». */
+export function gangasEnTexto(texto: string): number | null {
+  const t = textoSinFuncionTresVias(normalizar(texto));
+  if (/\b(4 gangas|cuatro gangas|cuadruple|4 palancas|4 botones|4 modulos|4 espacios|4g)\b/.test(t)) return 4;
+  if (/\b(3 gangas|tres gangas|triple|3 palancas|3 botones|3 modulos|3 espacios|placa de 3|3g)\b/.test(t)) return 3;
+  if (
+    /\b(2 gangas|dos gangas|doble ganga|2 palancas|2 botones|2 modulos|2 espacios|placa de 2|apagador doble|interruptor doble|2g)\b/.test(
+      t
+    )
+  ) {
+    return 2;
+  }
+  if (/\b(sencillo|1 ganga|una ganga|simple|1 palanca|1 boton|1 modulo|placa de 1)\b/.test(t)) return 1;
   return null;
 }
 
@@ -192,10 +219,9 @@ function puntuar(consulta: IdentidadPieza, item: StockItem, incluirMaterial = tr
 
   const gangasQuery = gangasEnTexto(textoBusqueda(consulta, false));
   const gangasItem = gangasEnTexto(textoCatalogo(item));
-  if (gangasQuery && gangasItem) {
-    if (gangasQuery === gangasItem) score += 0.2;
-    else score -= 0.25;
-  }
+  if (gangasQuery && gangasItem && gangasQuery !== gangasItem) return 0;
+  if (gangasQuery && gangasQuery >= 2 && !gangasItem && esFuncionTresVias(textoCatalogo(item))) return 0;
+  if (gangasQuery && gangasItem && gangasQuery === gangasItem) score += 0.28;
 
   return Math.max(0, Math.min(score, 1));
 }

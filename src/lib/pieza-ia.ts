@@ -156,6 +156,43 @@ function palabrasClave(value: unknown): string[] {
     .slice(0, 12);
 }
 
+function enteroModulos(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.min(8, Math.trunc(value)));
+  }
+  const n = Number.parseInt(texto(value), 10);
+  return Number.isFinite(n) ? Math.max(0, Math.min(8, n)) : 0;
+}
+
+function etiquetaGangas(modulos: number): string {
+  return modulos === 1 ? "1 ganga" : `${modulos} gangas`;
+}
+
+function nombreYaTieneGangas(nombre: string): boolean {
+  return /\b(\d+\s*gangas?|triple)\b/i.test(nombre);
+}
+
+function aplicarConteoModulos(
+  nombre: string,
+  medida: string,
+  claves: string[],
+  modulos: number
+): { nombre: string; medida: string; palabras_clave: string[] } {
+  if (modulos < 1) return { nombre, medida, palabras_clave: claves };
+  const etiqueta = etiquetaGangas(modulos);
+  const extra = [etiqueta];
+  if (modulos === 1) extra.push("sencillo", "1 ganga");
+  if (modulos === 2) extra.push("doble ganga", "2 gangas");
+  if (modulos === 3) extra.push("triple", "3 gangas");
+  const nombreFinal = nombreYaTieneGangas(nombre) ? nombre : `${nombre} ${etiqueta}`;
+  const medidaFinal = !medida || /^no visible$/i.test(medida) || !/\bganga/i.test(medida) ? etiqueta : medida;
+  return {
+    nombre: nombreFinal,
+    medida: medidaFinal,
+    palabras_clave: [...new Set([...claves, ...extra])].slice(0, 12),
+  };
+}
+
 function conPregunta(descripcion: string): { descripcion: string; pregunta: string } {
   return { descripcion: compactarTextoAsesor(descripcion), pregunta: "" };
 }
@@ -190,10 +227,16 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     texto(raw.descripcion || raw.observaciones || raw.notas || raw.pregunta)
   );
   const extras = [raw.rosca, raw.mecanismo, raw.acabado, raw.marca].map((item) => texto(item)).filter(Boolean);
-  return {
+  const conModulos = aplicarConteoModulos(
     nombre,
+    texto(raw.medida || raw.medida_detectada) || "No visible",
+    [...new Set([...palabrasClave(raw.palabras_clave), ...extras])].slice(0, 12),
+    enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones)
+  );
+  return {
+    nombre: conModulos.nombre,
     material: texto(raw.material) || "No determinado",
-    medida: texto(raw.medida || raw.medida_detectada) || "No visible",
+    medida: conModulos.medida,
     categoria: categoriaAbierta(raw.categoria),
     rosca: texto(raw.rosca),
     mecanismo: texto(raw.mecanismo),
@@ -203,7 +246,7 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     pregunta,
     observaciones: descripcion,
     confianza: Math.max(0, Math.min(1, confianza)),
-    palabras_clave: [...new Set([...palabrasClave(raw.palabras_clave), ...extras])].slice(0, 12),
+    palabras_clave: conModulos.palabras_clave,
   };
 }
 

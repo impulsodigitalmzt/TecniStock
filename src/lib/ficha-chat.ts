@@ -16,8 +16,19 @@ export type MiniaturaChat = {
   url: string;
 };
 
-const MARCA_FICHA_RE = /\[\[ficha:([A-Za-z0-9._-]+)\]\]/gi;
-const MARCA_THUMB_RE = /\[\[thumb:([A-Za-z0-9._-]+)\|([^\]]+)\]\]/gi;
+export type TarjetaChat = {
+  sku: string;
+  nombre: string;
+  url: string;
+  precio: number;
+  existencia: number;
+};
+
+const MARCA_FICHA_RE = /\[\[[\s]*ficha[\s]*:[\s]*["']?([A-Za-z0-9._-]+)["']?[\s]*\]\]/gi;
+const MARCA_THUMB_RE = /\[\[[\s]*thumb[\s]*:[\s]*([A-Za-z0-9._-]+)[\s]*\|[\s]*([^\]]+)\]\]/gi;
+const MARCA_CARD_RE =
+  /\[\[[\s]*card[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi;
+const MARCA_RESIDUO_RE = /\[\[[^\]]*\]\]/g;
 
 function norm(texto: string): string {
   return texto
@@ -30,13 +41,95 @@ function norm(texto: string): string {
     .trim();
 }
 
-export function extraerMarcaFicha(texto: string): { texto: string; sku: string | null; miniaturas: MiniaturaChat[] } {
+function sanitizarCampo(valor: string): string {
+  return valor.replace(/[|[\]\n\r]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function numeroTarjeta(valor: string): number {
+  const n = Number.parseFloat(String(valor ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function serializarTarjeta(tarjeta: TarjetaChat): string {
+  const sku = sanitizarCampo(tarjeta.sku).replace(/\s+/g, "");
+  const url = sanitizarCampo(tarjeta.url);
+  const precio = String(Number.isFinite(tarjeta.precio) ? tarjeta.precio : 0);
+  const existencia = String(Math.max(0, Math.trunc(tarjeta.existencia) || 0));
+  const nombre = sanitizarCampo(tarjeta.nombre) || sku;
+  return `[[card:${sku}|${url}|${precio}|${existencia}|${nombre}]]`;
+}
+
+export function tarjetaDesdeCatalogo(item: {
+  sku: string;
+  nombre: string;
+  url_imagen?: string;
+  url?: string;
+  precio?: number | null;
+  existencia?: number;
+  stock_disponible?: number;
+}): TarjetaChat {
+  const existencia =
+    typeof item.existencia === "number" && Number.isFinite(item.existencia)
+      ? Math.trunc(item.existencia)
+      : typeof item.stock_disponible === "number" && Number.isFinite(item.stock_disponible)
+        ? Math.trunc(item.stock_disponible)
+        : 0;
+  return {
+    sku: item.sku.trim(),
+    nombre: item.nombre.trim() || item.sku.trim(),
+    url: (item.url_imagen || item.url || "").trim(),
+    precio: typeof item.precio === "number" && Number.isFinite(item.precio) ? item.precio : 0,
+    existencia,
+  };
+}
+
+function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
+  const vistos = new Set<string>();
+  const out: TarjetaChat[] = [];
+  for (const item of items) {
+    const sku = item.sku.trim();
+    if (!sku) continue;
+    const clave = sku.toLowerCase();
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    out.push({
+      sku,
+      nombre: item.nombre.trim() || sku,
+      url: item.url.trim(),
+      precio: Number.isFinite(item.precio) ? item.precio : 0,
+      existencia: Math.max(0, Math.trunc(item.existencia) || 0),
+    });
+  }
+  return out.slice(0, 4);
+}
+
+export function extraerMarcaFicha(texto: string): {
+  texto: string;
+  sku: string | null;
+  miniaturas: MiniaturaChat[];
+  tarjetas: TarjetaChat[];
+} {
   let sku: string | null = null;
   const miniaturas: MiniaturaChat[] = [];
+  const tarjetas: TarjetaChat[] = [];
   const limpio = texto
+    .replace(MARCA_CARD_RE, (_, code: string, url: string, precio: string, existencia: string, nombre: string) => {
+      const tarjeta = tarjetaDesdeCatalogo({
+        sku: String(code ?? "").trim(),
+        nombre: String(nombre ?? "").trim(),
+        url: String(url ?? "").trim(),
+        precio: numeroTarjeta(precio),
+        existencia: Math.trunc(numeroTarjeta(existencia)),
+      });
+      if (tarjeta.sku) {
+        tarjetas.push(tarjeta);
+        if (!sku) sku = tarjeta.sku;
+      }
+      return "";
+    })
     .replace(MARCA_FICHA_RE, (_, code: string) => {
       const valor = String(code ?? "").trim();
-      if (valor) sku = valor;
+      if (valor && !sku) sku = valor;
       return "";
     })
     .replace(MARCA_THUMB_RE, (_, code: string, url: string) => {
@@ -45,20 +138,30 @@ export function extraerMarcaFicha(texto: string): { texto: string; sku: string |
       if (clave && href) miniaturas.push({ sku: clave, url: href });
       return "";
     })
+    .replace(MARCA_RESIDUO_RE, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { texto: limpio, sku, miniaturas };
+  return { texto: limpio, sku, miniaturas, tarjetas: fusionarTarjetas(tarjetas) };
+}
+
+export function conTarjetas(texto: string, items: TarjetaChat[]): string {
+  const { texto: cuerpo, tarjetas } = extraerMarcaFicha(texto);
+  const todas = fusionarTarjetas([...tarjetas, ...items]);
+  const marcas = todas.map(serializarTarjeta).join("\n");
+  return marcas ? `${cuerpo}\n\n${marcas}`.trim() : cuerpo;
 }
 
 export function conMarcaFicha(texto: string, sku: string): string {
-  const { texto: cuerpo, miniaturas } = extraerMarcaFicha(texto);
+  const { texto: cuerpo, miniaturas, tarjetas } = extraerMarcaFicha(texto);
+  if (tarjetas.length) return conTarjetas(cuerpo, tarjetas);
   const conSku = `${cuerpo}\n\n[[ficha:${sku}]]`.trim();
   return miniaturas.length ? conMiniaturas(conSku, miniaturas) : conSku;
 }
 
 export function conMiniaturas(texto: string, items: MiniaturaChat[]): string {
-  const { texto: cuerpo, sku, miniaturas } = extraerMarcaFicha(texto);
+  const { texto: cuerpo, sku, miniaturas, tarjetas } = extraerMarcaFicha(texto);
+  if (tarjetas.length) return conTarjetas(cuerpo, tarjetas);
   const todas: MiniaturaChat[] = [];
   const vistos = new Set<string>();
   for (const item of [...miniaturas, ...items]) {

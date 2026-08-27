@@ -1,3 +1,4 @@
+import { extraerMarcaFicha } from "./ficha-chat";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { ConsultaCampo, MensajeCampo } from "./consultas-campo";
 
@@ -21,7 +22,7 @@ export function exportarConsultaCsv(consulta: ConsultaCampo, mensajes: MensajeCa
     `expira,${csvEscape(consulta.expires_at)}`,
     "",
     "rol,texto,fecha",
-    ...mensajes.map((msg) => `${csvEscape(msg.rol)},${csvEscape(msg.texto)},${csvEscape(msg.created_at)}`),
+    ...mensajes.map((msg) => `${csvEscape(msg.rol)},${csvEscape(extraerMarcaFicha(msg.texto).texto)},${csvEscape(msg.created_at)}`),
   ];
   return `\uFEFF${lines.join("\r\n")}`;
 }
@@ -83,7 +84,7 @@ export async function exportarConsultaPdf(consulta: ConsultaCampo, mensajes: Men
   wrap("Chat", 12, accent, true);
   for (const msg of mensajes) {
     wrap(`${msg.rol.toUpperCase()}  ${msg.created_at}`, 8, muted, true);
-    wrap(msg.texto, 10);
+    wrap(extraerMarcaFicha(msg.texto).texto, 10);
   }
   return doc.save();
 }

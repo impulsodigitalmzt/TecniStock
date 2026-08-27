@@ -112,6 +112,14 @@ function textoDescripcion(pieza: PiezaDetectada): string {
   return compactarTextoChat(pieza.descripcion || pieza.observaciones || '');
 }
 
+type TarjetaChat = {
+  sku: string;
+  nombre: string;
+  url: string;
+  precio: number;
+  existencia: number;
+};
+
 const PREGUNTA_GUIA =
   '¿Qué deseas hacer con esta pieza? (Ej: consultar disponibilidad en stock, buscar repuestos, ver ficha o registrar movimiento).';
 
@@ -119,25 +127,45 @@ function extraerMarcaFicha(texto: string): {
   texto: string;
   sku: string | null;
   miniaturas: { sku: string; url: string }[];
+  tarjetas: TarjetaChat[];
 } {
   let sku: string | null = null;
   const miniaturas: { sku: string; url: string }[] = [];
+  const tarjetas: TarjetaChat[] = [];
   const limpio = texto
-    .replace(/\[\[ficha:([A-Za-z0-9._-]+)\]\]/gi, (_, code: string) => {
+    .replace(
+      /\[\[[\s]*card[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi,
+      (_, code: string, url: string, precio: string, existencia: string, nombre: string) => {
+        const clave = String(code ?? '').trim();
+        if (clave) {
+          tarjetas.push({
+            sku: clave,
+            nombre: String(nombre ?? '').trim() || clave,
+            url: String(url ?? '').trim(),
+            precio: Number.parseFloat(String(precio ?? '').trim()) || 0,
+            existencia: Math.trunc(Number.parseFloat(String(existencia ?? '').trim()) || 0),
+          });
+          if (!sku) sku = clave;
+        }
+        return '';
+      }
+    )
+    .replace(/\[\[[\s]*ficha[\s]*:[\s]*["']?([A-Za-z0-9._-]+)["']?[\s]*\]\]/gi, (_, code: string) => {
       const valor = String(code ?? '').trim();
-      if (valor) sku = valor;
+      if (valor && !sku) sku = valor;
       return '';
     })
-    .replace(/\[\[thumb:([A-Za-z0-9._-]+)\|([^\]]+)\]\]/gi, (_, code: string, url: string) => {
+    .replace(/\[\[[\s]*thumb[\s]*:[\s]*([A-Za-z0-9._-]+)[\s]*\|[\s]*([^\]]+)\]\]/gi, (_, code: string, url: string) => {
       const clave = String(code ?? '').trim();
       const href = String(url ?? '').trim();
       if (clave && href) miniaturas.push({ sku: clave, url: href });
       return '';
     })
+    .replace(/\[\[[^\]]*\]\]/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { texto: limpio, sku, miniaturas };
+  return { texto: limpio, sku, miniaturas, tarjetas };
 }
 
 function compactarTextoChat(texto: string): string {
@@ -192,43 +220,104 @@ function normaTexto(texto: string): string {
   return texto.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+type BurbujaChat = {
+  id: string;
+  rol: string;
+  texto: string;
+  fichaSku: string | null;
+  miniaturas: { sku: string; url: string }[];
+  tarjetas: TarjetaChat[];
+};
+
+function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
+  const vistos = new Set<string>();
+  const out: TarjetaChat[] = [];
+  for (const item of items) {
+    const sku = item.sku.trim();
+    if (!sku) continue;
+    const clave = sku.toLowerCase();
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    out.push(item);
+  }
+  return out.slice(0, 4);
+}
+
 function burbujasChat(
   mensajes: Mensaje[],
   opener: string,
-  descripcion: string
-): { id: string; rol: string; texto: string; fichaSku: string | null; miniaturas: { sku: string; url: string }[] }[] {
+  descripcion: string,
+  tarjetasOpener: TarjetaChat[] = []
+): BurbujaChat[] {
   const diagnostico = normaTexto(descripcion);
   const pregunta = normaTexto(PREGUNTA_GUIA);
   const openerNorma = opener ? normaTexto(opener) : '';
-  const intro: { id: string; rol: string; texto: string; fichaSku: string | null; miniaturas: { sku: string; url: string }[] }[] = [];
-  if (opener) intro.push({ id: 'opener-guia', rol: 'assistant', texto: opener, fichaSku: null, miniaturas: [] });
-  const resto: { id: string; rol: string; texto: string; fichaSku: string | null; miniaturas: { sku: string; url: string }[] }[] = [];
+  const intro: BurbujaChat[] = [];
+  if (opener) {
+    intro.push({
+      id: 'opener-guia',
+      rol: 'assistant',
+      texto: opener,
+      fichaSku: null,
+      miniaturas: [],
+      tarjetas: tarjetasOpener,
+    });
+  }
+  const resto: BurbujaChat[] = [];
   for (const msg of mensajes) {
     const marca = extraerMarcaFicha(msg.texto);
     if (msg.rol !== 'assistant') {
-      if (marca.texto.trim()) resto.push({ id: msg.id, rol: msg.rol, texto: marca.texto, fichaSku: null, miniaturas: [] });
+      if (marca.texto.trim()) {
+        resto.push({
+          id: msg.id,
+          rol: msg.rol,
+          texto: marca.texto,
+          fichaSku: null,
+          miniaturas: [],
+          tarjetas: [],
+        });
+      }
       continue;
     }
     const cuerpo = compactarTextoChat(marca.texto);
     const norma = normaTexto(cuerpo);
+    const vacia = {
+      id: msg.id,
+      rol: 'assistant',
+      texto: '',
+      fichaSku: marca.sku,
+      miniaturas: marca.miniaturas,
+      tarjetas: marca.tarjetas,
+    } satisfies BurbujaChat;
     if (cuerpo) {
       if (diagnostico && norma === diagnostico) {
-        if (marca.sku) resto.push({ id: msg.id, rol: 'assistant', texto: '', fichaSku: marca.sku, miniaturas: marca.miniaturas });
+        if (marca.sku || marca.tarjetas.length || marca.miniaturas.length) resto.push(vacia);
         continue;
       }
       if (norma === pregunta) continue;
       if (openerNorma && norma === openerNorma) {
-        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku, miniaturas: marca.miniaturas });
+        if (marca.sku || marca.tarjetas.length || marca.miniaturas.length) {
+          resto.push({ ...vacia, id: `${msg.id}-ficha` });
+        }
         continue;
       }
       if (esOpenerInventario(cuerpo)) {
-        if (marca.sku) resto.push({ id: `${msg.id}-ficha`, rol: 'assistant', texto: '', fichaSku: marca.sku, miniaturas: marca.miniaturas });
+        if (marca.sku || marca.tarjetas.length || marca.miniaturas.length) {
+          resto.push({ ...vacia, id: `${msg.id}-ficha` });
+        }
         continue;
       }
       if (/para no dejarte sin material|estas alternativas compatibles sí están listas/i.test(norma)) continue;
     }
-    if (!cuerpo && !marca.sku && marca.miniaturas.length === 0) continue;
-    resto.push({ id: msg.id, rol: 'assistant', texto: cuerpo, fichaSku: marca.sku, miniaturas: marca.miniaturas });
+    if (!cuerpo && !marca.sku && marca.miniaturas.length === 0 && marca.tarjetas.length === 0) continue;
+    resto.push({
+      id: msg.id,
+      rol: 'assistant',
+      texto: cuerpo,
+      fichaSku: marca.sku,
+      miniaturas: marca.miniaturas,
+      tarjetas: marca.tarjetas,
+    });
   }
   return [...intro, ...resto];
 }
@@ -271,37 +360,102 @@ function buscarFichaVisible(sku: string, stock: BloqueStock, pieza: PiezaDetecta
   };
 }
 
-function etiquetaExistenciaFicha(ficha: FichaVisible, stock: BloqueStock): { texto: string; clase: string } {
-  if (ficha.esPrincipal) return etiquetaStock(stock);
-  if (ficha.existencia <= 0) return { texto: 'Faltante momentáneo', clase: 'badge-amber' };
-  if (ficha.existencia <= 5) return { texto: `Bajo · ${ficha.existencia}`, clase: 'badge-amber' };
-  return { texto: `${ficha.existencia} en stock`, clase: 'badge-green' };
+function etiquetaExistenciaFicha(existencia: number, esPrincipal: boolean, stock: BloqueStock): { texto: string; clase: string } {
+  if (esPrincipal) return etiquetaStock(stock);
+  if (existencia <= 0) return { texto: 'Faltante momentáneo', clase: 'badge-amber' };
+  if (existencia <= 5) return { texto: `Bajo · ${existencia}`, clase: 'badge-amber' };
+  return { texto: `${existencia} en stock`, clase: 'badge-green' };
 }
 
-function FichaEnChat({ ficha, stock }: { ficha: FichaVisible; stock: BloqueStock }) {
-  const foto = urlFotoCatalogo(ficha.url_imagen);
-  const estado = etiquetaExistenciaFicha(ficha, stock);
+function tarjetasDesdeStock(stock: BloqueStock): TarjetaChat[] {
+  const items: TarjetaChat[] = [];
+  if (stock.sku && stock.nombre) {
+    items.push({
+      sku: stock.sku,
+      nombre: stock.nombre,
+      url: stock.url_imagen ?? '',
+      precio: stock.precio ?? 0,
+      existencia: cantidadStock(stock),
+    });
+  }
+  const alts = stock.alternativas && stock.alternativas.length > 0 ? stock.alternativas : stock.sustituto ? [stock.sustituto] : [];
+  for (const item of alts) {
+    if (!item.sku || items.some((row) => row.sku.toLowerCase() === item.sku.toLowerCase())) continue;
+    items.push({
+      sku: item.sku,
+      nombre: item.nombre,
+      url: item.url_imagen ?? '',
+      precio: item.precio,
+      existencia: item.existencia,
+    });
+  }
+  return fusionarTarjetas(items);
+}
+
+function tarjetasDeBurbuja(msg: BurbujaChat, stock: BloqueStock | undefined, pieza: PiezaDetectada | null): TarjetaChat[] {
+  const base = [...msg.tarjetas];
+  if (base.length === 0 && msg.fichaSku && stock) {
+    const ficha = buscarFichaVisible(msg.fichaSku, stock, pieza);
+    if (ficha) {
+      base.push({
+        sku: ficha.sku,
+        nombre: ficha.nombre,
+        url: ficha.url_imagen ?? '',
+        precio: ficha.precio ?? 0,
+        existencia: ficha.existencia,
+      });
+    }
+  }
+  for (const thumb of msg.miniaturas ?? []) {
+    if (base.some((item) => item.sku.toLowerCase() === thumb.sku.toLowerCase())) {
+      const actual = base.find((item) => item.sku.toLowerCase() === thumb.sku.toLowerCase());
+      if (actual && !actual.url) actual.url = thumb.url;
+      continue;
+    }
+    const ficha = stock ? buscarFichaVisible(thumb.sku, stock, pieza) : null;
+    base.push(
+      ficha
+        ? {
+            sku: ficha.sku,
+            nombre: ficha.nombre,
+            url: ficha.url_imagen || thumb.url,
+            precio: ficha.precio ?? 0,
+            existencia: ficha.existencia,
+          }
+        : { sku: thumb.sku, nombre: thumb.sku, url: thumb.url, precio: 0, existencia: 0 }
+    );
+  }
+  return fusionarTarjetas(base);
+}
+
+function CarruselEnChat({ tarjetas, stock }: { tarjetas: TarjetaChat[]; stock: BloqueStock }) {
+  if (tarjetas.length === 0) return null;
   return (
-    <article className="ficha-chat">
-      {foto ? (
-        <div className="ficha-chat-foto">
-          <img src={foto} alt={ficha.nombre} />
-        </div>
-      ) : (
-        <div className="ficha-chat-foto text-xs font-semibold text-amber-800">En anaquel</div>
-      )}
-      <div className="ficha-chat-cuerpo">
-        <h3 className="text-sm font-bold leading-snug text-stone-900">{ficha.nombre}</h3>
-        <div className="mt-1.5 flex items-center justify-between gap-2">
-          <span className={estado.clase}>{estado.texto}</span>
-          <span className="text-sm font-semibold tabular-nums">{dinero(ficha.precio, stock.moneda)}</span>
-        </div>
-        {ficha.ubicacion_tienda ? (
-          <p className="mt-1.5 text-xs leading-snug text-stone-600">Anaquel: {ficha.ubicacion_tienda}</p>
-        ) : null}
-        <p className="mt-1 text-[11px] font-mono text-stone-400 truncate">{ficha.sku}</p>
-      </div>
-    </article>
+    <div className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}>
+      {tarjetas.map((item) => {
+        const foto = urlFotoCatalogo(item.url);
+        const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
+        return (
+          <article key={item.sku} className="tarjeta-chat">
+            {foto ? (
+              <div className="tarjeta-chat-foto">
+                <img src={foto} alt={item.nombre} />
+              </div>
+            ) : (
+              <div className="tarjeta-chat-foto text-[10px] font-semibold text-amber-800">En anaquel</div>
+            )}
+            <div className="tarjeta-chat-cuerpo">
+              <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">{item.nombre}</h3>
+              <p className="mt-1 font-mono text-[10px] text-stone-400 truncate">{item.sku}</p>
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <span className={estado.clase}>{estado.texto}</span>
+                <span className="text-sm font-semibold tabular-nums">{dinero(item.precio, stock.moneda)}</span>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1037,13 +1191,18 @@ export default function App() {
         pieza.acabado ? pieza.acabado : '',
       ].filter(Boolean)
     : [];
-  const hiloChat = burbujasChat(mensajes, pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '', descripcion);
   const alternativasStock = stock
     ? (stock.alternativas && stock.alternativas.length > 0 ? stock.alternativas : stock.sustituto ? [stock.sustituto] : [])
         .filter((item) => item.existencia > 0)
         .slice(0, MAX_ALTERNATIVAS)
     : [];
   const mostrarCarrusel = alternativasStock.length > 0;
+  const hiloChat = burbujasChat(
+    mensajes,
+    pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '',
+    descripcion,
+    stock ? tarjetasDesdeStock(stock) : []
+  );
 
   return (
     <div className="min-h-dvh bg-stone-100 text-stone-900">
@@ -1643,30 +1802,15 @@ export default function App() {
                             </div>
                           );
                         }
-                        const ficha = msg.fichaSku && stock ? buscarFichaVisible(msg.fichaSku, stock, pieza) : null;
-                        const thumbs = (msg.miniaturas ?? [])
-                          .map((item) => ({ ...item, src: urlFotoCatalogo(item.url) }))
-                          .filter((item): item is { sku: string; url: string; src: string } => Boolean(item.src));
+                        const tarjetas = stock ? tarjetasDeBurbuja(msg, stock, pieza) : msg.tarjetas;
                         return (
                           <div key={msg.id} className="space-y-2">
-                            {msg.texto || thumbs.length > 0 ? (
+                            {msg.texto ? (
                               <div className="bubble-bot">
-                                {msg.texto ? <p className="whitespace-pre-wrap">{msg.texto}</p> : null}
-                                {thumbs.length > 0 ? (
-                                  <div className={`chat-thumbs ${msg.texto ? 'mt-2' : ''}`}>
-                                    {thumbs.map((item) => (
-                                      <img
-                                        key={`${msg.id}-${item.sku}`}
-                                        src={item.src}
-                                        alt=""
-                                        className="chat-thumb"
-                                      />
-                                    ))}
-                                  </div>
-                                ) : null}
+                                <p className="whitespace-pre-wrap">{msg.texto}</p>
                               </div>
                             ) : null}
-                            {ficha ? <FichaEnChat ficha={ficha} stock={stock} /> : null}
+                            {tarjetas.length > 0 && stock ? <CarruselEnChat tarjetas={tarjetas} stock={stock} /> : null}
                           </div>
                         );
                       })}

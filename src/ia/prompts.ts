@@ -1,6 +1,6 @@
 import { cantidadStock, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible, type SustitutoStock } from "../lib/stock";
 
-import { extraerMarcaFicha, conMarcaFicha, conMiniaturas } from "../lib/ficha-chat";
+import { extraerMarcaFicha, conMarcaFicha, conMiniaturas, conTarjetas } from "../lib/ficha-chat";
 
 /** Pregunta de guía: va solo en una burbuja de chat, nunca en la ficha. */
 export const PREGUNTA_PROACTIVA =
@@ -8,9 +8,9 @@ export const PREGUNTA_PROACTIVA =
 
 const PREGUNTA_PROACTIVA_RE = /\s*¿Qué deseas hacer con esta pieza\?\s*(?:\([^)]*\))?\.?\s*/gi;
 
-/** Quita la CTA repetida y párrafos idénticos seguidos. Conserva [[ficha:SKU]] y [[thumb:SKU|url]]. */
+/** Quita la CTA repetida y párrafos idénticos seguidos. Conserva tarjetas visuales; nunca deja [[...]] sueltos. */
 export function compactarTextoAsesor(texto: string): string {
-  const { texto: cuerpo, sku, miniaturas } = extraerMarcaFicha(texto);
+  const { texto: cuerpo, sku, miniaturas, tarjetas } = extraerMarcaFicha(texto);
   const limpio = cuerpo.replace(PREGUNTA_PROACTIVA_RE, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   const partes = limpio
     .split(/\n{2,}/)
@@ -23,6 +23,7 @@ export function compactarTextoAsesor(texto: string): string {
     if (norma && norma !== previa) unicas.push(parte);
   }
   let compacto = unicas.join("\n\n");
+  if (tarjetas.length) return conTarjetas(compacto, tarjetas);
   if (sku) compacto = conMarcaFicha(compacto, sku);
   if (miniaturas.length) compacto = conMiniaturas(compacto, miniaturas);
   return compacto;
@@ -59,20 +60,30 @@ Si SÍ es del giro, observa con detalle de mostrador:
 - acabados (galvanizado, niquelado, cromado, pintado, crudo)
 - marcas o modelos visibles (solo si se leen; no inventes)
 
+CONTEO FÍSICO OBLIGATORIO (interruptores, apagadores, contactos, placas, tapas):
+- ANTES de nombrar el modelo, cuenta de izquierda a derecha cada palanca, botón, ganga o módulo VISIBLE en la placa.
+- modulos = ese entero (1, 2, 3, 4…). Si no aplica (una llave, un tubo, un rollo), usa 0.
+- Tres huecos, tres rockers o tres mecanismos en fila = modulos 3. Dos = 2. Uno = 1. No adivines por «lo típico».
+- NO confundas «paso doble / 3 vías / escalera» (función: controlar desde dos puntos; suele ser 1 palanca) con «2 gangas / doble ganga» (DOS mecanismos en la misma placa).
+- NO identifiques una placa de 3 gangas como una de 2, ni al revés. Si cuentas 3, está PROHIBIDO decir doble, 2 gangas o interruptor doble.
+- Si cuentas 3: nombre y medida DEBEN decir «3 gangas» o «triple». palabras_clave DEBE incluir «3 gangas».
+- Si cuentas 2: nombre y medida DEBEN decir «2 gangas» o «doble ganga». No uses «paso doble» salvo que haya UNA sola palanca de 3 vías.
+- Si la foto recorta un módulo pero se ve el resto de la placa, cuenta TODOS los espacios de la placa, no solo el que está al centro.
+
 REGLAS SI ES DEL GIRO:
 1. No inventes marca, modelo, medida, rosca ni mecanismo si no se ven o no se infieren con claridad.
 2. Usa el nombre técnico de mostrador más preciso posible.
 3. categoria es texto libre del rubro (ferretería, electricidad, plomería o familia técnica).
 4. confianza es un número de 0 a 1.
-5. palabras_clave: 4 a 12 términos útiles para inventario.
+5. palabras_clave: 4 a 12 términos útiles para inventario. Si modulos >= 1, incluye «N gangas».
 6. descripcion: 1 o 2 frases técnicas. NO incluyas preguntas ni llamadas a la acción.
 7. pregunta: cadena vacía "".
 8. Devuelve SOLO un objeto JSON válido, sin markdown, con las llaves:
    fuera_de_giro (false), nombre, material, medida, categoria, rosca, mecanismo, acabado, marca,
-   descripcion, pregunta, confianza, palabras_clave`;
+   descripcion, pregunta, confianza, palabras_clave, modulos`;
 
 export const USER_PROMPT_ANALISIS_VISUAL =
-  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son, cruza todas las vistas: identifica materiales, roscas, mecanismos, acabados y marcas y devuelve un solo JSON pedido.";
+  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: 1) CUENTA en la foto cada palanca, botón, ganga o módulo visible de izquierda a derecha y pon ese entero en modulos; 2) recién entonces nombra el artículo (si son 3 módulos no lo llames de 2); 3) cruza vistas para materiales, roscas, mecanismos, acabados y marcas; 4) devuelve un solo JSON pedido.";
 
 export const MENSAJE_SIN_INVENTARIO =
   "No cuento con ese artículo ni con una alternativa en el inventario local actual.";
@@ -105,9 +116,9 @@ PRIMERA RESPUESTA (solo si consulta_secundaria=false y el hilo aún no eligió c
 CUANDO EL CLIENTE YA ELIGIÓ:
 - Si pide alternativas y stock.alternativas o busqueda.resultados tiene ítems: ofrece SOLO esos (máximo ${MAX_ALTERNATIVAS}), con precio, SKU y existencia del snapshot. Nunca inventes uno extra.
 - Si pide alternativas y la lista está vacía: «${MENSAJE_SIN_INVENTARIO}»
-- Si pide VER / MOSTRAR un producto del snapshot:
-  - Una línea: «Te muestro la ficha de [nombre] con foto de anaquel.»
-  - Última línea exactamente [[ficha:SKU]] con un SKU que esté en stock.sku, stock.alternativas o busqueda.resultados. No inventes SKUs.
+- Si pide VER / MOSTRAR un producto del snapshot, o ofreces varias opciones:
+  - Una o dos líneas de texto (nombre, precio y existencia del snapshot). El sistema pinta las fotos; TÚ NO escribas códigos.
+  - PROHIBIDO escribir [[ficha:...]], [[thumb:...]], [[card:...]] u otros marcadores entre corchetes. No inventes SKUs.
 - Si pide fecha de resurtido: no inventes fechas. Si está en inventario_local con existencia 0, di que hoy no hay piezas; no prometas llegada.
 - Ficha técnica del modelo de la foto: solo material/medida de la identificación visual; precio/stock/SKU solo del snapshot.
 
@@ -128,6 +139,7 @@ PROHIBIDO:
 - Sugerir que busque la pieza en otro lado o en internet.
 - Confirmar un apartado sin nombre completo, teléfono y horario de recoger (máximo 24 horas).
 - Repetir la ficha ni preguntar «qué deseas hacer con esta pieza».
+- Escribir [[ficha:...]], [[thumb:...]], [[card:...]] o cualquier código [[...]] en la respuesta. El cliente nunca debe ver esos marcadores.
 
 ESTILO:
 - Español de mostrador, breve, transparente. Primera burbuja: 2 o 3 líneas, o una lista corta si hay alternativas.
