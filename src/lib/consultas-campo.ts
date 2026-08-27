@@ -197,7 +197,8 @@ export async function actualizarConsultaCampo(
   sql: Sql,
   id: string,
   dispositivoId: string,
-  input: { pieza: PiezaDetectada; stock: BloqueStock }
+  input: { pieza: PiezaDetectada; stock: BloqueStock },
+  opciones: { omitirMensajeGuia?: boolean } = {}
 ): Promise<ConsultaCampo> {
   const actual = await obtenerConsultaCampo(sql, id, dispositivoId);
   const piezaMeta = piezaSinBinarios(input.pieza);
@@ -229,7 +230,9 @@ export async function actualizarConsultaCampo(
     ]
   );
   const consulta = mapConsulta(rows[0] ?? {});
-  await agregarMensajeCampo(sql, consulta.id, "assistant", mensajeGuiaInicial(input.pieza, input.stock));
+  if (!opciones.omitirMensajeGuia) {
+    await agregarMensajeCampo(sql, consulta.id, "assistant", mensajeGuiaInicial(input.pieza, input.stock));
+  }
   return consulta;
 }
 
@@ -237,7 +240,8 @@ export async function aplicarSkuConsultaCampo(
   sql: Sql,
   id: string,
   dispositivoId: string,
-  sku: string
+  sku: string,
+  opciones: { omitirMensajeGuia?: boolean } = {}
 ): Promise<{ consulta: ConsultaCampo; stock: BloqueStock }> {
   const codigo = sku.trim();
   if (!codigo) throw new AppError(400, "Indica un SKU de inventario local.", "SKU_REQUIRED");
@@ -258,9 +262,16 @@ export async function aplicarSkuConsultaCampo(
     throw new AppError(404, "Ese SKU no está en inventario local.", "SKU_NO_ENCONTRADO");
   }
   stock.forzado = true;
+  stock.sku_conversacion = stock.sku;
   const piezaMeta = {
     ...actual.pieza,
     nombre: stock.nombre || actual.pieza_nombre,
+    material: stock.material || "",
+    medida: stock.medida || "",
+    descripcion: "",
+    observaciones: "",
+    pregunta: "",
+    palabras_clave: [stock.sku, stock.nombre].filter(Boolean),
   };
   const titulo = String(stock.nombre || actual.titulo).slice(0, 120);
   const rows = await sql.query(
@@ -268,15 +279,19 @@ export async function aplicarSkuConsultaCampo(
        titulo = $1,
        pieza_estatus = $2,
        pieza_nombre = $3,
-       pieza_json = $4::jsonb,
-       stock_json = $5::jsonb,
+       pieza_material = $4,
+       pieza_medida = $5,
+       pieza_json = $6::jsonb,
+       stock_json = $7::jsonb,
        updated_at = NOW()
-     WHERE id = $6::uuid AND dispositivo_id = $7
+     WHERE id = $8::uuid AND dispositivo_id = $9
      RETURNING *`,
     [
       titulo,
       piezaEstatusDesdeStock(stock),
       String(stock.nombre || actual.pieza_nombre),
+      String(stock.material || ""),
+      String(stock.medida || ""),
       toJsonbParam(piezaMeta),
       toJsonbParam(stock),
       id,
@@ -284,12 +299,14 @@ export async function aplicarSkuConsultaCampo(
     ]
   );
   const consulta = mapConsulta(rows[0] ?? {});
-  await agregarMensajeCampo(
-    sql,
-    consulta.id,
-    "assistant",
-    redactarMensajeInicial(String(stock.nombre || actual.pieza_nombre), stock)
-  );
+  if (!opciones.omitirMensajeGuia) {
+    await agregarMensajeCampo(
+      sql,
+      consulta.id,
+      "assistant",
+      redactarMensajeInicial(String(stock.nombre || actual.pieza_nombre), stock)
+    );
+  }
   return { consulta, stock };
 }
 

@@ -1,13 +1,22 @@
 const DB_NAME = "tecnistock";
 const STORE = "miniaturas";
+const STORE_HILO = "fotos_hilo";
 const INDEX_CONSULTA = "ix_consulta";
-const VERSION = 2;
+const INDEX_HILO_CONSULTA = "ix_consulta_hilo";
+const VERSION = 3;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_FOTOS_CONSULTA = 8;
 
 export type FotoLocal = {
   consultaId: string;
   indice: number;
+  blob: Blob;
+  createdAt: number;
+};
+
+export type FotoHiloLocal = {
+  mensajeId: string;
+  consultaId: string;
   blob: Blob;
   createdAt: number;
 };
@@ -109,6 +118,10 @@ function abrirDb(): Promise<IDBDatabase> {
         const tx = req.transaction;
         if (!tx) return;
         const oldVersion = event.oldVersion;
+        if (!db.objectStoreNames.contains(STORE_HILO)) {
+          const hilo = db.createObjectStore(STORE_HILO, { keyPath: "mensajeId" });
+          hilo.createIndex(INDEX_HILO_CONSULTA, "consultaId", { unique: false });
+        }
         if (oldVersion < 2 && db.objectStoreNames.contains(STORE)) {
           const oldStore = tx.objectStore(STORE);
           const legado: Array<{ consultaId: string; blob: Blob; createdAt: number; indice?: number }> = [];
@@ -316,12 +329,20 @@ export async function borrarFotoConsulta(consultaId: string): Promise<void> {
   try {
     const db = await abrirDb();
     try {
-      const tx = db.transaction(STORE, "readwrite");
+      const stores = [STORE, ...(db.objectStoreNames.contains(STORE_HILO) ? [STORE_HILO] : [])];
+      const tx = db.transaction(stores, "readwrite");
       const store = tx.objectStore(STORE);
       const req = store.index(INDEX_CONSULTA).getAllKeys(consultaId);
       req.onsuccess = () => {
         for (const key of req.result as IDBValidKey[]) store.delete(key);
       };
+      if (db.objectStoreNames.contains(STORE_HILO)) {
+        const hilo = tx.objectStore(STORE_HILO);
+        const hiloReq = hilo.index(INDEX_HILO_CONSULTA).getAllKeys(consultaId);
+        hiloReq.onsuccess = () => {
+          for (const key of hiloReq.result as IDBValidKey[]) hilo.delete(key);
+        };
+      }
       await esperarTransaccion(tx);
     } finally {
       db.close();
@@ -336,7 +357,8 @@ export async function podarFotosLocales(idsVivos: Set<string>): Promise<void> {
     const db = await abrirDb();
     try {
       const corte = Date.now() - MAX_AGE_MS;
-      const tx = db.transaction(STORE, "readwrite");
+      const names = [STORE, ...(db.objectStoreNames.contains(STORE_HILO) ? [STORE_HILO] : [])];
+      const tx = db.transaction(names, "readwrite");
       const store = tx.objectStore(STORE);
       const req = store.openCursor();
       req.onsuccess = () => {
@@ -348,11 +370,90 @@ export async function podarFotosLocales(idsVivos: Set<string>): Promise<void> {
         }
         cursor.continue();
       };
+      if (db.objectStoreNames.contains(STORE_HILO)) {
+        const hilo = tx.objectStore(STORE_HILO);
+        const hiloReq = hilo.openCursor();
+        hiloReq.onsuccess = () => {
+          const cursor = hiloReq.result;
+          if (!cursor) return;
+          const value = cursor.value as FotoHiloLocal;
+          if (!idsVivos.has(value.consultaId) || value.createdAt < corte) {
+            cursor.delete();
+          }
+          cursor.continue();
+        };
+      }
       await esperarTransaccion(tx);
     } finally {
       db.close();
     }
   } catch {
     /* no bloquear historial ni chat si el teléfono no puede podar */
+  }
+}
+
+async function escribirFotoHilo(row: FotoHiloLocal): Promise<void> {
+  const db = await abrirDb();
+  try {
+    const tx = db.transaction(STORE_HILO, "readwrite");
+    tx.objectStore(STORE_HILO).put(row);
+    await esperarTransaccion(tx);
+  } finally {
+    db.close();
+  }
+}
+
+export async function guardarFotoHilo(
+  consultaId: string,
+  mensajeId: string,
+  dataUrl: string
+): Promise<ResultadoGuardadoFoto> {
+  if (!consultaId.trim() || !mensajeId.trim() || !dataUrl) return { ok: false, motivo: "error" };
+  let blob: Blob;
+  try {
+    blob = dataUrlABlob(dataUrl);
+  } catch (err) {
+    return { ok: false, motivo: clasificarFallo(err) };
+  }
+  const row: FotoHiloLocal = { mensajeId, consultaId, blob, createdAt: Date.now() };
+  try {
+    await escribirFotoHilo(row);
+    return { ok: true };
+  } catch (err) {
+    if (!esErrorCuota(err)) return { ok: false, motivo: clasificarFallo(err) };
+    try {
+      await podarFotosLocales(new Set([consultaId]));
+      await escribirFotoHilo(row);
+      return { ok: true };
+    } catch (retryErr) {
+      return { ok: false, motivo: clasificarFallo(retryErr) };
+    }
+  }
+}
+
+export async function leerFotosHiloConsulta(consultaId: string): Promise<Record<string, string>> {
+  if (!consultaId.trim()) return {};
+  try {
+    const db = await abrirDb();
+    try {
+      if (!db.objectStoreNames.contains(STORE_HILO)) return {};
+      const rows = await new Promise<FotoHiloLocal[]>((resolve, reject) => {
+        const tx = db.transaction(STORE_HILO, "readonly");
+        const req = tx.objectStore(STORE_HILO).index(INDEX_HILO_CONSULTA).getAll(consultaId);
+        req.onsuccess = () => resolve((req.result as FotoHiloLocal[]) ?? []);
+        req.onerror = () => reject(req.error);
+        tx.onabort = () => reject(tx.error);
+      });
+      const out: Record<string, string> = {};
+      for (const row of rows) {
+        if (!row?.mensajeId || !row.blob) continue;
+        out[row.mensajeId] = URL.createObjectURL(row.blob);
+      }
+      return out;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return {};
   }
 }

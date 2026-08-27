@@ -172,6 +172,34 @@ function nombreYaTieneGangas(nombre: string): boolean {
   return /\b(\d+\s*gangas?|triple)\b/i.test(nombre);
 }
 
+function esMecanismoAccionable(mecanismo: string, nombre: string): boolean {
+  return /\b(rocker|palanca|boton|botón|switch|conmutador|basculante)\b/i.test(`${mecanismo} ${nombre}`);
+}
+
+/** Si el aparato es un interruptor/apagador, no arrastres «placa/tapa» a la búsqueda de inventario. */
+function depurarIdentidadPared(
+  nombre: string,
+  mecanismo: string,
+  claves: string[],
+  modulos: number
+): { nombre: string; palabras_clave: string[] } {
+  const parecePlaca = /^\s*(placa|tapa|embellecedor)\b/i.test(nombre);
+  const pareceInterruptor = /\b(interruptor|apagador|switch)\b/i.test(nombre) && !parecePlaca;
+  let nombreFinal = nombre;
+  if (parecePlaca && modulos >= 1 && esMecanismoAccionable(mecanismo, nombre)) {
+    nombreFinal = `Interruptor ${etiquetaGangas(modulos)}`;
+  }
+  const esAparato = pareceInterruptor || /\b(interruptor|apagador)\b/i.test(nombreFinal);
+  if (!esAparato && !(modulos >= 1 && esMecanismoAccionable(mecanismo, nombreFinal))) {
+    return { nombre: nombreFinal, palabras_clave: claves };
+  }
+  const filtradas = claves.filter((clave) => !/^(placa|tapa|embellecedor)s?$/i.test(clave.trim()));
+  const conAparato = filtradas.some((clave) => /\b(interruptor|apagador)\b/i.test(clave))
+    ? filtradas
+    : ["interruptor", "apagador", ...filtradas];
+  return { nombre: nombreFinal, palabras_clave: [...new Set(conAparato)].slice(0, 12) };
+}
+
 function aplicarConteoModulos(
   nombre: string,
   medida: string,
@@ -233,8 +261,14 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     [...new Set([...palabrasClave(raw.palabras_clave), ...extras])].slice(0, 12),
     enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones)
   );
+  const pared = depurarIdentidadPared(
+    conModulos.nombre,
+    texto(raw.mecanismo),
+    conModulos.palabras_clave,
+    enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones)
+  );
   return {
-    nombre: conModulos.nombre,
+    nombre: pared.nombre,
     material: texto(raw.material) || "No determinado",
     medida: conModulos.medida,
     categoria: categoriaAbierta(raw.categoria),
@@ -246,7 +280,7 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     pregunta,
     observaciones: descripcion,
     confianza: Math.max(0, Math.min(1, confianza)),
-    palabras_clave: conModulos.palabras_clave,
+    palabras_clave: pared.palabras_clave,
   };
 }
 

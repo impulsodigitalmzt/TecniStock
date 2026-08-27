@@ -57,6 +57,7 @@ export type BloqueStock = {
   filas_catalogo?: number;
   /** El SKU lo eligió el usuario en el buscador manual; no re-emparejar por la foto. */
   forzado?: boolean;
+  sku_conversacion?: string | null;
 };
 
 export type IdentidadPieza = {
@@ -109,9 +110,9 @@ function textoCatalogo(item: StockItem): string {
 
 const FAMILIAS: { id: string; claves: string[] }[] = [
   { id: "breaker", claves: ["termomagnet", "pastilla", "breaker", "termomagnetico"] },
-  { id: "placa", claves: ["placa", "tapa", "embellecedor"] },
-  { id: "contacto", claves: ["contacto", "tomacorriente", "duplex", "duplez", "receptaculo"] },
   { id: "interruptor", claves: ["interruptor", "apagador", "switch", "conmutador", "conmutar"] },
+  { id: "placa", claves: ["placa", "embellecedor"] },
+  { id: "contacto", claves: ["contacto", "tomacorriente", "duplex", "duplez", "receptaculo"] },
   { id: "cable", claves: ["cable", "thw", "thhn", "conductor"] },
   { id: "cinta", claves: ["cinta", "aislar", "aislante", "ailante"] },
   { id: "foco", claves: ["foco", "focos", "lampara", "luminaria", "bombilla", "bombillo"] },
@@ -167,6 +168,7 @@ export function cantidadStock(stock: Pick<BloqueStock, "stock_disponible" | "exi
 
 export function familiaCatalogo(texto: string): string | null {
   const t = normalizar(texto);
+  if (/^(placa|tapa|embellecedor)\b/.test(t) || /\bplaca para\b/.test(t)) return "placa";
   for (const familia of FAMILIAS) {
     if (familia.claves.some((clave) => t.includes(clave))) return familia.id;
   }

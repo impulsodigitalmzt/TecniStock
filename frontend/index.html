@@ -9,6 +9,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.json" />
     <title>TecniStock</title>
+    <script>
+      try {
+        if (localStorage.getItem('tecnistock.tema') === 'noche') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -28,7 +28,10 @@ const MARCA_FICHA_RE = /\[\[[\s]*ficha[\s]*:[\s]*["']?([A-Za-z0-9._-]+)["']?[\s]
 const MARCA_THUMB_RE = /\[\[[\s]*thumb[\s]*:[\s]*([A-Za-z0-9._-]+)[\s]*\|[\s]*([^\]]+)\]\]/gi;
 const MARCA_CARD_RE =
   /\[\[[\s]*card[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi;
+const MARCA_FOTO_HILO_RE = /\[\[[\s]*foto-hilo[\s]*\]\]/gi;
 const MARCA_RESIDUO_RE = /\[\[[^\]]*\]\]/g;
+
+export const MARCA_FOTO_HILO = "[[foto-hilo]]";
 
 function norm(texto: string): string {
   return texto
@@ -108,8 +111,10 @@ export function extraerMarcaFicha(texto: string): {
   sku: string | null;
   miniaturas: MiniaturaChat[];
   tarjetas: TarjetaChat[];
+  fotoHilo: boolean;
 } {
   let sku: string | null = null;
+  let fotoHilo = false;
   const miniaturas: MiniaturaChat[] = [];
   const tarjetas: TarjetaChat[] = [];
   const limpio = texto
@@ -138,11 +143,15 @@ export function extraerMarcaFicha(texto: string): {
       if (clave && href) miniaturas.push({ sku: clave, url: href });
       return "";
     })
+    .replace(MARCA_FOTO_HILO_RE, () => {
+      fotoHilo = true;
+      return "";
+    })
     .replace(MARCA_RESIDUO_RE, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { texto: limpio, sku, miniaturas, tarjetas: fusionarTarjetas(tarjetas) };
+  return { texto: limpio, sku, miniaturas, tarjetas: fusionarTarjetas(tarjetas), fotoHilo };
 }
 
 export function conTarjetas(texto: string, items: TarjetaChat[]): string {

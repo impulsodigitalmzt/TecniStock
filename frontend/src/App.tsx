@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle, Camera, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
-  MessageCircle, Mic, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Tag, Trash2, Wrench, X,
+  MessageCircle, Mic, Moon, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Sun, Tag, Trash2, Wrench, X,
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
 import {
   avisoGuardadoMiniatura,
   borrarFotoConsulta,
+  guardarFotoHilo,
   guardarFotosConsulta,
   leerFotoConsulta,
   leerFotosConsulta,
+  leerFotosHiloConsulta,
   MAX_FOTOS_CONSULTA,
   podarFotosLocales,
 } from './lib/fotos-idb';
@@ -128,8 +130,10 @@ function extraerMarcaFicha(texto: string): {
   sku: string | null;
   miniaturas: { sku: string; url: string }[];
   tarjetas: TarjetaChat[];
+  fotoHilo: boolean;
 } {
   let sku: string | null = null;
+  let fotoHilo = false;
   const miniaturas: { sku: string; url: string }[] = [];
   const tarjetas: TarjetaChat[] = [];
   const limpio = texto
@@ -161,11 +165,15 @@ function extraerMarcaFicha(texto: string): {
       if (clave && href) miniaturas.push({ sku: clave, url: href });
       return '';
     })
+    .replace(/\[\[[\s]*foto-hilo[\s]*\]\]/gi, () => {
+      fotoHilo = true;
+      return '';
+    })
     .replace(/\[\[[^\]]*\]\]/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { texto: limpio, sku, miniaturas, tarjetas };
+  return { texto: limpio, sku, miniaturas, tarjetas, fotoHilo };
 }
 
 function compactarTextoChat(texto: string): string {
@@ -227,6 +235,7 @@ type BurbujaChat = {
   fichaSku: string | null;
   miniaturas: { sku: string; url: string }[];
   tarjetas: TarjetaChat[];
+  fotoHilo: boolean;
 };
 
 function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
@@ -261,13 +270,14 @@ function burbujasChat(
       fichaSku: null,
       miniaturas: [],
       tarjetas: tarjetasOpener,
+      fotoHilo: false,
     });
   }
   const resto: BurbujaChat[] = [];
   for (const msg of mensajes) {
     const marca = extraerMarcaFicha(msg.texto);
     if (msg.rol !== 'assistant') {
-      if (marca.texto.trim()) {
+      if (marca.texto.trim() || marca.fotoHilo) {
         resto.push({
           id: msg.id,
           rol: msg.rol,
@@ -275,6 +285,7 @@ function burbujasChat(
           fichaSku: null,
           miniaturas: [],
           tarjetas: [],
+          fotoHilo: marca.fotoHilo,
         });
       }
       continue;
@@ -288,6 +299,7 @@ function burbujasChat(
       fichaSku: marca.sku,
       miniaturas: marca.miniaturas,
       tarjetas: marca.tarjetas,
+      fotoHilo: false,
     } satisfies BurbujaChat;
     if (cuerpo) {
       if (diagnostico && norma === diagnostico) {
@@ -301,7 +313,7 @@ function burbujasChat(
         }
         continue;
       }
-      if (esOpenerInventario(cuerpo)) {
+      if (opener && esOpenerInventario(cuerpo)) {
         if (marca.sku || marca.tarjetas.length || marca.miniaturas.length) {
           resto.push({ ...vacia, id: `${msg.id}-ficha` });
         }
@@ -317,6 +329,7 @@ function burbujasChat(
       fichaSku: marca.sku,
       miniaturas: marca.miniaturas,
       tarjetas: marca.tarjetas,
+      fotoHilo: false,
     });
   }
   return [...intro, ...resto];
@@ -428,18 +441,39 @@ function tarjetasDeBurbuja(msg: BurbujaChat, stock: BloqueStock | undefined, pie
   return fusionarTarjetas(base);
 }
 
-function CarruselEnChat({ tarjetas, stock }: { tarjetas: TarjetaChat[]; stock: BloqueStock }) {
+function CarruselEnChat({
+  tarjetas,
+  stock,
+  disabled = false,
+  aplicandoSku = null,
+  onElegir,
+}: {
+  tarjetas: TarjetaChat[];
+  stock: BloqueStock;
+  disabled?: boolean;
+  aplicandoSku?: string | null;
+  onElegir?: (item: TarjetaChat) => void;
+}) {
   if (tarjetas.length === 0) return null;
   return (
     <div className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}>
       {tarjetas.map((item) => {
         const foto = urlFotoCatalogo(item.url);
         const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
+        const eligiendo = aplicandoSku === item.sku;
+        const yaElegida = Boolean(stock.sku && item.sku.toLowerCase() === stock.sku.toLowerCase() && stock.forzado);
         return (
-          <article key={item.sku} className="tarjeta-chat">
+          <button
+            key={item.sku}
+            type="button"
+            className="tarjeta-chat"
+            disabled={disabled || !onElegir}
+            aria-label={`Elegir ${item.nombre}`}
+            onClick={() => onElegir?.(item)}
+          >
             {foto ? (
               <div className="tarjeta-chat-foto">
-                <img src={foto} alt={item.nombre} />
+                <img src={foto} alt="" />
               </div>
             ) : (
               <div className="tarjeta-chat-foto text-[10px] font-semibold text-amber-800">En anaquel</div>
@@ -451,8 +485,17 @@ function CarruselEnChat({ tarjetas, stock }: { tarjetas: TarjetaChat[]; stock: B
                 <span className={estado.clase}>{estado.texto}</span>
                 <span className="text-sm font-semibold tabular-nums">{dinero(item.precio, stock.moneda)}</span>
               </div>
+              <span className="tarjeta-chat-elegir">
+                {eligiendo ? (
+                  <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
+                ) : yaElegida ? (
+                  'Elegido'
+                ) : (
+                  'Elegir'
+                )}
+              </span>
             </div>
-          </article>
+          </button>
         );
       })}
     </div>
@@ -566,26 +609,43 @@ async function comprimirImagen(file: File): Promise<string> {
   return canvas.toDataURL('image/jpeg', 0.74);
 }
 
+const TEMA_KEY = 'tecnistock.tema';
+
+function temaNocheInicial(): boolean {
+  try {
+    return localStorage.getItem(TEMA_KEY) === 'noche';
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
+  const chatCameraRef = useRef<HTMLInputElement>(null);
+  const chatGalleryRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const chatAttachRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatPanelRef = useRef<HTMLElement>(null);
   const urlsLocalesRef = useRef<string[]>([]);
+  const urlsHiloRef = useRef<string[]>([]);
   const fotosAntesCorreccionRef = useRef<FotoBandeja[]>([]);
   const [tab, setTab] = useState<'nueva' | 'historial'>('nueva');
   const [fotos, setFotos] = useState<FotoBandeja[]>([]);
   const [fotoActiva, setFotoActiva] = useState(0);
   const [menuAgregar, setMenuAgregar] = useState(false);
+  const [menuAdjuntarChat, setMenuAdjuntarChat] = useState(false);
   const [preparando, setPreparando] = useState(false);
   const [analizando, setAnalizando] = useState(false);
+  const [analizandoFotoHilo, setAnalizandoFotoHilo] = useState(false);
   const [error, setError] = useState('');
   const [avisoMiniatura, setAvisoMiniatura] = useState('');
   const [resultado, setResultado] = useState<AnalisisResponse | null>(null);
   const [consultaId, setConsultaId] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<string | undefined>();
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
+  const [fotosHilo, setFotosHilo] = useState<Record<string, string>>({});
   const [borrador, setBorrador] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [grabando, setGrabando] = useState(false);
@@ -601,6 +661,7 @@ export default function App() {
   const [resultadosBusqueda, setResultadosBusqueda] = useState<ResultadoBusquedaInventario[]>([]);
   const [buscandoInventario, setBuscandoInventario] = useState(false);
   const [aplicandoSku, setAplicandoSku] = useState<string | null>(null);
+  const [oscuro, setOscuro] = useState(temaNocheInicial);
   const chatListaRef = useRef<HTMLDivElement>(null);
   const menuExportarRef = useRef<HTMLDivElement>(null);
   const menuCorreccionRef = useRef<HTMLDivElement>(null);
@@ -615,6 +676,21 @@ export default function App() {
   const soltarUrlsLocales = () => {
     urlsLocalesRef.current.forEach((url) => URL.revokeObjectURL(url));
     urlsLocalesRef.current = [];
+  };
+
+  const soltarUrlsHilo = () => {
+    urlsHiloRef.current.forEach((url) => URL.revokeObjectURL(url));
+    urlsHiloRef.current = [];
+  };
+
+  const aplicarFotosHilo = (mapa: Record<string, string>) => {
+    soltarUrlsHilo();
+    urlsHiloRef.current = Object.values(mapa).filter((url) => url.startsWith('blob:'));
+    setFotosHilo(mapa);
+  };
+
+  const alternarTema = () => {
+    setOscuro((prev) => !prev);
   };
 
   const soltarMic = () => {
@@ -641,27 +717,38 @@ export default function App() {
   useEffect(
     () => () => {
       soltarUrlsLocales();
+      soltarUrlsHilo();
       soltarMic();
     },
     []
   );
 
   useEffect(() => {
+    document.documentElement.classList.toggle('dark', oscuro);
+    try {
+      localStorage.setItem(TEMA_KEY, oscuro ? 'noche' : 'dia');
+    } catch {
+      /* almacenamiento opcional */
+    }
+  }, [oscuro]);
+
+  useEffect(() => {
     const lista = chatListaRef.current;
     if (!lista) return;
     lista.scrollTop = lista.scrollHeight;
-  }, [mensajes, enviando]);
+  }, [mensajes, enviando, analizandoFotoHilo, fotosHilo]);
 
   useEffect(() => {
-    if (!menuExportar && !menuAgregar && !menuCorreccion) return;
+    if (!menuExportar && !menuAgregar && !menuCorreccion && !menuAdjuntarChat) return;
     const cerrar = (event: MouseEvent) => {
       if (menuExportar && !menuExportarRef.current?.contains(event.target as Node)) setMenuExportar(false);
       if (menuAgregar && !addMenuRef.current?.contains(event.target as Node)) setMenuAgregar(false);
       if (menuCorreccion && !menuCorreccionRef.current?.contains(event.target as Node)) setMenuCorreccion(false);
+      if (menuAdjuntarChat && !chatAttachRef.current?.contains(event.target as Node)) setMenuAdjuntarChat(false);
     };
     document.addEventListener('mousedown', cerrar);
     return () => document.removeEventListener('mousedown', cerrar);
-  }, [menuExportar, menuAgregar, menuCorreccion]);
+  }, [menuExportar, menuAgregar, menuCorreccion, menuAdjuntarChat]);
 
   useEffect(() => {
     if (!buscadorAbierto) return;
@@ -754,6 +841,7 @@ export default function App() {
       setResultado(null);
       setConsultaId(null);
       setMensajes([]);
+      aplicarFotosHilo({});
       setMenuExportar(false);
       setMenuCorreccion(false);
       setModoCorreccion(null);
@@ -893,6 +981,11 @@ export default function App() {
       urlsLocalesRef.current = locales;
       setFotos(locales.map((url) => ({ id: nuevoIdFoto(), dataUrl: url })));
       setFotoActiva(0);
+      try {
+        aplicarFotosHilo(await leerFotosHiloConsulta(id));
+      } catch {
+        aplicarFotosHilo({});
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo abrir la consulta.');
     }
@@ -948,6 +1041,86 @@ export default function App() {
     }
   };
 
+  const enviarFotoHilo = async (lista: FileList | File[] | null) => {
+    const file = Array.from(lista ?? []).find((item) => item && item.size > 0);
+    if (chatCameraRef.current) chatCameraRef.current.value = '';
+    if (chatGalleryRef.current) chatGalleryRef.current.value = '';
+    setMenuAdjuntarChat(false);
+    if (!file || !consultaId) return;
+    setError('');
+    setAvisoMiniatura('');
+    let dataUrl = '';
+    try {
+      dataUrl = await comprimirImagen(file);
+    } catch {
+      setError('No se pudo preparar la foto. Intenta de nuevo.');
+      return;
+    }
+    const tempId = `temp-foto-${Date.now()}`;
+    setFotosHilo((prev) => ({ ...prev, [tempId]: dataUrl }));
+    setMensajes((prev) => [
+      ...prev,
+      { id: tempId, rol: 'user', texto: '[[foto-hilo]]', created_at: new Date().toISOString() },
+    ]);
+    setAnalizandoFotoHilo(true);
+    setEnviando(true);
+    try {
+      const data = await leerJson<{
+        ok: boolean;
+        pieza: PiezaDetectada;
+        stock: BloqueStock;
+        mensajes: Mensaje[];
+        mensaje_usuario_id?: string;
+        expires_at?: string;
+        detail?: string;
+      }>(
+        await fetchCampo(`/api/consultas/${consultaId}/foto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl, images: [dataUrl] }),
+        }),
+        'No se pudo analizar la foto.'
+      );
+      if (!data.ok) throw new Error(data.detail || 'No se pudo analizar la foto.');
+      setResultado({
+        ok: true,
+        consulta_id: consultaId,
+        pieza: data.pieza,
+        stock: data.stock,
+        expires_at: data.expires_at,
+      });
+      if (data.expires_at) setExpiresAt(data.expires_at);
+      setMensajes(data.mensajes ?? []);
+      const realId = data.mensaje_usuario_id;
+      setFotosHilo((prev) => {
+        const next = { ...prev };
+        delete next[tempId];
+        if (realId) next[realId] = dataUrl;
+        return next;
+      });
+      if (realId) {
+        try {
+          const guardado = await guardarFotoHilo(consultaId, realId, dataUrl);
+          if (!guardado.ok) setAvisoMiniatura(avisoGuardadoMiniatura(guardado.motivo));
+        } catch {
+          setAvisoMiniatura(avisoGuardadoMiniatura('error'));
+        }
+      }
+      void cargarHistorial();
+    } catch (err) {
+      setMensajes((prev) => prev.filter((msg) => msg.id !== tempId));
+      setFotosHilo((prev) => {
+        const next = { ...prev };
+        delete next[tempId];
+        return next;
+      });
+      setError(err instanceof Error ? err.message : 'No se pudo analizar la foto.');
+    } finally {
+      setAnalizandoFotoHilo(false);
+      setEnviando(false);
+    }
+  };
+
   const abrirBuscador = () => {
     setMenuExportar(false);
     setMenuCorreccion(false);
@@ -987,6 +1160,49 @@ export default function App() {
       setResultadosBusqueda([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo aplicar el SKU.');
+    } finally {
+      setAplicandoSku(null);
+    }
+  };
+
+  const elegirProductoCarrusel = async (item: TarjetaChat) => {
+    if (!consultaId || !resultado || aplicandoSku || enviando) return;
+    const texto = `Seleccioné este: ${item.nombre} - ${item.sku}`;
+    const tempId = `temp-sel-${Date.now()}`;
+    setAplicandoSku(item.sku);
+    setError('');
+    setMensajes((prev) => [...prev, { id: tempId, rol: 'user', texto, created_at: new Date().toISOString() }]);
+    try {
+      const data = await leerJson<{
+        stock: BloqueStock;
+        consulta: { pieza: PiezaDetectada };
+        mensajes: Mensaje[];
+      }>(
+        await fetchCampo(`/api/consultas/${consultaId}/sku`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku: item.sku, confirmar: true }),
+        }),
+        'No se pudo elegir este producto.'
+      );
+      setResultado({
+        ...resultado,
+        pieza: {
+          ...resultado.pieza,
+          ...(data.consulta.pieza ?? {}),
+          nombre: data.consulta.pieza?.nombre || data.stock.nombre || item.nombre,
+          material: data.stock.material || data.consulta.pieza?.material || '',
+          medida: data.stock.medida || data.consulta.pieza?.medida || '',
+          descripcion: data.consulta.pieza?.descripcion || '',
+          observaciones: '',
+          pregunta: '',
+        },
+        stock: { ...data.stock, forzado: true },
+      });
+      setMensajes((prev) => [...prev.filter((msg) => msg.id !== tempId), ...(data.mensajes ?? [])]);
+    } catch (err) {
+      setMensajes((prev) => prev.filter((msg) => msg.id !== tempId));
+      setError(err instanceof Error ? err.message : 'No se pudo elegir este producto.');
     } finally {
       setAplicandoSku(null);
     }
@@ -1145,13 +1361,16 @@ export default function App() {
 
   const reiniciar = () => {
     soltarUrlsLocales();
+    soltarUrlsHilo();
     soltarMic();
     setFotos([]);
     setFotoActiva(0);
     setMenuAgregar(false);
+    setMenuAdjuntarChat(false);
     setResultado(null);
     setConsultaId(null);
     setMensajes([]);
+    setFotosHilo({});
     setBorrador('');
     setExpiresAt(undefined);
     setError('');
@@ -1164,12 +1383,15 @@ export default function App() {
     setResultadosBusqueda([]);
     setAplicandoSku(null);
     setAnalizando(false);
+    setAnalizandoFotoHilo(false);
     setPreparando(false);
     setEnviando(false);
     setTranscribiendo(false);
     fotosAntesCorreccionRef.current = [];
     if (cameraRef.current) cameraRef.current.value = '';
     if (galleryRef.current) galleryRef.current.value = '';
+    if (chatCameraRef.current) chatCameraRef.current.value = '';
+    if (chatGalleryRef.current) chatGalleryRef.current.value = '';
   };
 
   const irACapturaNueva = () => {
@@ -1199,7 +1421,7 @@ export default function App() {
   const mostrarCarrusel = alternativasStock.length > 0;
   const hiloChat = burbujasChat(
     mensajes,
-    pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '',
+    mensajes.length === 0 && pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '',
     descripcion,
     []
   );
@@ -1212,10 +1434,18 @@ export default function App() {
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30">
               <Wrench className="h-6 w-6" strokeWidth={2.2} />
             </span>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400">Campo</p>
               <h1 className="text-3xl font-bold tracking-tight leading-none">TecniStock</h1>
             </div>
+            <button
+              type="button"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              aria-label={oscuro ? 'Activar modo día' : 'Activar modo noche'}
+              onClick={alternarTema}
+            >
+              {oscuro ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
           </div>
           <p className="text-stone-300 text-base leading-snug">Tu Asesor Técnico en Campo 24/7</p>
           <div className="mt-5 grid grid-cols-2 gap-2">
@@ -1796,6 +2026,19 @@ export default function App() {
                     <div ref={chatListaRef} className="chat-wallpaper overflow-y-auto px-3 py-3 space-y-2 max-h-[42vh]">
                       {hiloChat.map((msg) => {
                         if (msg.rol === 'user') {
+                          const foto = fotosHilo[msg.id];
+                          if (msg.fotoHilo || foto) {
+                            return (
+                              <div key={msg.id} className="bubble-user-media">
+                                {foto ? <img src={foto} alt="Foto enviada" className="chat-foto-hilo" /> : (
+                                  <span className="flex h-28 w-36 items-center justify-center rounded-xl bg-black/20 text-white/80">
+                                    <Camera className="h-8 w-8" />
+                                  </span>
+                                )}
+                                {msg.texto ? <p className="px-2 pb-1 text-sm whitespace-pre-wrap">{msg.texto}</p> : null}
+                              </div>
+                            );
+                          }
                           return (
                             <div key={msg.id} className="bubble-user">
                               {msg.texto}
@@ -1810,42 +2053,90 @@ export default function App() {
                                 <p className="whitespace-pre-wrap">{msg.texto}</p>
                               </div>
                             ) : null}
-                            {tarjetas.length > 0 && stock ? <CarruselEnChat tarjetas={tarjetas} stock={stock} /> : null}
+                            {tarjetas.length > 0 && stock ? (
+                              <CarruselEnChat
+                                tarjetas={tarjetas}
+                                stock={stock}
+                                disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
+                                aplicandoSku={aplicandoSku}
+                                onElegir={(item) => void elegirProductoCarrusel(item)}
+                              />
+                            ) : null}
                           </div>
                         );
                       })}
+                      {analizandoFotoHilo ? (
+                        <div className="bubble-bot text-stone-500">
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Analizando la foto…
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
+                    <input
+                      ref={chatCameraRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => void enviarFotoHilo(e.target.files)}
+                    />
+                    <input
+                      ref={chatGalleryRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => void enviarFotoHilo(e.target.files)}
+                    />
                     <form
-                      className="flex items-end gap-2 border-t border-stone-200 bg-white p-3"
+                      className="composer-wa"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void enviarChat();
                       }}
                     >
-                      <button
-                        type="button"
-                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-sm ${
-                          grabando
-                            ? 'mic-recording bg-red-600 text-white'
-                            : modoCorreccion === 'describir'
-                              ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-400 ring-offset-2'
-                              : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                        }`}
-                        disabled={enviando || transcribiendo}
-                        aria-label={grabando ? 'Detener grabación' : 'Grabar mensaje de voz'}
-                        onClick={() => void toggleGrabacion()}
-                      >
-                        {transcribiendo ? (
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                        ) : grabando ? (
-                          <Square className="h-4 w-4 fill-current" />
-                        ) : (
-                          <Mic className="h-5 w-5" />
-                        )}
-                      </button>
+                      <div className="relative" ref={chatAttachRef}>
+                        <button
+                          type="button"
+                          className="composer-wa-icon"
+                          disabled={enviando || transcribiendo || grabando || analizandoFotoHilo}
+                          aria-label="Adjuntar foto"
+                          aria-expanded={menuAdjuntarChat}
+                          onClick={() => setMenuAdjuntarChat((abierto) => !abierto)}
+                        >
+                          <Plus className="h-6 w-6" strokeWidth={2.2} />
+                        </button>
+                        {menuAdjuntarChat ? (
+                          <div className="absolute bottom-full left-0 z-20 mb-2 w-48 overflow-hidden rounded-xl border border-stone-200 bg-white py-1 shadow-lg">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                              onClick={() => {
+                                setMenuAdjuntarChat(false);
+                                chatCameraRef.current?.click();
+                              }}
+                            >
+                              <Camera className="h-4 w-4 shrink-0 text-stone-500" />
+                              Cámara
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                              onClick={() => {
+                                setMenuAdjuntarChat(false);
+                                chatGalleryRef.current?.click();
+                              }}
+                            >
+                              <ImagePlus className="h-4 w-4 shrink-0 text-stone-500" />
+                              Galería
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                       <textarea
                         ref={chatInputRef}
-                        className="input-field min-h-[52px] max-h-32 flex-1 resize-none rounded-2xl py-3"
+                        className="composer-wa-input"
                         placeholder={
                           grabando
                             ? 'Grabando… toca el recuadro rojo para enviar'
@@ -1853,9 +2144,9 @@ export default function App() {
                               ? 'Transcribiendo con Whisper…'
                               : modoCorreccion === 'describir'
                                 ? 'Describe la pieza: marca, medida, material…'
-                                : 'Escribe o dicta un mensaje'
+                                : 'Escribe un mensaje'
                         }
-                        rows={2}
+                        rows={1}
                         value={borrador}
                         disabled={grabando || transcribiendo}
                         onChange={(e) => setBorrador(e.target.value)}
@@ -1866,14 +2157,38 @@ export default function App() {
                           }
                         }}
                       />
-                      <button
-                        type="submit"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-600 disabled:opacity-40"
-                        disabled={enviando || transcribiendo || grabando || !borrador.trim()}
-                        aria-label="Enviar"
-                      >
-                        {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-                      </button>
+                      {borrador.trim() && !grabando ? (
+                        <button
+                          type="submit"
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-600 disabled:opacity-40"
+                          disabled={enviando || transcribiendo || analizandoFotoHilo}
+                          aria-label="Enviar"
+                        >
+                          {enviando && !analizandoFotoHilo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-sm ${
+                            grabando
+                              ? 'mic-recording bg-red-600 text-white'
+                              : modoCorreccion === 'describir'
+                                ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-400 ring-offset-2'
+                                : 'composer-wa-icon'
+                          }`}
+                          disabled={enviando || transcribiendo || analizandoFotoHilo}
+                          aria-label={grabando ? 'Detener grabación' : 'Grabar mensaje de voz'}
+                          onClick={() => void toggleGrabacion()}
+                        >
+                          {transcribiendo ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : grabando ? (
+                            <Square className="h-4 w-4 fill-current" />
+                          ) : (
+                            <Mic className="h-5 w-5" />
+                          )}
+                        </button>
+                      )}
                     </form>
                   </article>
                 ) : null}

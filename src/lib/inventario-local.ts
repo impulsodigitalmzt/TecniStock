@@ -4,6 +4,7 @@ import {
   alternativasDeCatalogo,
   cantidadStock,
   consultarStock,
+  familiaCatalogo,
   type BloqueStock,
   type IdentidadPieza,
   type StockItem,
@@ -233,6 +234,10 @@ const RELLENO_CONSULTA = new Set([
   "busca",
   "necesito",
   "necesita",
+  "buscando",
+  "estoy",
+  "pero",
+  "solo",
   "quiero",
   "quisiera",
   "por",
@@ -321,6 +326,14 @@ const SINONIMOS_BUSQUEDA: Record<string, string[]> = {
   lampara: ["foco", "luminaria"],
   interruptor: ["apagador", "switch"],
   apagador: ["interruptor", "switch"],
+  switch: ["interruptor", "apagador"],
+  vias: ["via", "escalera", "conmutador", "doble"],
+  via: ["vias", "escalera", "conmutador"],
+  escalera: ["vias", "conmutador", "3 vias"],
+  doble: ["2 gangas", "dos gangas", "dos"],
+  completo: ["interruptor", "apagador", "mecanismo"],
+  mecanismo: ["interruptor", "apagador"],
+  placa: ["tapa", "embellecedor"],
 };
 
 function expandirTokensBusqueda(tokens: string[]): string[] {
@@ -347,22 +360,57 @@ function tokenCatalogoCerca(token: string, haystack: string): boolean {
 
 /** Quita muletillas de mostrador y deja el término a buscar en inventario_local. */
 export function extraerConsultaInventario(texto: string): string {
-  const q = normalizarBusqueda(texto);
+  const q = normalizarBusqueda(limpiarNegacionesCatalogo(texto));
   if (!q) return "";
   const tokens = q.split(" ").filter((token) => token && (!RELLENO_CONSULTA.has(token) || /^\d+$/.test(token)));
   return tokens.join(" ").trim();
 }
 
+function limpiarNegacionesCatalogo(texto: string): string {
+  return texto
+    .replace(/\bno solo(?:\s+la)?\s+(placa|tapa|embellecedor)s?\b/gi, " ")
+    .replace(/\bno(?:\s+es)?(?:\s+la)?\s+(placa|tapa)s?\b/gi, " ")
+    .replace(/\bno(?:\s+es)?(?:\s+eso|\s+esa|\s+este|\s+esta)\b/gi, " ");
+}
+
 const INTENTO_BUSQUEDA_RE =
-  /\b(tienes|tienen|hay|trae|traen|vende|venden|busco|busca|necesito|quiero|quisiera|consigue|consiguen|maneja|manejan|me das|me das|otra cosa|otro modelo|otro articulo|ademas|tambien tienen|tambien hay|en vez|en lugar)\b/;
+  /\b(tienes|tienen|hay|trae|traen|vende|venden|busco|busca|buscando|necesito|quiero|quisiera|consigue|consiguen|maneja|manejan|me das|otra cosa|otro modelo|otro articulo|ademas|tambien tienen|tambien hay|en vez|en lugar|lo que (busco|quiero|necesito)|estoy buscando)\b/;
 
 const SEGUIMIENTO_RE =
-  /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles|el apagador|esta pieza|este modelo|este articulo|esta pieza|del interruptor|de este|de esta)\b/;
+  /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles)\b/;
+
+const CORRECCION_RE =
+  /\b(no solo(?: la)? placa|no es(?: la)? placa|no la placa|no(?: es)? la tapa|el completo|apagador completo|interruptor completo|estoy buscando|lo que (?:busco|quiero|necesito|estoy buscando)|en realidad|me referia|no es (?:eso|esa|este|esta|una placa)|te equivoc|no esa|armado|con mecanismo|el kit)\b/;
+
+/** El cliente corrige la identificación o pide el aparato completo en vez del accesorio. */
+export function esCorreccionCliente(texto: string): boolean {
+  const t = normalizarBusqueda(texto);
+  if (!t) return false;
+  if (esSeleccionProducto(texto)) return false;
+  if (!CORRECCION_RE.test(t)) return false;
+  const rechazaFicha = /\b(placa|tapa|completo|mecanismo|te equivoc|no es|no esa|en realidad|me referia|el kit|armado)\b/.test(t);
+  if (/^\s*(estoy buscando|lo que (busco|quiero|necesito))\b/.test(t) && !rechazaFicha) return false;
+  return true;
+}
+
+/** Amplía la consulta cuando piden el completo / 2 vías / no la placa. */
+export function reescribirConsultaVenta(texto: string): string {
+  const t = normalizarBusqueda(texto);
+  let q = extraerConsultaInventario(texto);
+  if (/\b(completo|mecanismo|no solo|no la placa|no es la placa|armado|el kit)\b/.test(t)) {
+    q = `${q} interruptor apagador mecanismo doble`.trim();
+  }
+  if (/\b(dos vias|2 vias|de dos vias|tres vias|3 vias|escalera)\b/.test(t)) {
+    q = `${q} interruptor apagador doble escalera 3 vias`.trim();
+  }
+  return q.replace(/\s+/g, " ").trim().slice(0, 120);
+}
 
 /** Pregunta técnica o descriptiva sobre la pieza que ya está en el hilo. No es búsqueda nueva. */
 export function esPreguntaSeguimientoPieza(texto: string): boolean {
   const t = normalizarBusqueda(texto);
   if (!t) return false;
+  if (esCorreccionCliente(texto)) return false;
   if (INTENTO_BUSQUEDA_RE.test(t) && !SEGUIMIENTO_RE.test(t)) return false;
   if (SEGUIMIENTO_RE.test(t)) return true;
   if (/^(que|como|cual|para que|de que|dime|explica)\b/.test(t) && !INTENTO_BUSQUEDA_RE.test(t)) return true;
@@ -376,6 +424,8 @@ export function esPreguntaSeguimientoPieza(texto: string): boolean {
 export function pideBusquedaNuevaInventario(texto: string): boolean {
   const t = normalizarBusqueda(texto);
   if (!t) return false;
+  if (esSeleccionProducto(texto)) return false;
+  if (esCorreccionCliente(texto)) return true;
   const query = extraerConsultaInventario(texto);
   if (!query) return false;
   if (INTENTO_BUSQUEDA_RE.test(t)) return true;
@@ -383,11 +433,22 @@ export function pideBusquedaNuevaInventario(texto: string): boolean {
   return query.length >= 3;
 }
 
+/** El cliente tocó una tarjeta del carrusel o confirmó un SKU concreto. */
+export function esSeleccionProducto(texto: string): boolean {
+  const t = normalizarBusqueda(texto);
+  if (!t) return false;
+  return (
+    /^(seleccione este|seleccione|elegi este|elegi|me quedo con|quiero este|este sku)\b/.test(t) ||
+    /\bseleccione este\b/.test(t)
+  );
+}
+
 function consultaParaPuntaje(query: string): string {
   const q = extraerConsultaInventario(query) || normalizarBusqueda(query);
   if (q === "3" || q === "03") return "3 triple tres gangas vias";
   if (q === "2" || q === "02") return "2 doble dos gangas";
   if (q === "1" || q === "01") return "1 sencillo simple ganga";
+  if (/\b(dos vias|2 vias)\b/.test(q)) return `${q} doble escalera 3 vias interruptor apagador`;
   return q;
 }
 
@@ -413,6 +474,19 @@ function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario 
   };
 }
 
+function ajustarScoreAccesorio(query: string, fila: FilaInventarioLocal, score: number): number {
+  if (score <= 0) return 0;
+  const qNorm = normalizarBusqueda(query);
+  const familia = familiaCatalogo(fila.nombre_pieza);
+  const pidePared = /\b(apagador|gangas|placa|vias|mecanismo|rocker)\b/.test(qNorm);
+  if (pidePared && familia !== "interruptor" && familia !== "placa") return 0;
+  const pideAparato = /\b(completo|mecanismo|interruptor|apagador)\b/.test(qNorm);
+  if (!pideAparato) return score;
+  if (familia === "placa") return Math.max(12, score - 28);
+  if (familia === "interruptor") return score + 20;
+  return score;
+}
+
 function puntuarBusqueda(query: string, fila: FilaInventarioLocal): number {
   const q = consultaParaPuntaje(query);
   if (!q) return 0;
@@ -420,21 +494,22 @@ function puntuarBusqueda(query: string, fila: FilaInventarioLocal): number {
   const nombre = normalizarBusqueda(fila.nombre_pieza);
   const categoria = normalizarBusqueda(fila.categoria);
   const qRaw = extraerConsultaInventario(query) || query.trim().toLowerCase();
-  if (sku === qRaw) return 100;
-  if (qRaw.length >= 3 && sku.startsWith(qRaw)) return 90;
-  if (qRaw.length >= 3 && !/^\d+$/.test(qRaw) && sku.includes(qRaw)) return 80;
-  if (nombre === q || nombre === qRaw) return 75;
+  if (sku === qRaw) return ajustarScoreAccesorio(query, fila, 100);
+  if (qRaw.length >= 3 && sku.startsWith(qRaw)) return ajustarScoreAccesorio(query, fila, 90);
+  if (qRaw.length >= 3 && !/^\d+$/.test(qRaw) && sku.includes(qRaw)) return ajustarScoreAccesorio(query, fila, 80);
+  if (nombre === q || nombre === qRaw) return ajustarScoreAccesorio(query, fila, 75);
   if (qRaw.length >= 3 && (nombre.startsWith(qRaw) || nombre.includes(` ${qRaw} `) || nombre.includes(` ${qRaw}`) || nombre.startsWith(`${qRaw} `))) {
-    return 65;
+    return ajustarScoreAccesorio(query, fila, 65);
   }
-  if (qRaw.length >= 3 && nombre.includes(qRaw)) return 55;
+  if (qRaw.length >= 3 && nombre.includes(qRaw)) return ajustarScoreAccesorio(query, fila, 55);
   const tokens = expandirTokensBusqueda(q.split(" ").filter((token) => token.length > 1 || /^\d+$/.test(token)));
   if (tokens.length === 0) return 0;
   const hits = tokens.filter(
     (token) => tokenCatalogoCerca(token, nombre) || tokenCatalogoCerca(token, sku) || tokenCatalogoCerca(token, categoria)
   ).length;
   if (hits === 0) return 0;
-  return 20 + hits * 12 + (hits === tokens.length ? 10 : 0);
+  const score = 20 + hits * 12 + (hits === tokens.length ? 10 : 0);
+  return ajustarScoreAccesorio(query, fila, score);
 }
 
 /** Búsqueda directa por nombre o SKU sobre inventario_local. */
@@ -443,7 +518,7 @@ export async function buscarInventarioLocal(
   query: string,
   limit = 12
 ): Promise<ResultadoBusquedaInventario[]> {
-  const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 80);
+  const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 120);
   if (!q) return [];
   const filas = await listarFilasInventarioLocal(sql);
   const tope = Math.max(1, Math.min(24, Math.trunc(limit) || 12));

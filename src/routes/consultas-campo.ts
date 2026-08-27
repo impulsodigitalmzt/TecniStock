@@ -1,15 +1,27 @@
 import { Hono } from "hono";
 import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
-import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO } from "../ia/prompts";
+import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO, redactarMensajeFotoHilo } from "../ia/prompts";
 import { cantidadStock, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
-import { conTarjetas, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada, tarjetaDesdeCatalogo, type TarjetaChat } from "../lib/ficha-chat";
+import {
+  conTarjetas,
+  extraerMarcaFicha,
+  MARCA_FOTO_HILO,
+  pideMostrarProducto,
+  resolverFichaSolicitada,
+  tarjetaDesdeCatalogo,
+  type TarjetaChat,
+} from "../lib/ficha-chat";
+import { dataUrlDesdeBase64, identificarPiezaConVision, type PiezaDetectada } from "../lib/pieza-ia";
 import { cancelaApartado, pideApartar, procesarFlujoApartado } from "../lib/apartados";
 import {
   buscarInventarioLocal,
   extraerConsultaInventario,
   esPreguntaSeguimientoPieza,
+  esSeleccionProducto,
+  esCorreccionCliente,
   pideBusquedaNuevaInventario,
+  reescribirConsultaVenta,
   resolverStockInventarioLocal,
   stockDesdeResultadosBusqueda,
   type ResultadoBusquedaInventario,
@@ -18,6 +30,7 @@ import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
   agregarMensajeCampo,
+  actualizarConsultaCampo,
   aplicarSkuConsultaCampo,
   eliminarConsultaCampo,
   ensureConsultasCampoSchema,
@@ -110,8 +123,23 @@ consultasCampoRoutes.delete("/:id", async (c) => {
 consultasCampoRoutes.post("/:id/sku", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
-  const body = await c.req.json<{ sku?: string }>().catch(() => ({} as { sku?: string }));
-  const { consulta, stock } = await aplicarSkuConsultaCampo(sql, c.req.param("id"), dispositivo, body.sku ?? "");
+  const body = await c.req.json<{ sku?: string; confirmar?: boolean }>().catch(() => ({} as { sku?: string; confirmar?: boolean }));
+  const confirmar = body.confirmar === true;
+  const { consulta, stock } = await aplicarSkuConsultaCampo(sql, c.req.param("id"), dispositivo, body.sku ?? "", {
+    omitirMensajeGuia: confirmar,
+  });
+  if (confirmar) {
+    const nombre = String(stock.nombre || consulta.pieza_nombre || "").trim();
+    const codigo = String(stock.sku || body.sku || "").trim();
+    const texto = `Seleccioné este: ${nombre} - ${codigo}`;
+    const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto);
+    return c.json({
+      ok: true,
+      consulta: detalleConsulta({ ...consulta, stock: stock as unknown as Record<string, unknown> }),
+      stock,
+      mensajes,
+    });
+  }
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
     ok: true,
@@ -132,6 +160,47 @@ consultasCampoRoutes.post("/:id/mensajes", async (c) => {
   return c.json({ ok: true, mensajes });
 });
 
+consultasCampoRoutes.post("/:id/foto", async (c) => {
+  const sql = await sqlCampo(c.env);
+  const dispositivo = dispositivoDe(c);
+  const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
+  const body = await c.req
+    .json<{
+      image?: string;
+      imagen?: string;
+      images?: unknown;
+      imagenes?: unknown;
+      mimeType?: string;
+    }>()
+    .catch(() => ({} as { image?: string }));
+  const dataUrls = extraerImagenesFotoHilo(body);
+  const pieza = await identificarPiezaConVision(c.env, dataUrls);
+  const queryVision = queryDesdePiezaVisual(pieza);
+  const resultadosBusqueda = queryVision ? await buscarInventarioLocal(sql, queryVision, 8) : [];
+  let stock = await resolverStockInventarioLocal(sql, pieza);
+  if (!stock.encontrado && resultadosBusqueda.length) {
+    stock = stockDesdeResultadosBusqueda(resultadosBusqueda);
+  }
+  const actualizada = await actualizarConsultaCampo(sql, consulta.id, dispositivo, { pieza, stock }, { omitirMensajeGuia: true });
+  await recordarHallazgosChat(sql, consulta.id, dispositivo, {
+    hallazgos_chat: resultadosBusqueda,
+    sku_conversacion: stock.sku,
+    query_busqueda: queryVision,
+  });
+  const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", MARCA_FOTO_HILO);
+  const textoAsesor = conTarjetas(redactarMensajeFotoHilo(pieza.nombre, stock), tarjetasDesdeFotoHilo(stock, resultadosBusqueda));
+  await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
+  const mensajes = await listarMensajesCampo(sql, consulta.id);
+  return c.json({
+    ok: true,
+    consulta: detalleConsulta({ ...actualizada, stock: stock as unknown as Record<string, unknown> }),
+    pieza: piezaPublicaCampo(pieza),
+    stock,
+    mensajes,
+    mensaje_usuario_id: userMsg.id,
+  });
+});
+
 consultasCampoRoutes.post("/:id/voz", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
@@ -143,6 +212,71 @@ consultasCampoRoutes.post("/:id/voz", async (c) => {
   const mensajes = await responderConsultaCampo(c.env, sql, consulta, whisper.text);
   return c.json({ ok: true, transcripcion: whisper.text, mensajes });
 });
+
+function extraerImagenesFotoHilo(body: {
+  image?: string;
+  imagen?: string;
+  images?: unknown;
+  imagenes?: unknown;
+  mimeType?: string;
+}): string[] {
+  const lista = Array.isArray(body.images) ? body.images : Array.isArray(body.imagenes) ? body.imagenes : [];
+  const desdeLista = lista.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const unica = body.image || body.imagen || "";
+  const raw = [...desdeLista, ...(unica.trim() ? [unica] : [])];
+  const unicas = [...new Set(raw.map((item) => item.trim()))];
+  if (unicas.length === 0) {
+    throw new AppError(400, "Falta la imagen. Usa el botón + del chat para enviar una foto.", "IMAGE_REQUIRED");
+  }
+  return unicas.slice(0, 1).map((item) => dataUrlDesdeBase64(item, body.mimeType || "image/jpeg"));
+}
+
+function queryDesdePiezaVisual(pieza: PiezaDetectada): string {
+  return [pieza.nombre, pieza.medida, pieza.categoria, ...(pieza.palabras_clave ?? [])]
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 120);
+}
+
+function tarjetasDesdeFotoHilo(stock: BloqueStock, resultados: ResultadoBusquedaInventario[]): TarjetaChat[] {
+  const items: TarjetaChat[] = [];
+  if (stock.sku && stock.nombre) {
+    items.push(
+      tarjetaDesdeCatalogo({
+        sku: stock.sku,
+        nombre: stock.nombre,
+        url_imagen: stock.url_imagen,
+        precio: stock.precio ?? 0,
+        existencia: cantidadStock(stock),
+      })
+    );
+  }
+  if (!stock.encontrado || stock.requiere_sustituto) {
+    for (const item of resultados) items.push(tarjetaDesdeCatalogo(item));
+    for (const alt of stock.alternativas ?? []) items.push(tarjetaDesdeCatalogo(alt));
+    if (stock.sustituto) items.push(tarjetaDesdeCatalogo(stock.sustituto));
+  }
+  return items;
+}
+
+function piezaPublicaCampo(pieza: PiezaDetectada) {
+  return {
+    nombre: pieza.nombre,
+    material: pieza.material,
+    medida: pieza.medida,
+    categoria: pieza.categoria,
+    rosca: pieza.rosca,
+    mecanismo: pieza.mecanismo,
+    acabado: pieza.acabado,
+    marca: pieza.marca,
+    descripcion: pieza.descripcion,
+    pregunta: pieza.pregunta,
+    observaciones: pieza.observaciones,
+    confianza: pieza.confianza,
+    palabras_clave: pieza.palabras_clave,
+  };
+}
 
 function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
   const pieza = consulta.pieza ?? {};
@@ -197,8 +331,19 @@ function fusionarHallazgosConversacion(stockFoto: BloqueStock, consulta: Consult
 
 function debeBuscarInventarioPorTexto(texto: string): boolean {
   if (pideApartar(texto) || cancelaApartado(texto) || pideMostrarProducto(texto)) return false;
+  if (esSeleccionProducto(texto)) return false;
   if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
+  if (esCorreccionCliente(texto)) return true;
   return pideBusquedaNuevaInventario(texto);
+}
+
+function queryRespaldoCorreccion(consulta: ConsultaCampo): string {
+  const nombre = [consulta.pieza_nombre, consulta.pieza_categoria].filter(Boolean).join(" ");
+  const fam = familiaCatalogo(nombre);
+  if (fam === "placa" || /\b(placa|tapa|embellecedor)\b/i.test(nombre)) {
+    return "interruptor apagador doble mecanismo 2 gangas";
+  }
+  return extraerConsultaInventario(nombre) || "interruptor apagador";
 }
 
 function stockParaSeguimiento(stockFoto: BloqueStock, consulta: ConsultaCampo, texto: string): BloqueStock {
@@ -297,6 +442,7 @@ function adjuntarTarjetasRespuesta(opts: {
   textoUsuario: string;
   historial: { rol: string; texto: string }[];
   consultaSecundaria: boolean;
+  correccionCliente?: boolean;
   resultadosBusqueda: ResultadoBusquedaInventario[];
   stock: BloqueStock;
 }): string {
@@ -318,14 +464,23 @@ function adjuntarTarjetasRespuesta(opts: {
     );
   }
 
-  if (opts.consultaSecundaria && opts.resultadosBusqueda.length) {
+  const mostrarCarrusel =
+    ((opts.consultaSecundaria || opts.correccionCliente) && opts.resultadosBusqueda.length > 0) ||
+    pideMostrarProducto(opts.textoUsuario);
+
+  if (opts.consultaSecundaria || opts.correccionCliente) {
     for (const item of opts.resultadosBusqueda.slice(0, 4)) {
       tarjetas.push(tarjetaDesdeCatalogo(item));
     }
   } else if (pideMostrarProducto(opts.textoUsuario)) {
     const ficha = resolverFichaSolicitada(opts.textoUsuario, opts.historial, opts.stock);
     if (ficha) tarjetas.push(tarjetaDesdeCatalogo(ficha));
-  } else {
+  }
+
+  if (!mostrarCarrusel && tarjetas.length === extraidas.tarjetas.length && !extraidas.sku && extraidas.miniaturas.length === 0) {
+    return extraidas.texto || opts.texto;
+  }
+  if (!tarjetas.length && !mostrarCarrusel) {
     return extraidas.texto || opts.texto;
   }
 
@@ -339,6 +494,32 @@ function adjuntarTarjetasRespuesta(opts: {
   return conTarjetas(cuerpo, tarjetas);
 }
 
+function esNegativaFloja(texto: string): boolean {
+  const t = texto.toLowerCase();
+  return (
+    /\bno cuento con\b/.test(t) ||
+    /\bno tengo (ese|el) art[ií]culo\b/.test(t) ||
+    /\bni con una alternativa\b/.test(t) ||
+    /\bno se maneja\b/.test(t) ||
+    /\bno hay (ese art[ií]culo|alternativas?)\b/.test(t)
+  );
+}
+
+function reforzarActitudComercial(
+  texto: string,
+  resultados: ResultadoBusquedaInventario[],
+  correccionCliente: boolean
+): string {
+  if (!resultados.length) return texto;
+  if (!esNegativaFloja(texto)) return texto;
+  const hayMecanismo = resultados.some((item) => familiaCatalogo(item.nombre) === "interruptor");
+  const hayPlaca = resultados.some((item) => familiaCatalogo(item.nombre) === "placa");
+  if (correccionCliente && hayMecanismo && hayPlaca) {
+    return "Entendido: buscas el apagador completo, no solo la placa. No traigo el paquete armado exacto, pero te vendo el mecanismo interno y su placa por separado. Te muestro lo que hay en anaquel. ¿Armamos los dos o solo el mecanismo?";
+  }
+  return "En anaquel sí hay opciones cercanas; te las muestro para que elijas. ¿Cuál apartamos?";
+}
+
 async function responderConsultaCampo(
   env: Env,
   sql: Awaited<ReturnType<typeof sqlCampo>>,
@@ -348,16 +529,24 @@ async function responderConsultaCampo(
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const stockFoto = await stockDesdeInventarioLocal(sql, consulta);
-  const queryBusqueda = extraerConsultaInventario(texto);
+  const correccionCliente = esCorreccionCliente(texto);
+  const queryBusqueda = reescribirConsultaVenta(texto) || extraerConsultaInventario(texto);
   let consultaSecundaria = false;
   let resultadosBusqueda: ResultadoBusquedaInventario[] = [];
-  const seguimiento = esPreguntaSeguimientoPieza(texto) && !debeBuscarInventarioPorTexto(texto);
+  const seguimiento =
+    !correccionCliente &&
+    (esPreguntaSeguimientoPieza(texto) || esSeleccionProducto(texto)) &&
+    !debeBuscarInventarioPorTexto(texto);
   let stockVivo = seguimiento
     ? stockParaSeguimiento(stockFoto, consulta, texto)
     : fusionarHallazgosConversacion(stockFoto, consulta);
 
-  if (debeBuscarInventarioPorTexto(texto) && queryBusqueda) {
-    resultadosBusqueda = await buscarInventarioLocal(sql, queryBusqueda, 8);
+  if (debeBuscarInventarioPorTexto(texto) && (queryBusqueda || correccionCliente)) {
+    const queryEfectiva = queryBusqueda || queryRespaldoCorreccion(consulta);
+    resultadosBusqueda = await buscarInventarioLocal(sql, queryEfectiva, 8);
+    if (resultadosBusqueda.length === 0 && correccionCliente) {
+      resultadosBusqueda = await buscarInventarioLocal(sql, queryRespaldoCorreccion(consulta), 8);
+    }
     consultaSecundaria = true;
     stockVivo = stockDesdeResultadosBusqueda(resultadosBusqueda);
     stockVivo.filas_catalogo = stockFoto.filas_catalogo;
@@ -365,7 +554,7 @@ async function responderConsultaCampo(
     await recordarHallazgosChat(sql, consulta.id, consulta.dispositivo_id, {
       hallazgos_chat: resultadosBusqueda,
       sku_conversacion: stockVivo.sku,
-      query_busqueda: queryBusqueda,
+      query_busqueda: queryEfectiva,
     });
   }
 
@@ -417,8 +606,9 @@ async function responderConsultaCampo(
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales (salvo seguimiento). Solo si la búsqueda va vacía (consulta_secundaria) o (encontrado false Y alternativas vacías Y no es seguimiento), di que no hay ese artículo. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados (mecanismo + placa si ambos vienen); PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo o corrigió: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales (salvo seguimiento). NUNCA digas que no hay artículo si hay filas en busqueda.resultados o stock.alternativas. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
+          correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,
           query_busqueda: consultaSecundaria ? queryBusqueda || null : null,
           busqueda: {
@@ -476,11 +666,13 @@ async function responderConsultaCampo(
     compactarTextoAsesor(respuesta || "No pude completar la respuesta. Intenta de nuevo.").slice(0, 8000) ||
     "No pude completar la respuesta. Intenta de nuevo.";
   textoAsesor = alinearCifrasStock(textoAsesor, stockParaFicha);
+  textoAsesor = reforzarActitudComercial(textoAsesor, resultadosBusqueda, correccionCliente);
   textoAsesor = adjuntarTarjetasRespuesta({
     texto: textoAsesor,
     textoUsuario: texto,
     historial,
     consultaSecundaria,
+    correccionCliente,
     resultadosBusqueda,
     stock: stockParaFicha,
   });
