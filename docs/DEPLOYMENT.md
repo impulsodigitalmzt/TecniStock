@@ -9,7 +9,7 @@ The Python FastAPI backend in `backend/` is legacy and is not deployed.
 
 - Node.js 20+
 - A Cloudflare account (`npx wrangler login`)
-- A Neon PostgreSQL database (schema in `db/schema.sql`; also applied by the Worker on start)
+- A Neon PostgreSQL database for TecniStock only (schema in `db/schema.sql`; also applied by the Worker on start). Do not use the MediEscribe Neon project (`ep-bitter-moon`); the Worker rejects that host.
 - A Groq API key
 - WhatsApp Cloud API credentials (Meta)
 
@@ -40,6 +40,7 @@ injects them as `env` bindings (`c.env.DATABASE_URL`, etc.):
 
 ```bash
 npx wrangler secret put DATABASE_URL
+# TecniStock Neon only. Never the MediEscribe project (ep-bitter-moon); the Worker rejects that host.
 npx wrangler secret put SECRET_KEY
 npx wrangler secret put GROQ_API_KEY
 npx wrangler secret put WHATSAPP_TOKEN

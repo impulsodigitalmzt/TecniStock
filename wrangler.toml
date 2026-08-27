@@ -21,7 +21,7 @@
 #
 # Secretos: no se declaran aquí. Local → .dev.vars | Producción → wrangler secret put
 #
-#   npx wrangler secret put DATABASE_URL
+#   npx wrangler secret put DATABASE_URL   # TecniStock Neon only; never MediEscribe
 #   npx wrangler secret put SECRET_KEY
 #   npx wrangler secret put GROQ_API_KEY
 #   npx wrangler secret put WHATSAPP_TOKEN

@@ -1,5 +1,28 @@
 import { neon, neonConfig } from "@neondatabase/serverless";
+import { AppError } from "./lib/errors";
 import { NEON_FETCH_TIMEOUT_MS } from "./lib/edge";
+
+/** Hosts del proyecto Neon MediEscribe. TecniStock no puede escribir ahí. */
+const NEON_HOSTS_AJENOS = ["ep-bitter-moon-axamkkan"];
+
+export function assertDatabaseTecniStock(databaseUrl: string): void {
+  if (!databaseUrl.trim()) {
+    throw new AppError(503, "DATABASE_URL no está configurada.", "DB_NOT_CONFIGURED");
+  }
+  let host = "";
+  try {
+    host = new URL(databaseUrl).hostname.toLowerCase();
+  } catch {
+    throw new AppError(503, "DATABASE_URL no es una URL válida.", "DB_URL_INVALID");
+  }
+  if (NEON_HOSTS_AJENOS.some((frag) => host.includes(frag))) {
+    throw new AppError(
+      503,
+      "DATABASE_URL apunta al proyecto Neon de MediEscribe. TecniStock debe usar su propia base.",
+      "DB_WRONG_PROJECT"
+    );
+  }
+}
 
 neonConfig.fetchFunction = (input: string | URL | Request, init?: RequestInit) =>
   fetch(input, {
@@ -60,9 +83,7 @@ export function toJsonbParam(value: unknown): string | null {
 }
 
 export function createSql(databaseUrl: string): Sql {
-  if (!databaseUrl) {
-    throw new Error("DATABASE_URL is not configured");
-  }
+  assertDatabaseTecniStock(databaseUrl);
 
   const httpSql = neon(databaseUrl);
   const nativeQuery = httpSql.query.bind(httpSql);
