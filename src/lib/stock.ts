@@ -55,6 +55,8 @@ export type BloqueStock = {
   motivo_indisponible?: MotivoIndisponible | null;
   consulta_ok?: boolean;
   filas_catalogo?: number;
+  /** El SKU lo eligió el usuario en el buscador manual; no re-emparejar por la foto. */
+  forzado?: boolean;
 };
 
 export type IdentidadPieza = {
@@ -166,6 +168,11 @@ function puntuar(consulta: IdentidadPieza, item: StockItem, incluirMaterial = tr
   const cobertura = overlap / queryTokens.size;
   let score = jaccard * 0.45 + cobertura * 0.55;
 
+  const nombreTokens = tokens(item.nombre).filter((token) => token.length > 2 && !/^\d+$/.test(token));
+  if (nombreTokens.length > 0 && nombreTokens.every((token) => queryTokens.has(token))) {
+    score += 0.22;
+  }
+
   const medidaQuery = normalizar(consulta.medida);
   const medidaItem = normalizar(item.medida);
   if (medidaQuery && (medidaItem.includes(medidaQuery) || medidaQuery.includes(medidaItem))) {
@@ -241,7 +248,8 @@ function aAlternativa(item: StockItem, razon: string): SustitutoStock {
 }
 
 export const MAX_ALTERNATIVAS = 3;
-const MIN_SCORE_ALTERNATIVA = 0.2;
+const MIN_SCORE_ALTERNATIVA = 0.12;
+const MIN_SCORE_FAMILIA = 0.05;
 
 function enAnaquelParaVenta(item: StockItem): boolean {
   return item.existencia > 0 && !item.descontinuado;
@@ -274,11 +282,20 @@ function buscarAlternativas(
     .map((item) => {
       let score = puntuar(consulta, item);
       if (categoriaAlineada(consulta, item)) score += 0.2;
+      if (mismasFamilias(consulta, item) && familiaCatalogo(consulta.nombre)) score += 0.12;
       return { item, score };
     })
     .sort((a, b) => b.score - a.score);
-  const alineados = scored.filter((row) => categoriaAlineada(consulta, row.item) && row.score >= MIN_SCORE_ALTERNATIVA);
-  const cola = alineados.length > 0 ? alineados : scored.filter((row) => row.score >= MIN_SCORE_ALTERNATIVA);
+  const deFamilia = scored.filter(
+    (row) => mismasFamilias(consulta, row.item) && familiaCatalogo(consulta.nombre) && row.score >= MIN_SCORE_FAMILIA
+  );
+  const deCategoria = scored.filter((row) => categoriaAlineada(consulta, row.item) && row.score >= MIN_SCORE_FAMILIA);
+  const cola =
+    deFamilia.length > 0
+      ? deFamilia
+      : deCategoria.length > 0
+        ? deCategoria
+        : scored.filter((row) => row.score >= MIN_SCORE_ALTERNATIVA);
   for (const row of cola) {
     if (elegidos.length >= MAX_ALTERNATIVAS) break;
     vistos.add(row.item.sku);
@@ -290,6 +307,15 @@ function buscarAlternativas(
     "Tercera opción compatible en stock.",
   ];
   return limitarAlternativas(elegidos.map((item, index) => aAlternativa(item, etiquetas[index] ?? etiquetas[2])));
+}
+
+/** Alternativas reales del catálogo inyectado (inventario_local). Nunca inventa filas. */
+export function alternativasDeCatalogo(
+  consulta: IdentidadPieza,
+  piezas: StockItem[],
+  excluirSku = ""
+): SustitutoStock[] {
+  return limitarAlternativas(buscarAlternativas(consulta, piezas, excluirSku, []));
 }
 
 function buscarSustituto(item: StockItem, piezas: StockItem[]): StockItem | null {
@@ -341,7 +367,10 @@ function conCatalogo(bloque: BloqueStock, filas: number): BloqueStock {
 }
 
 export type ConsultarStockOpciones = {
-  /** Si no hay match, no rellenar alternativas (fuente de verdad: inventario_local). */
+  /**
+   * No usa material en el score del match exacto.
+   * Las alternativas siempre salen del catálogo inyectado (inventario_local).
+   */
   estricta?: boolean;
 };
 
@@ -365,14 +394,13 @@ export function consultarStock(
     }
   }
 
-  if (!mejor || mejorScore < 0.28) {
+  const umbralExacto = 0.22;
+  if (!mejor || mejorScore < umbralExacto) {
     const bloque = conCatalogo(bloqueVacio(Number(mejorScore.toFixed(3))), piezas.length);
-    if (!estricta) {
-      const cercano = mejor && mejorScore >= 0.18 && mejor.existencia > 0 ? mejor : null;
-      const alternativas = limitarAlternativas(buscarAlternativas(pieza, piezas, "", cercano ? [cercano] : []));
-      bloque.alternativas = alternativas;
-      bloque.sustituto = alternativas[0] ?? null;
-    }
+    const cercano = mejor && mejor.existencia > 0 ? mejor : null;
+    const alternativas = limitarAlternativas(buscarAlternativas(pieza, piezas, "", cercano ? [cercano] : []));
+    bloque.alternativas = alternativas;
+    bloque.sustituto = alternativas[0] ?? null;
     bloque.requiere_sustituto = true;
     bloque.motivo_indisponible = "fuera_de_surtido";
     return bloque;

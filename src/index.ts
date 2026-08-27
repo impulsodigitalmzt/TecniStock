@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { authRoutes } from "./routes/auth";
 import { analizarRoutes } from "./routes/analizar";
 import { inventarioEspejoRoutes } from "./routes/inventario-espejo";
+import { inventarioLocalRoutes } from "./routes/inventario-local";
 import { consultasCampoRoutes } from "./routes/consultas-campo";
 import { consultaRoutes } from "./routes/consultas";
 import { encounterRoutes } from "./routes/encounters";
@@ -49,6 +50,7 @@ api.get("/", (c) =>
 );
 
 api.route("/api/analizar", analizarRoutes);
+api.route("/api/inventario-local", inventarioLocalRoutes);
 api.route("/api/inventario-espejo", inventarioEspejoRoutes);
 api.route("/api/consultas", consultasCampoRoutes);
 api.route("/api/v1/auth", authRoutes);

@@ -10,6 +10,7 @@ import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
   agregarMensajeCampo,
+  aplicarSkuConsultaCampo,
   eliminarConsultaCampo,
   ensureConsultasCampoSchema,
   listarConsultasCampo,
@@ -97,6 +98,20 @@ consultasCampoRoutes.delete("/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+consultasCampoRoutes.post("/:id/sku", async (c) => {
+  const sql = await sqlCampo(c.env);
+  const dispositivo = dispositivoDe(c);
+  const body = await c.req.json<{ sku?: string }>().catch(() => ({} as { sku?: string }));
+  const { consulta, stock } = await aplicarSkuConsultaCampo(sql, c.req.param("id"), dispositivo, body.sku ?? "");
+  const mensajes = await listarMensajesCampo(sql, consulta.id);
+  return c.json({
+    ok: true,
+    consulta: detalleConsulta({ ...consulta, stock: stock as unknown as Record<string, unknown> }),
+    stock,
+    mensajes,
+  });
+});
+
 consultasCampoRoutes.post("/:id/mensajes", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
@@ -136,8 +151,13 @@ async function stockDesdeInventarioLocal(
   sql: Awaited<ReturnType<typeof sqlCampo>>,
   consulta: ConsultaCampo
 ): Promise<BloqueStock> {
+  const skuGuardado = consulta.stock?.forzado === true ? String(consulta.stock.sku ?? "").trim() : "";
   try {
-    return await resolverStockInventarioLocal(sql, identidadDesdeConsulta(consulta));
+    const stock = await resolverStockInventarioLocal(sql, identidadDesdeConsulta(consulta), {
+      skuForzado: skuGuardado || undefined,
+    });
+    if (skuGuardado && stock.encontrado) stock.forzado = true;
+    return stock;
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -222,7 +242,7 @@ async function responderConsultaCampo(
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si encontrado=false o filas_catalogo=0, NO inventes alternativas; di que no hay ese artículo ni alternativa en el inventario local. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si encontrado=false PERO alternativas tiene filas, OFRECE esas alternativas reales (precio y existencia del snapshot); no digas que no se maneja. Solo si alternativas está vacía y no hay match, di que no hay ese artículo ni alternativa. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           pieza: {
             ...consulta.pieza,
             pregunta: "",
@@ -242,6 +262,7 @@ async function responderConsultaCampo(
             ubicacion_tienda: stockParaFicha.ubicacion_tienda ?? null,
             estado: stockParaFicha.estado,
             motivo_indisponible: stockParaFicha.motivo_indisponible ?? null,
+            forzado: Boolean(stockParaFicha.forzado),
             alternativas,
             sustituto: alternativas[0] ?? null,
           },

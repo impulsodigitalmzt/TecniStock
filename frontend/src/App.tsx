@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle, Camera, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
-  MessageCircle, Mic, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Send, Square, Tag, Trash2, Wrench, X,
+  MessageCircle, Mic, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Tag, Trash2, Wrench, X,
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
 import {
@@ -62,6 +62,7 @@ type BloqueStock = {
   motivo_indisponible?: 'faltante_temporal' | 'descontinuado' | 'fuera_de_surtido' | null;
   consulta_ok?: boolean;
   filas_catalogo?: number;
+  forzado?: boolean;
 };
 
 type Mensaje = { id: string; rol: string; texto: string; created_at: string };
@@ -157,9 +158,21 @@ function cantidadStock(stock: Pick<BloqueStock, 'stock_disponible' | 'existencia
   return 0;
 }
 
+type ResultadoBusquedaInventario = {
+  sku: string;
+  nombre: string;
+  categoria: string;
+  stock_disponible: number;
+  precio: number;
+  ubicacion_tienda: string;
+};
+
 function esOpenerInventario(texto: string): boolean {
-  return /^He identificado un .+\. (Hay existencia en inventario local \(\d+ pza\)|Está en inventario local|No cuento con ese artículo)/i.test(
-    texto.replace(/\s+/g, ' ').trim()
+  const plano = texto.replace(/\s+/g, ' ').trim();
+  return (
+    /^He identificado un .+\. (Hay existencia en inventario local \(\d+ pza\)|Está en inventario local|No cuento con ese artículo|No tengo ese modelo exacto)/i.test(
+      plano
+    ) || /^En inventario local encontré /i.test(plano)
   );
 }
 
@@ -282,11 +295,15 @@ function FichaEnChat({ ficha, stock }: { ficha: FichaVisible; stock: BloqueStock
 
 function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
   const piezas = cantidadStock(stock);
+  const alts = (stock.alternativas ?? []).filter((item) => item.existencia > 0);
   if (stock.motivo_indisponible === 'descontinuado') {
     return { texto: 'Descontinuado', clase: 'badge-red' };
   }
   if (stock.motivo_indisponible === 'faltante_temporal') {
     return { texto: 'Faltante momentáneo', clase: 'badge-amber' };
+  }
+  if ((stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) && alts.length > 0) {
+    return { texto: 'Hay alternativas', clase: 'badge-teal' };
   }
   if (stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) {
     return { texto: 'No se maneja', clase: 'badge-slate' };
@@ -298,12 +315,27 @@ function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
   return { texto: `${piezas} en stock`, clase: 'badge-green' };
 }
 
+function listarAlternativasOpener(stock: BloqueStock, moneda = 'MXN'): string {
+  const crudas = stock.alternativas && stock.alternativas.length > 0 ? stock.alternativas : stock.sustituto ? [stock.sustituto] : [];
+  return crudas
+    .filter((item) => item.existencia > 0)
+    .slice(0, MAX_ALTERNATIVAS)
+    .map((item, i) => `${i + 1}) ${item.nombre} — ${dinero(item.precio, moneda)} (${item.existencia} pza)`)
+    .join('\n');
+}
+
 function openerDesdeStock(nombre: string, stock: BloqueStock): string {
   const pieza = (nombre.trim() || 'esta pieza').replace(/^un\s+/i, '').replace(/\.$/, '');
   const piezas = cantidadStock(stock);
   const hayExacto = stock.encontrado && piezas > 0 && !stock.requiere_sustituto;
   const catalogoVacio = stock.consulta_ok === false || (stock.filas_catalogo ?? 0) === 0;
-  if (catalogoVacio && !stock.encontrado) {
+  const lista = listarAlternativasOpener(stock, stock.moneda);
+  if (stock.forzado && hayExacto) {
+    const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : '';
+    const etiqueta = stock.nombre || pieza;
+    return `En inventario local encontré ${etiqueta} (${stock.sku}). Hay existencia (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+  }
+  if (catalogoVacio && !stock.encontrado && !lista) {
     return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (hayExacto) {
@@ -311,20 +343,15 @@ function openerDesdeStock(nombre: string, stock: BloqueStock): string {
     return `He identificado un ${pieza}. Hay existencia en inventario local (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
   if (stock.encontrado && piezas <= 0) {
-    if (stock.alternativas && stock.alternativas.length > 0) {
-      return `He identificado un ${pieza}. Está en inventario local pero hoy no hay existencia. ¿Quieres ver alternativas que sí aparecen en el inventario?`;
+    if (lista) {
+      return `He identificado un ${pieza}. Está en inventario local pero hoy no hay existencia. Sí hay alternativas de la misma categoría:\n${lista}\n\n¿Cuál te aparto o le mostramos al cliente?`;
     }
     return `He identificado un ${pieza}. Está en inventario local pero sin existencia. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
+  if (lista) {
+    return `He identificado un ${pieza}. No tengo ese modelo exacto en inventario local. Sí hay alternativas de la misma categoría con existencia real:\n${lista}\n\n¿Cuál te aparto o le mostramos al cliente?`;
+  }
   return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
-}
-
-function usuarioPidioAlternativas(mensajes: Mensaje[]): boolean {
-  return mensajes.some(
-    (msg) =>
-      msg.rol === 'user' &&
-      /alternativa|compatib|sustitu|otra opci|qu[eé] hay|revisemos|mu[eé]strame|ver las|las opciones/i.test(msg.texto)
-  );
 }
 
 function etiquetaEstatusHistorial(estatus: string): string {
@@ -403,9 +430,15 @@ export default function App() {
   const [menuExportar, setMenuExportar] = useState(false);
   const [menuCorreccion, setMenuCorreccion] = useState(false);
   const [modoCorreccion, setModoCorreccion] = useState<ModoCorreccion>(null);
+  const [buscadorAbierto, setBuscadorAbierto] = useState(false);
+  const [queryBusqueda, setQueryBusqueda] = useState('');
+  const [resultadosBusqueda, setResultadosBusqueda] = useState<ResultadoBusquedaInventario[]>([]);
+  const [buscandoInventario, setBuscandoInventario] = useState(false);
+  const [aplicandoSku, setAplicandoSku] = useState<string | null>(null);
   const chatListaRef = useRef<HTMLDivElement>(null);
   const menuExportarRef = useRef<HTMLDivElement>(null);
   const menuCorreccionRef = useRef<HTMLDivElement>(null);
+  const buscadorInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -463,6 +496,53 @@ export default function App() {
     document.addEventListener('mousedown', cerrar);
     return () => document.removeEventListener('mousedown', cerrar);
   }, [menuExportar, menuAgregar, menuCorreccion]);
+
+  useEffect(() => {
+    if (!buscadorAbierto) return;
+    const t = window.setTimeout(() => buscadorInputRef.current?.focus(), 40);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBuscadorAbierto(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [buscadorAbierto]);
+
+  useEffect(() => {
+    if (!buscadorAbierto) return;
+    const q = queryBusqueda.trim();
+    if (q.length < 1) {
+      setResultadosBusqueda([]);
+      setBuscandoInventario(false);
+      return;
+    }
+    const ac = new AbortController();
+    const t = window.setTimeout(() => {
+      setBuscandoInventario(true);
+      void (async () => {
+        try {
+          const data = await leerJson<{ resultados?: ResultadoBusquedaInventario[] }>(
+            await fetchCampo(`/api/inventario-local?q=${encodeURIComponent(q)}`, { signal: ac.signal }),
+            'No se pudo buscar en inventario local.'
+          );
+          if (ac.signal.aborted) return;
+          setResultadosBusqueda(data.resultados ?? []);
+        } catch (err) {
+          if (ac.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
+          setResultadosBusqueda([]);
+          setError(err instanceof Error ? err.message : 'No se pudo buscar en inventario local.');
+        } finally {
+          if (!ac.signal.aborted) setBuscandoInventario(false);
+        }
+      })();
+    }, 220);
+    return () => {
+      ac.abort();
+      window.clearTimeout(t);
+    };
+  }, [buscadorAbierto, queryBusqueda]);
 
   const cargarHistorial = async () => {
     try {
@@ -702,6 +782,50 @@ export default function App() {
     }
   };
 
+  const abrirBuscador = () => {
+    setMenuExportar(false);
+    setMenuCorreccion(false);
+    setError('');
+    setBuscadorAbierto(true);
+  };
+
+  const aplicarSkuBusqueda = async (item: ResultadoBusquedaInventario) => {
+    if (!consultaId || !resultado) return;
+    setAplicandoSku(item.sku);
+    setError('');
+    try {
+      const data = await leerJson<{
+        stock: BloqueStock;
+        consulta: { pieza: PiezaDetectada };
+        mensajes: Mensaje[];
+      }>(
+        await fetchCampo(`/api/consultas/${consultaId}/sku`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku: item.sku }),
+        }),
+        'No se pudo aplicar el SKU de inventario local.'
+      );
+      setResultado({
+        ...resultado,
+        pieza: {
+          ...resultado.pieza,
+          nombre: data.consulta.pieza?.nombre || data.stock.nombre || item.nombre,
+          categoria: data.consulta.pieza?.categoria || resultado.pieza.categoria,
+        },
+        stock: data.stock,
+      });
+      setMensajes(data.mensajes ?? []);
+      setBuscadorAbierto(false);
+      setQueryBusqueda('');
+      setResultadosBusqueda([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo aplicar el SKU.');
+    } finally {
+      setAplicandoSku(null);
+    }
+  };
+
   const enviarAudioChat = async (blob: Blob, ext: string) => {
     if (!consultaId) return;
     if (blob.size < 400) {
@@ -869,6 +993,10 @@ export default function App() {
     setMenuExportar(false);
     setMenuCorreccion(false);
     setModoCorreccion(null);
+    setBuscadorAbierto(false);
+    setQueryBusqueda('');
+    setResultadosBusqueda([]);
+    setAplicandoSku(null);
     setAnalizando(false);
     setPreparando(false);
     setEnviando(false);
@@ -903,7 +1031,7 @@ export default function App() {
         .filter((item) => item.existencia > 0)
         .slice(0, MAX_ALTERNATIVAS)
     : [];
-  const mostrarCarrusel = alternativasStock.length > 0 && usuarioPidioAlternativas(mensajes);
+  const mostrarCarrusel = alternativasStock.length > 0;
 
   return (
     <div className="min-h-dvh bg-stone-100 text-stone-900">
@@ -1191,6 +1319,22 @@ export default function App() {
                       <h2 className="text-lg font-bold leading-snug mt-0.5">{pieza.nombre}</h2>
                     </div>
                     <div className="flex shrink-0 items-start">
+                      <button
+                        type="button"
+                        className={`btn-icon ${buscadorAbierto ? 'text-orange-600 bg-orange-50' : 'text-stone-400 hover:text-stone-700'}`}
+                        aria-label="Buscar en inventario local"
+                        aria-expanded={buscadorAbierto}
+                        disabled={analizando || transcribiendo || !consultaId}
+                        onClick={() => {
+                          if (buscadorAbierto) {
+                            setBuscadorAbierto(false);
+                            return;
+                          }
+                          abrirBuscador();
+                        }}
+                      >
+                        <Search className="h-4 w-4" />
+                      </button>
                       <div className="relative" ref={menuCorreccionRef}>
                         <button
                           type="button"
@@ -1308,8 +1452,22 @@ export default function App() {
                     <p className="mt-1 text-xs text-amber-800">Sigue vigente: es un faltante momentáneo.</p>
                   ) : stock.motivo_indisponible === 'descontinuado' ? (
                     <p className="mt-1 text-xs text-red-800">Ya no se maneja: no se va a resurtir.</p>
+                  ) : stock.motivo_indisponible === 'fuera_de_surtido' && alternativasStock.length > 0 ? (
+                    <p className="mt-1 text-xs text-stone-600">
+                      No es el modelo exacto; estas opciones sí están en inventario local.
+                    </p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' ? (
-                    <p className="mt-1 text-xs text-stone-500">No está en el surtido vigente.</p>
+                    <p className="mt-1 text-xs text-stone-500">
+                      No está en el surtido vigente.{' '}
+                      <button
+                        type="button"
+                        className="font-semibold text-orange-700 underline underline-offset-2"
+                        disabled={!consultaId}
+                        onClick={abrirBuscador}
+                      >
+                        Buscar por nombre o SKU
+                      </button>
+                    </p>
                   ) : null}
                   {stock.encontrado && stock.sku ? (
                     <p className="mt-1 text-[11px] font-mono text-stone-400 truncate">{stock.sku}</p>
@@ -1345,7 +1503,7 @@ export default function App() {
                               )}
                               <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-snug text-stone-800">{item.nombre}</p>
                               <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-amber-900">
-                                {dinero(item.precio, stock.moneda)}
+                                {dinero(item.precio, stock.moneda)} · {item.existencia} pza
                               </p>
                             </button>
                           );
@@ -1354,6 +1512,76 @@ export default function App() {
                     </div>
                   ) : null}
                 </article>
+
+                {buscadorAbierto ? (
+                  <article className="card overflow-hidden">
+                    <header className="flex items-center gap-2 border-b border-stone-200 bg-stone-50 px-3 py-2.5">
+                      <Search className="h-4 w-4 shrink-0 text-stone-500" />
+                      <p className="min-w-0 flex-1 text-sm font-semibold">Buscar en inventario local</p>
+                      <button
+                        type="button"
+                        className="btn-icon text-stone-400 hover:text-stone-700"
+                        aria-label="Cerrar buscador"
+                        onClick={() => setBuscadorAbierto(false)}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </header>
+                    <div className="p-3 space-y-2">
+                      <input
+                        ref={buscadorInputRef}
+                        type="search"
+                        className="input-field min-h-11 rounded-xl py-2.5 text-sm"
+                        placeholder="Nombre o SKU, ej. interruptor doble o INT-DOB-127"
+                        value={queryBusqueda}
+                        onChange={(e) => setQueryBusqueda(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setBuscadorAbierto(false);
+                        }}
+                      />
+                      <p className="text-[11px] text-stone-500">
+                        Consulta directa a inventario local. Elige un resultado para forzar precio y existencia reales.
+                      </p>
+                      {buscandoInventario ? (
+                        <p className="flex items-center gap-2 py-3 text-sm text-stone-500">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Buscando…
+                        </p>
+                      ) : queryBusqueda.trim() && resultadosBusqueda.length === 0 ? (
+                        <p className="py-3 text-sm text-stone-500">No hay coincidencias en inventario local.</p>
+                      ) : (
+                        <ul className="max-h-64 divide-y divide-stone-100 overflow-y-auto">
+                          {resultadosBusqueda.map((item) => (
+                            <li key={item.sku}>
+                              <button
+                                type="button"
+                                className="flex w-full items-start gap-3 px-1 py-2.5 text-left hover:bg-stone-50 disabled:opacity-50"
+                                disabled={Boolean(aplicandoSku) || !consultaId}
+                                onClick={() => void aplicarSkuBusqueda(item)}
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-semibold leading-snug text-stone-900">{item.nombre}</span>
+                                  <span className="mt-0.5 block font-mono text-[11px] text-stone-400">{item.sku}</span>
+                                </span>
+                                <span className="shrink-0 text-right">
+                                  <span className="block text-sm font-semibold tabular-nums">
+                                    {dinero(item.precio, stock.moneda)}
+                                  </span>
+                                  <span className={`mt-0.5 block text-[11px] ${item.stock_disponible > 0 ? 'text-emerald-700' : 'text-stone-400'}`}>
+                                    {item.stock_disponible > 0 ? `${item.stock_disponible} pza` : 'Sin existencia'}
+                                  </span>
+                                </span>
+                                {aplicandoSku === item.sku ? (
+                                  <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-orange-500" />
+                                ) : null}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </article>
+                ) : null}
 
                 {consultaId ? (
                   <article ref={chatPanelRef} className="card overflow-hidden flex flex-col">
@@ -1365,6 +1593,20 @@ export default function App() {
                         <p className="text-sm font-semibold leading-tight">Asesor técnico</p>
                         <p className="text-[11px] text-stone-500">Chat · se borra en {diasRestantes(expiresAt)}</p>
                       </div>
+                      <button
+                        type="button"
+                        className={`btn-icon shrink-0 ${buscadorAbierto ? 'text-orange-600' : 'text-stone-400 hover:text-stone-700'}`}
+                        aria-label="Buscar en inventario local"
+                        onClick={() => {
+                          if (buscadorAbierto) {
+                            setBuscadorAbierto(false);
+                            return;
+                          }
+                          abrirBuscador();
+                        }}
+                      >
+                        <Search className="h-4 w-4" />
+                      </button>
                       {modoCorreccion === 'describir' ? (
                         <button
                           type="button"

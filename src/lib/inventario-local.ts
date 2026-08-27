@@ -1,6 +1,13 @@
 import type { Sql } from "../db.js";
 import { estadoDesdeStock } from "./productos-schema";
-import { consultarStock, type BloqueStock, type IdentidadPieza, type StockItem } from "./stock";
+import {
+  alternativasDeCatalogo,
+  cantidadStock,
+  consultarStock,
+  type BloqueStock,
+  type IdentidadPieza,
+  type StockItem,
+} from "./stock";
 
 let schemaReady = false;
 
@@ -152,6 +159,91 @@ function bloqueDesdeFila(fila: FilaInventarioLocal, coincidencia = 1): BloqueSto
   );
 }
 
+function conAlternativas(stock: BloqueStock, pieza: IdentidadPieza, items: StockItem[]): BloqueStock {
+  const hayExacto = stock.encontrado && cantidadStock(stock) > 0 && !stock.requiere_sustituto;
+  if (hayExacto) return stock;
+  if (stock.alternativas && stock.alternativas.length > 0) return stock;
+  const alternativas = alternativasDeCatalogo(pieza, items, stock.sku ?? "");
+  stock.alternativas = alternativas;
+  stock.sustituto = alternativas[0] ?? stock.sustituto ?? null;
+  return stock;
+}
+
+function normalizarBusqueda(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9./]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type ResultadoBusquedaInventario = {
+  sku: string;
+  nombre: string;
+  categoria: string;
+  stock_disponible: number;
+  precio: number;
+  ubicacion_tienda: string;
+};
+
+function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario {
+  return {
+    sku: fila.sku,
+    nombre: fila.nombre_pieza,
+    categoria: fila.categoria,
+    stock_disponible: fila.stock_disponible,
+    precio: fila.precio,
+    ubicacion_tienda: fila.ubicacion_tienda,
+  };
+}
+
+function puntuarBusqueda(query: string, fila: FilaInventarioLocal): number {
+  const q = normalizarBusqueda(query);
+  if (!q) return 0;
+  const sku = fila.sku.toLowerCase();
+  const nombre = normalizarBusqueda(fila.nombre_pieza);
+  const categoria = normalizarBusqueda(fila.categoria);
+  const qRaw = query.trim().toLowerCase();
+  if (sku === qRaw) return 100;
+  if (sku.startsWith(qRaw)) return 90;
+  if (sku.includes(qRaw)) return 80;
+  if (nombre === q) return 75;
+  if (nombre.startsWith(q) || nombre.includes(` ${q} `) || nombre.includes(` ${q}`) || nombre.startsWith(`${q} `)) {
+    return 65;
+  }
+  if (nombre.includes(q)) return 55;
+  const tokens = q.split(" ").filter((token) => token.length > 1);
+  if (tokens.length === 0) return 0;
+  const hits = tokens.filter((token) => nombre.includes(token) || sku.includes(token) || categoria.includes(token)).length;
+  if (hits === 0) return 0;
+  return 20 + hits * 12 + (hits === tokens.length ? 10 : 0);
+}
+
+/** Búsqueda directa por nombre o SKU sobre inventario_local. */
+export async function buscarInventarioLocal(
+  sql: Sql,
+  query: string,
+  limit = 12
+): Promise<ResultadoBusquedaInventario[]> {
+  const q = query.trim().slice(0, 80);
+  if (!q) return [];
+  const filas = await listarFilasInventarioLocal(sql);
+  const tope = Math.max(1, Math.min(24, Math.trunc(limit) || 12));
+  return filas
+    .map((fila) => ({ fila, score: puntuarBusqueda(q, fila) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const stockDelta = Number(b.fila.stock_disponible > 0) - Number(a.fila.stock_disponible > 0);
+      if (stockDelta !== 0) return stockDelta;
+      return a.fila.nombre_pieza.localeCompare(b.fila.nombre_pieza, "es");
+    })
+    .slice(0, tope)
+    .map((row) => filaAResultado(row.fila));
+}
+
 /**
  * 1) elige SKU por coincidencia de familia/nombre
  * 2) relee esa fila por SKU (`WHERE sku = $1`) y copia stock_disponible / precio sin alterar
@@ -167,8 +259,10 @@ export async function resolverStockInventarioLocal(
     if (filaForzada) {
       const bloque = bloqueDesdeFila(filaForzada, 1);
       const filas = await listarFilasInventarioLocal(sql);
+      const items = filas.map(filaAStockItem);
       bloque.filas_catalogo = filas.length;
-      return bloque;
+      bloque.forzado = true;
+      return conAlternativas(bloque, pieza, items);
     }
   }
 
@@ -182,7 +276,7 @@ export async function resolverStockInventarioLocal(
     stock.stock_disponible = null;
     stock.existencia = 0;
     stock.precio = null;
-    return stock;
+    return conAlternativas(stock, pieza, items);
   }
   const fila = (await obtenerInventarioPorSku(sql, stock.sku)) ?? filas.find((item) => item.sku === stock.sku);
   if (!fila) {
@@ -190,7 +284,7 @@ export async function resolverStockInventarioLocal(
     stock.stock_disponible = null;
     stock.existencia = 0;
     stock.precio = null;
-    return stock;
+    return conAlternativas(stock, pieza, items);
   }
-  return aplicarFilaLiteral(stock, fila);
+  return conAlternativas(aplicarFilaLiteral(stock, fila), pieza, items);
 }

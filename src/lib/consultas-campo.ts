@@ -2,6 +2,7 @@ import type { Sql } from "../db.js";
 import { toJsonbParam } from "../db.js";
 import { AppError } from "./errors";
 import type { PiezaDetectada } from "./pieza-ia";
+import { resolverStockInventarioLocal } from "./inventario-local";
 import { cantidadStock, type BloqueStock } from "./stock";
 import { redactarMensajeInicial } from "../ia/prompts";
 import { ensureApartadosSchema, parseBorradorApartado, type BorradorApartado } from "./apartados";
@@ -230,6 +231,66 @@ export async function actualizarConsultaCampo(
   const consulta = mapConsulta(rows[0] ?? {});
   await agregarMensajeCampo(sql, consulta.id, "assistant", mensajeGuiaInicial(input.pieza, input.stock));
   return consulta;
+}
+
+export async function aplicarSkuConsultaCampo(
+  sql: Sql,
+  id: string,
+  dispositivoId: string,
+  sku: string
+): Promise<{ consulta: ConsultaCampo; stock: BloqueStock }> {
+  const codigo = sku.trim();
+  if (!codigo) throw new AppError(400, "Indica un SKU de inventario local.", "SKU_REQUIRED");
+  const actual = await obtenerConsultaCampo(sql, id, dispositivoId);
+  const claves = actual.pieza.palabras_clave;
+  const stock = await resolverStockInventarioLocal(
+    sql,
+    {
+      nombre: String(actual.pieza.nombre ?? actual.pieza_nombre ?? ""),
+      material: String(actual.pieza.material ?? actual.pieza_material ?? ""),
+      medida: String(actual.pieza.medida ?? actual.pieza_medida ?? ""),
+      categoria: String(actual.pieza.categoria ?? actual.pieza_categoria ?? ""),
+      palabras_clave: Array.isArray(claves) ? claves.map((item) => String(item)) : [],
+    },
+    { skuForzado: codigo }
+  );
+  if (!stock.encontrado || !stock.sku) {
+    throw new AppError(404, "Ese SKU no está en inventario local.", "SKU_NO_ENCONTRADO");
+  }
+  stock.forzado = true;
+  const piezaMeta = {
+    ...actual.pieza,
+    nombre: stock.nombre || actual.pieza_nombre,
+  };
+  const titulo = String(stock.nombre || actual.titulo).slice(0, 120);
+  const rows = await sql.query(
+    `UPDATE consultas_campo SET
+       titulo = $1,
+       pieza_estatus = $2,
+       pieza_nombre = $3,
+       pieza_json = $4::jsonb,
+       stock_json = $5::jsonb,
+       updated_at = NOW()
+     WHERE id = $6::uuid AND dispositivo_id = $7
+     RETURNING *`,
+    [
+      titulo,
+      piezaEstatusDesdeStock(stock),
+      String(stock.nombre || actual.pieza_nombre),
+      toJsonbParam(piezaMeta),
+      toJsonbParam(stock),
+      id,
+      dispositivoId,
+    ]
+  );
+  const consulta = mapConsulta(rows[0] ?? {});
+  await agregarMensajeCampo(
+    sql,
+    consulta.id,
+    "assistant",
+    redactarMensajeInicial(String(stock.nombre || actual.pieza_nombre), stock)
+  );
+  return { consulta, stock };
 }
 
 export async function listarConsultasCampo(sql: Sql, dispositivoId: string): Promise<ConsultaCampo[]> {
