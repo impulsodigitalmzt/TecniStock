@@ -113,8 +113,8 @@ const FAMILIAS: { id: string; claves: string[] }[] = [
   { id: "contacto", claves: ["contacto", "tomacorriente", "duplex", "duplez", "receptaculo"] },
   { id: "interruptor", claves: ["interruptor", "apagador", "switch", "conmutador", "conmutar"] },
   { id: "cable", claves: ["cable", "thw", "thhn", "conductor"] },
-  { id: "cinta", claves: ["cinta", "aislar", "aislante"] },
-  { id: "foco", claves: ["foco", "lampara", "luminaria", "bombilla"] },
+  { id: "cinta", claves: ["cinta", "aislar", "aislante", "ailante"] },
+  { id: "foco", claves: ["foco", "focos", "lampara", "luminaria", "bombilla", "bombillo"] },
   { id: "conduit", claves: ["conduit", "cople"] },
   { id: "clavija", claves: ["clavija"] },
 ];

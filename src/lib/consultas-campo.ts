@@ -378,3 +378,28 @@ export async function agregarMensajeCampo(
     created_at: iso(row.created_at),
   };
 }
+
+/** Recuerda la última búsqueda de chat para ficha/apartado, sin cambiar la pieza de la foto. */
+export async function recordarHallazgosChat(
+  sql: Sql,
+  id: string,
+  dispositivoId: string,
+  extra: {
+    hallazgos_chat: unknown;
+    sku_conversacion: string | null;
+    query_busqueda: string;
+  }
+): Promise<void> {
+  const actual = await obtenerConsultaCampo(sql, id, dispositivoId);
+  const stock = {
+    ...actual.stock,
+    hallazgos_chat: extra.hallazgos_chat,
+    sku_conversacion: extra.sku_conversacion,
+    query_busqueda: extra.query_busqueda,
+  };
+  await sql.query(`UPDATE consultas_campo SET stock_json = $1::jsonb, updated_at = NOW() WHERE id = $2::uuid AND dispositivo_id = $3`, [
+    toJsonbParam(stock),
+    id,
+    dispositivoId,
+  ]);
+}

@@ -179,6 +179,145 @@ function normalizarBusqueda(texto: string): string {
     .trim();
 }
 
+const RELLENO_CONSULTA = new Set([
+  "a",
+  "al",
+  "de",
+  "del",
+  "el",
+  "la",
+  "los",
+  "las",
+  "un",
+  "una",
+  "unos",
+  "unas",
+  "me",
+  "te",
+  "le",
+  "lo",
+  "se",
+  "ya",
+  "hay",
+  "tiene",
+  "tienen",
+  "tienes",
+  "tenemos",
+  "tengo",
+  "traen",
+  "trae",
+  "manejan",
+  "maneja",
+  "venden",
+  "vende",
+  "busco",
+  "busca",
+  "necesito",
+  "necesita",
+  "quiero",
+  "quisiera",
+  "por",
+  "favor",
+  "hola",
+  "buenas",
+  "buen",
+  "dia",
+  "dias",
+  "tarde",
+  "noche",
+  "no",
+  "si",
+  "o",
+  "y",
+  "que",
+  "como",
+  "cual",
+  "este",
+  "esta",
+  "esto",
+  "ese",
+  "esa",
+  "eso",
+  "otro",
+  "otra",
+  "tambien",
+  "todavia",
+  "aun",
+  "articulo",
+  "pieza",
+  "modelo",
+  "producto",
+  "algo",
+  "algun",
+  "alguna",
+  "algunos",
+  "con",
+  "en",
+  "para",
+  "pues",
+  "mostrar",
+  "muestrame",
+  "ensename",
+  "ensenar",
+  "verlo",
+  "verla",
+  "veamos",
+  "foto",
+  "imagen",
+  "ficha",
+]);
+
+const SINONIMOS_BUSQUEDA: Record<string, string[]> = {
+  cinta: ["aislar", "aislante", "ailante"],
+  aislante: ["aislar", "cinta", "ailante"],
+  aislar: ["aislante", "cinta"],
+  ailante: ["aislante", "aislar", "cinta"],
+  foco: ["focos", "lampara", "luminaria", "bombilla", "bombillo"],
+  focos: ["foco", "lampara", "luminaria", "bombilla"],
+  bombillo: ["foco", "lampara"],
+  lampara: ["foco", "luminaria"],
+  interruptor: ["apagador", "switch"],
+  apagador: ["interruptor", "switch"],
+};
+
+function expandirTokensBusqueda(tokens: string[]): string[] {
+  const out = new Set<string>();
+  for (const token of tokens) {
+    if (!token) continue;
+    out.add(token);
+    for (const sinonimo of SINONIMOS_BUSQUEDA[token] ?? []) out.add(sinonimo);
+    if (token.endsWith("s") && token.length > 3) out.add(token.slice(0, -1));
+    else if (token.length > 2 && !/^\d+$/.test(token)) out.add(`${token}s`);
+  }
+  return [...out];
+}
+
+function tokenCatalogoCerca(token: string, haystack: string): boolean {
+  if (!token || token.length < 2) return false;
+  if (haystack.includes(token)) return true;
+  if (token.length < 5) return false;
+  return haystack.split(" ").some((palabra) => {
+    if (palabra.length < 5) return false;
+    return palabra.slice(0, 4) === token.slice(0, 4) && Math.abs(palabra.length - token.length) <= 2;
+  });
+}
+
+/** Quita muletillas de mostrador y deja el término a buscar en inventario_local. */
+export function extraerConsultaInventario(texto: string): string {
+  const q = normalizarBusqueda(texto);
+  if (!q) return "";
+  const tokens = q.split(" ").filter((token) => token && (!RELLENO_CONSULTA.has(token) || /^\d+$/.test(token)));
+  return tokens.join(" ").trim();
+}
+
+function consultaParaPuntaje(query: string): string {
+  const q = extraerConsultaInventario(query) || normalizarBusqueda(query);
+  if (q === "3" || q === "03") return "3 triple tres gangas vias";
+  if (q === "2" || q === "02") return "2 doble dos gangas";
+  if (q === "1" || q === "01") return "1 sencillo simple ganga";
+  return q;
+}
+
 export type ResultadoBusquedaInventario = {
   sku: string;
   nombre: string;
@@ -200,23 +339,25 @@ function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario 
 }
 
 function puntuarBusqueda(query: string, fila: FilaInventarioLocal): number {
-  const q = normalizarBusqueda(query);
+  const q = consultaParaPuntaje(query);
   if (!q) return 0;
   const sku = fila.sku.toLowerCase();
   const nombre = normalizarBusqueda(fila.nombre_pieza);
   const categoria = normalizarBusqueda(fila.categoria);
-  const qRaw = query.trim().toLowerCase();
+  const qRaw = extraerConsultaInventario(query) || query.trim().toLowerCase();
   if (sku === qRaw) return 100;
-  if (sku.startsWith(qRaw)) return 90;
-  if (sku.includes(qRaw)) return 80;
-  if (nombre === q) return 75;
-  if (nombre.startsWith(q) || nombre.includes(` ${q} `) || nombre.includes(` ${q}`) || nombre.startsWith(`${q} `)) {
+  if (qRaw.length >= 3 && sku.startsWith(qRaw)) return 90;
+  if (qRaw.length >= 3 && !/^\d+$/.test(qRaw) && sku.includes(qRaw)) return 80;
+  if (nombre === q || nombre === qRaw) return 75;
+  if (qRaw.length >= 3 && (nombre.startsWith(qRaw) || nombre.includes(` ${qRaw} `) || nombre.includes(` ${qRaw}`) || nombre.startsWith(`${qRaw} `))) {
     return 65;
   }
-  if (nombre.includes(q)) return 55;
-  const tokens = q.split(" ").filter((token) => token.length > 1);
+  if (qRaw.length >= 3 && nombre.includes(qRaw)) return 55;
+  const tokens = expandirTokensBusqueda(q.split(" ").filter((token) => token.length > 1 || /^\d+$/.test(token)));
   if (tokens.length === 0) return 0;
-  const hits = tokens.filter((token) => nombre.includes(token) || sku.includes(token) || categoria.includes(token)).length;
+  const hits = tokens.filter(
+    (token) => tokenCatalogoCerca(token, nombre) || tokenCatalogoCerca(token, sku) || tokenCatalogoCerca(token, categoria)
+  ).length;
   if (hits === 0) return 0;
   return 20 + hits * 12 + (hits === tokens.length ? 10 : 0);
 }
@@ -227,7 +368,7 @@ export async function buscarInventarioLocal(
   query: string,
   limit = 12
 ): Promise<ResultadoBusquedaInventario[]> {
-  const q = query.trim().slice(0, 80);
+  const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 80);
   if (!q) return [];
   const filas = await listarFilasInventarioLocal(sql);
   const tope = Math.max(1, Math.min(24, Math.trunc(limit) || 12));
@@ -242,6 +383,77 @@ export async function buscarInventarioLocal(
     })
     .slice(0, tope)
     .map((row) => filaAResultado(row.fila));
+}
+
+function resultadoASustituto(item: ResultadoBusquedaInventario): {
+  sku: string;
+  nombre: string;
+  material: string;
+  medida: string;
+  existencia: number;
+  precio: number;
+  razon: string;
+  ubicacion_tienda?: string;
+} {
+  return {
+    sku: item.sku,
+    nombre: item.nombre,
+    material: "",
+    medida: "",
+    existencia: item.stock_disponible,
+    precio: item.precio,
+    razon: "Coincidencia por texto en inventario local",
+    ubicacion_tienda: item.ubicacion_tienda || undefined,
+  };
+}
+
+/** Snapshot de inventario a partir de una búsqueda por texto (no de la foto). */
+export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInventario[]): BloqueStock {
+  const mejor = resultados[0];
+  if (!mejor) {
+    return {
+      encontrado: false,
+      sku: null,
+      nombre: null,
+      material: null,
+      medida: null,
+      existencia: 0,
+      precio: null,
+      moneda: "MXN",
+      estado: "sin_coincidencia",
+      requiere_sustituto: true,
+      sustituto: null,
+      alternativas: [],
+      coincidencia: 0,
+      stock_disponible: null,
+      fuente: "inventario_local",
+      consulta_ok: true,
+      filas_catalogo: 0,
+      motivo_indisponible: "fuera_de_surtido",
+    };
+  }
+  const alternativas = resultados.slice(1, 4).map(resultadoASustituto);
+  const piezas = mejor.stock_disponible;
+  return {
+    encontrado: true,
+    sku: mejor.sku,
+    nombre: mejor.nombre,
+    material: null,
+    medida: null,
+    existencia: piezas,
+    precio: mejor.precio,
+    moneda: "MXN",
+    estado: estadoDesdeStock(piezas),
+    requiere_sustituto: piezas <= 0,
+    sustituto: alternativas[0] ?? null,
+    alternativas,
+    coincidencia: 1,
+    ubicacion_tienda: mejor.ubicacion_tienda || undefined,
+    stock_disponible: piezas,
+    fuente: "inventario_local",
+    consulta_ok: true,
+    motivo_indisponible: piezas > 0 ? null : "faltante_temporal",
+  };
 }
 
 /**

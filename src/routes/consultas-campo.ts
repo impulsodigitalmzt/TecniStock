@@ -4,8 +4,14 @@ import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO } from "../ia/prompts";
 import { cantidadStock, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import { conMarcaFicha, extraerMarcaFicha, pideMostrarProducto, resolverFichaSolicitada } from "../lib/ficha-chat";
-import { procesarFlujoApartado } from "../lib/apartados";
-import { resolverStockInventarioLocal } from "../lib/inventario-local";
+import { cancelaApartado, pideApartar, procesarFlujoApartado } from "../lib/apartados";
+import {
+  buscarInventarioLocal,
+  extraerConsultaInventario,
+  resolverStockInventarioLocal,
+  stockDesdeResultadosBusqueda,
+  type ResultadoBusquedaInventario,
+} from "../lib/inventario-local";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -17,6 +23,7 @@ import {
   listarMensajesCampo,
   obtenerConsultaCampo,
   purgarConsultasVencidas,
+  recordarHallazgosChat,
   validarDispositivoId,
   type ConsultaCampo,
   type MensajeCampo,
@@ -147,6 +154,50 @@ function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
   };
 }
 
+function hallazgosGuardados(consulta: ConsultaCampo): ResultadoBusquedaInventario[] {
+  const crudo = consulta.stock?.hallazgos_chat;
+  if (!Array.isArray(crudo)) return [];
+  return crudo
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const sku = String(row.sku ?? "").trim();
+      const nombre = String(row.nombre ?? row.nombre_pieza ?? "").trim();
+      if (!sku || !nombre) return null;
+      return {
+        sku,
+        nombre,
+        categoria: String(row.categoria ?? ""),
+        stock_disponible: Number(row.stock_disponible ?? row.existencia ?? 0) || 0,
+        precio: Number(row.precio ?? 0) || 0,
+        ubicacion_tienda: String(row.ubicacion_tienda ?? ""),
+      } satisfies ResultadoBusquedaInventario;
+    })
+    .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
+}
+
+function fusionarHallazgosConversacion(stockFoto: BloqueStock, consulta: ConsultaCampo): BloqueStock {
+  const hallazgos = hallazgosGuardados(consulta);
+  const skuConv = String(consulta.stock?.sku_conversacion ?? "").trim();
+  if (skuConv && hallazgos.some((item) => item.sku === skuConv) && skuConv !== String(stockFoto.sku ?? "")) {
+    const ordenados = [
+      ...hallazgos.filter((item) => item.sku === skuConv),
+      ...hallazgos.filter((item) => item.sku !== skuConv),
+    ];
+    const stock = stockDesdeResultadosBusqueda(ordenados);
+    stock.filas_catalogo = stockFoto.filas_catalogo;
+    stock.consulta_ok = stockFoto.consulta_ok ?? true;
+    return stock;
+  }
+  return stockFoto;
+}
+
+function debeBuscarInventarioPorTexto(texto: string): boolean {
+  if (pideApartar(texto) || cancelaApartado(texto)) return false;
+  if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
+  return extraerConsultaInventario(texto).length > 0;
+}
+
 async function stockDesdeInventarioLocal(
   sql: Awaited<ReturnType<typeof sqlCampo>>,
   consulta: ConsultaCampo
@@ -196,7 +247,25 @@ async function responderConsultaCampo(
 ): Promise<MensajeCampo[]> {
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
-  const stockVivo = await stockDesdeInventarioLocal(sql, consulta);
+  const stockFoto = await stockDesdeInventarioLocal(sql, consulta);
+  const queryBusqueda = extraerConsultaInventario(texto);
+  let consultaSecundaria = false;
+  let resultadosBusqueda: ResultadoBusquedaInventario[] = [];
+  let stockVivo = fusionarHallazgosConversacion(stockFoto, consulta);
+
+  if (debeBuscarInventarioPorTexto(texto) && queryBusqueda) {
+    resultadosBusqueda = await buscarInventarioLocal(sql, queryBusqueda, 8);
+    consultaSecundaria = true;
+    stockVivo = stockDesdeResultadosBusqueda(resultadosBusqueda);
+    stockVivo.filas_catalogo = stockFoto.filas_catalogo;
+    stockVivo.consulta_ok = true;
+    await recordarHallazgosChat(sql, consulta.id, consulta.dispositivo_id, {
+      hallazgos_chat: resultadosBusqueda,
+      sku_conversacion: stockVivo.sku,
+      query_busqueda: queryBusqueda,
+    });
+  }
+
   const crudas = Array.isArray(stockVivo.alternativas) && stockVivo.alternativas.length > 0
     ? stockVivo.alternativas
     : stockVivo.sustituto
@@ -242,7 +311,23 @@ async function responderConsultaCampo(
       { role: "system", content: PROMPT_CHAT_CAMPO },
       {
         role: "user",
-        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si encontrado=false PERO alternativas tiene filas, OFRECE esas alternativas reales (precio y existencia del snapshot); no digas que no se maneja. Solo si alternativas está vacía y no hay match, di que no hay ese artículo ni alternativa. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si consulta_secundaria=true, el cliente preguntó por OTRA pieza: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales. Solo si la búsqueda va vacía (consulta_secundaria) o (encontrado false Y alternativas vacías), di que no hay ese artículo. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+          consulta_secundaria: consultaSecundaria,
+          query_busqueda: queryBusqueda || null,
+          busqueda: {
+            query: queryBusqueda || null,
+            resultados: resultadosBusqueda.map((item) => ({
+              sku: item.sku,
+              nombre: item.nombre,
+              stock_disponible: item.stock_disponible,
+              precio: item.precio,
+              ubicacion_tienda: item.ubicacion_tienda || null,
+            })),
+          },
+          pieza_foto: {
+            nombre: consulta.pieza_nombre,
+            categoria: consulta.pieza_categoria,
+          },
           pieza: {
             ...consulta.pieza,
             pregunta: "",
@@ -251,6 +336,7 @@ async function responderConsultaCampo(
           stock: {
             fuente: stockParaFicha.fuente,
             consulta_ok: stockParaFicha.consulta_ok,
+            consulta_secundaria: consultaSecundaria,
             filas_catalogo: stockParaFicha.filas_catalogo,
             encontrado: stockParaFicha.encontrado,
             sku: stockParaFicha.sku,
