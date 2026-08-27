@@ -95,7 +95,8 @@ const resumen = await sql.query(`
     count(*) FILTER (WHERE categoria = 'electricidad')::int AS electricidad,
     count(*) FILTER (WHERE categoria = 'ferreteria')::int AS ferreteria,
     count(*) FILTER (WHERE categoria = 'plomeria')::int AS plomeria,
-    count(*) FILTER (WHERE COALESCE(stock_disponible, 0) <= 0)::int AS agotados
+    count(*) FILTER (WHERE COALESCE(stock_disponible, 0) <= 0)::int AS agotados,
+    count(*) FILTER (WHERE COALESCE(url_imagen, '') <> '')::int AS con_imagen
   FROM inventario_local
 `);
 

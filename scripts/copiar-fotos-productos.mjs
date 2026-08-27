@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "public", "productos");
-const destDirs = [join(root, "frontend", "public", "static", "productos")];
+const destDirs = [
+  join(root, "frontend", "public", "static", "productos"),
+  join(root, "dist", "client", "static", "productos"),
+];
 
 function norm(texto) {
   return texto
@@ -34,6 +37,8 @@ const pares = [
   { sku: "CONT-INT-01", claves: ["intemperie"] },
   { sku: "FOCO-LED-10W", claves: ["foco led"] },
   { sku: "LAMP-LED-40W", claves: ["lineal"] },
+  { sku: "TUBO-CON-50", claves: ["pared delgada"] },
+  { sku: "COPL-CON-05", claves: ["cople"] },
   { sku: "INT-PALANCA-OLD", claves: ["palanca vintage"] },
 ];
 
