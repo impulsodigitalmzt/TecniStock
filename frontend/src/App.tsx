@@ -5,6 +5,12 @@ import {
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
 import {
+  agregarAlCarrito,
+  CarritoApartado,
+  lineasDesdeKit,
+  type LineaCarrito,
+} from './components/CarritoApartado';
+import {
   avisoGuardadoMiniatura,
   borrarFotoConsulta,
   guardarFotoHilo,
@@ -446,22 +452,25 @@ function CarruselEnChat({
   stock,
   disabled = false,
   aplicandoSku = null,
+  skusCarrito = [],
   onElegir,
 }: {
   tarjetas: TarjetaChat[];
   stock: BloqueStock;
   disabled?: boolean;
   aplicandoSku?: string | null;
+  skusCarrito?: string[];
   onElegir?: (item: TarjetaChat) => void;
 }) {
   if (tarjetas.length === 0) return null;
+  const elegidos = new Set((skusCarrito ?? []).map((sku) => sku.toLowerCase()));
   return (
     <div className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}>
       {tarjetas.map((item) => {
         const foto = urlFotoCatalogo(item.url);
         const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
         const eligiendo = aplicandoSku === item.sku;
-        const yaElegida = Boolean(stock.sku && item.sku.toLowerCase() === stock.sku.toLowerCase() && stock.forzado);
+        const yaElegida = elegidos.has(item.sku.toLowerCase());
         return (
           <button
             key={item.sku}
@@ -489,7 +498,7 @@ function CarruselEnChat({
                 {eligiendo ? (
                   <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
                 ) : yaElegida ? (
-                  'Elegido'
+                  'En el pedido'
                 ) : (
                   'Elegir'
                 )}
@@ -667,6 +676,10 @@ export default function App() {
   const [resultadosBusqueda, setResultadosBusqueda] = useState<ResultadoBusquedaInventario[]>([]);
   const [buscandoInventario, setBuscandoInventario] = useState(false);
   const [aplicandoSku, setAplicandoSku] = useState<string | null>(null);
+  const [carrito, setCarrito] = useState<LineaCarrito[]>([]);
+  const [carritoAbierto, setCarritoAbierto] = useState(false);
+  const [enviandoApartado, setEnviandoApartado] = useState(false);
+  const kitSembradoRef = useRef('');
   const [oscuro, setOscuro] = useState(temaNocheInicial);
   const chatListaRef = useRef<HTMLDivElement>(null);
   const menuExportarRef = useRef<HTMLDivElement>(null);
@@ -833,6 +846,44 @@ export default function App() {
   useEffect(() => {
     void cargarHistorial();
   }, []);
+
+  useEffect(() => {
+    if (!consultaId) {
+      setCarrito([]);
+      setCarritoAbierto(false);
+      kitSembradoRef.current = '';
+      return;
+    }
+    let loaded: LineaCarrito[] = [];
+    try {
+      const raw = localStorage.getItem(`tecnistock.carrito.${consultaId}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed)) {
+        loaded = parsed.filter((item: LineaCarrito) => item && item.sku && item.nombre);
+      }
+    } catch {
+      loaded = [];
+    }
+    setCarrito(loaded);
+    kitSembradoRef.current = loaded.length ? consultaId : '';
+  }, [consultaId]);
+
+  useEffect(() => {
+    if (!consultaId) return;
+    try {
+      localStorage.setItem(`tecnistock.carrito.${consultaId}`, JSON.stringify(carrito));
+    } catch {
+      /* cuota local */
+    }
+  }, [consultaId, carrito]);
+
+  useEffect(() => {
+    if (!consultaId || kitSembradoRef.current === consultaId) return;
+    const kit = lineasDesdeKit(resultado?.stock?.alternativas ?? []);
+    if (kit.length < 2) return;
+    kitSembradoRef.current = consultaId;
+    setCarrito((prev) => (prev.length === 0 ? kit : prev));
+  }, [consultaId, resultado?.stock?.alternativas]);
 
   const agregarArchivos = async (lista: FileList | File[] | null, reemplazar = false) => {
     const incoming = Array.from(lista ?? []).filter((file) => file && file.size > 0);
@@ -1164,6 +1215,16 @@ export default function App() {
       setBuscadorAbierto(false);
       setQueryBusqueda('');
       setResultadosBusqueda([]);
+      setCarrito((prev) =>
+        agregarAlCarrito(prev, {
+          sku: item.sku,
+          nombre: item.nombre,
+          cantidad: 1,
+          precio: item.precio,
+          url_imagen: item.url_imagen,
+          existencia: item.stock_disponible,
+        })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo aplicar el SKU.');
     } finally {
@@ -1171,46 +1232,47 @@ export default function App() {
     }
   };
 
-  const elegirProductoCarrusel = async (item: TarjetaChat) => {
-    if (!consultaId || !resultado || aplicandoSku || enviando) return;
-    const texto = `Seleccioné este: ${item.nombre} - ${item.sku}`;
-    const tempId = `temp-sel-${Date.now()}`;
-    setAplicandoSku(item.sku);
+  const elegirProductoCarrusel = (item: TarjetaChat) => {
     setError('');
-    setMensajes((prev) => [...prev, { id: tempId, rol: 'user', texto, created_at: new Date().toISOString() }]);
+    setCarrito((prev) =>
+      agregarAlCarrito(prev, {
+        sku: item.sku,
+        nombre: item.nombre,
+        cantidad: 1,
+        precio: item.precio,
+        url_imagen: item.url || undefined,
+        existencia: item.existencia,
+      })
+    );
+  };
+
+  const generarApartadoCarrito = async () => {
+    if (!consultaId || carrito.length === 0 || enviandoApartado) return;
+    setEnviandoApartado(true);
+    setError('');
     try {
-      const data = await leerJson<{
-        stock: BloqueStock;
-        consulta: { pieza: PiezaDetectada };
-        mensajes: Mensaje[];
-      }>(
-        await fetchCampo(`/api/consultas/${consultaId}/sku`, {
+      const data = await leerJson<{ mensajes: Mensaje[] }>(
+        await fetchCampo(`/api/consultas/${consultaId}/apartado`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sku: item.sku, confirmar: true }),
+          body: JSON.stringify({
+            lineas: carrito.map((linea) => ({
+              sku: linea.sku,
+              nombre: linea.nombre,
+              cantidad: linea.cantidad,
+              precio: linea.precio,
+              url_imagen: linea.url_imagen,
+            })),
+          }),
         }),
-        'No se pudo elegir este producto.'
+        'No se pudo generar el apartado.'
       );
-      setResultado({
-        ...resultado,
-        pieza: {
-          ...resultado.pieza,
-          ...(data.consulta.pieza ?? {}),
-          nombre: data.consulta.pieza?.nombre || data.stock.nombre || item.nombre,
-          material: data.stock.material || data.consulta.pieza?.material || '',
-          medida: data.stock.medida || data.consulta.pieza?.medida || '',
-          descripcion: data.consulta.pieza?.descripcion || '',
-          observaciones: '',
-          pregunta: '',
-        },
-        stock: { ...data.stock, forzado: true },
-      });
-      setMensajes((prev) => [...prev.filter((msg) => msg.id !== tempId), ...(data.mensajes ?? [])]);
+      setMensajes(data.mensajes ?? []);
+      setCarritoAbierto(false);
     } catch (err) {
-      setMensajes((prev) => prev.filter((msg) => msg.id !== tempId));
-      setError(err instanceof Error ? err.message : 'No se pudo elegir este producto.');
+      setError(err instanceof Error ? err.message : 'No se pudo generar el apartado.');
     } finally {
-      setAplicandoSku(null);
+      setEnviandoApartado(false);
     }
   };
 
@@ -1388,6 +1450,10 @@ export default function App() {
     setQueryBusqueda('');
     setResultadosBusqueda([]);
     setAplicandoSku(null);
+    setCarrito([]);
+    setCarritoAbierto(false);
+    setEnviandoApartado(false);
+    kitSembradoRef.current = '';
     setAnalizando(false);
     setAnalizandoFotoHilo(false);
     setPreparando(false);
@@ -2065,7 +2131,8 @@ export default function App() {
                                 stock={stock}
                                 disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                                 aplicandoSku={aplicandoSku}
-                                onElegir={(item) => void elegirProductoCarrusel(item)}
+                                onElegir={elegirProductoCarrusel}
+                                skusCarrito={carrito.map((linea) => linea.sku)}
                               />
                             ) : null}
                           </div>
@@ -2203,6 +2270,27 @@ export default function App() {
           </>
         )}
       </main>
+      {consultaId ? (
+        <CarritoApartado
+          lineas={carrito}
+          abierto={carritoAbierto}
+          enviando={enviandoApartado}
+          onToggle={() => setCarritoAbierto((prev) => !prev)}
+          onCambiarCantidad={(sku, cantidad) => {
+            setCarrito((prev) => {
+              if (cantidad <= 0) return prev.filter((linea) => linea.sku !== sku);
+              return prev.map((linea) => {
+                if (linea.sku !== sku) return linea;
+                const tope = linea.existencia ?? 999;
+                return { ...linea, cantidad: Math.min(tope, cantidad) };
+              });
+            });
+          }}
+          onQuitar={(sku) => setCarrito((prev) => prev.filter((linea) => linea.sku !== sku))}
+          onVaciar={() => setCarrito([])}
+          onGenerarApartado={() => void generarApartadoCarrito()}
+        />
+      ) : null}
     </div>
   );
 }

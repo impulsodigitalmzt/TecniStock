@@ -1,13 +1,23 @@
 import type { Sql } from "../db.js";
 import { toJsonbParam } from "../db.js";
+import { AppError } from "./errors";
 import { candidatosFicha, type FichaCatalogo } from "./ficha-chat";
 import { cantidadStock, type BloqueStock } from "./stock";
 
 export const HORAS_APARTADO = 24;
 
+export type LineaCarrito = {
+  sku: string;
+  nombre: string;
+  cantidad: number;
+  precio: number;
+  url_imagen?: string;
+};
+
 export type BorradorApartado = {
   sku: string;
   nombre: string;
+  lineas: LineaCarrito[];
   cliente_nombre: string;
   cliente_telefono: string;
   recoger_en: string;
@@ -36,15 +46,70 @@ function vacio(valor: string | undefined | null): boolean {
   return !String(valor ?? "").trim();
 }
 
+function precioMx(valor: number): string {
+  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(valor);
+}
+
+export function normalizarLineasCarrito(raw: unknown): LineaCarrito[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Map<string, LineaCarrito>();
+  const out: LineaCarrito[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const sku = String(row.sku ?? "").trim();
+    const nombre = String(row.nombre ?? row.nombre_pieza ?? "").trim();
+    if (!sku || !nombre) continue;
+    const cantidad = Math.max(1, Math.min(999, Math.trunc(Number(row.cantidad ?? 1)) || 1));
+    const precio = Number(row.precio ?? 0);
+    const clave = sku.toLowerCase();
+    const previa = seen.get(clave);
+    if (previa) {
+      previa.cantidad = Math.min(999, previa.cantidad + cantidad);
+      continue;
+    }
+    const linea: LineaCarrito = {
+      sku,
+      nombre,
+      cantidad,
+      precio: Number.isFinite(precio) ? precio : 0,
+      url_imagen: String(row.url_imagen ?? row.url ?? "").trim() || undefined,
+    };
+    seen.set(clave, linea);
+    out.push(linea);
+  }
+  return out.slice(0, 20);
+}
+
+export function totalCarrito(lineas: LineaCarrito[]): number {
+  return lineas.reduce((acc, linea) => acc + linea.precio * linea.cantidad, 0);
+}
+
+export function etiquetaPedido(lineas: LineaCarrito[]): string {
+  if (lineas.length === 0) return "el pedido";
+  if (lineas.length === 1) return `${lineas[0].nombre} x${lineas[0].cantidad}`;
+  const piezas = lineas.reduce((n, linea) => n + linea.cantidad, 0);
+  return `${piezas} piezas (${lineas.map((linea) => linea.nombre).join(", ")})`;
+}
+
+export function textoPedidoCarrito(lineas: LineaCarrito[]): string {
+  const lista = lineas
+    .map((linea, i) => `${i + 1}) ${linea.nombre} (${linea.sku}) x${linea.cantidad} — ${precioMx(linea.precio)}`)
+    .join("\n");
+  return `Quiero apartar este pedido para recoger en tienda:\n${lista}\n\nTotal: ${precioMx(totalCarrito(lineas))}`;
+}
+
 export function parseBorradorApartado(value: unknown): BorradorApartado | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   const sku = String(row.sku ?? "").trim();
   const nombre = String(row.nombre ?? "").trim();
   if (!sku || !nombre) return null;
+  const lineas = normalizarLineasCarrito(row.lineas);
   return {
     sku,
     nombre,
+    lineas: lineas.length > 0 ? lineas : [{ sku, nombre, cantidad: 1, precio: 0 }],
     cliente_nombre: String(row.cliente_nombre ?? "").trim(),
     cliente_telefono: String(row.cliente_telefono ?? "").trim(),
     recoger_en: String(row.recoger_en ?? "").trim(),
@@ -244,9 +309,13 @@ function mergeBorrador(base: BorradorApartado | null, extra: Partial<BorradorApa
   const sku = String(extra.sku ?? base?.sku ?? "").trim();
   const nombre = String(extra.nombre ?? base?.nombre ?? "").trim();
   if (!sku || !nombre) return base;
+  const lineasExtra = normalizarLineasCarrito(extra.lineas);
+  const lineasBase = normalizarLineasCarrito(base?.lineas);
+  const lineas = lineasExtra.length > 0 ? lineasExtra : lineasBase.length > 0 ? lineasBase : [{ sku, nombre, cantidad: 1, precio: 0 }];
   return {
     sku,
     nombre,
+    lineas,
     cliente_nombre: String(extra.cliente_nombre || base?.cliente_nombre || "").trim(),
     cliente_telefono: String(extra.cliente_telefono || base?.cliente_telefono || "").trim(),
     recoger_en: String(extra.recoger_en || base?.recoger_en || "").trim(),
@@ -308,7 +377,8 @@ function formatoVence(iso: string): string {
 
 function mensajeConfirmado(row: ApartadoActivo): string {
   const tel = row.cliente_telefono.replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
-  return `Listo. Dejé apartado ${row.nombre} a nombre de ${row.cliente_nombre}, tel. ${tel}. Pasan a recogerlo: ${row.recoger_en}. El apartado vence en 24 horas (${formatoVence(row.expires_at)}).`;
+  const pedido = row.lineas && row.lineas.length > 1 ? etiquetaPedido(row.lineas) : row.nombre;
+  return `Listo. Dejé apartado ${pedido} a nombre de ${row.cliente_nombre}, tel. ${tel}. Pasan a recogerlo: ${row.recoger_en}. El apartado vence en 24 horas (${formatoVence(row.expires_at)}).`;
 }
 
 export async function ensureApartadosSchema(sql: Sql): Promise<void> {
@@ -332,6 +402,7 @@ export async function ensureApartadosSchema(sql: Sql): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS ix_apartados_expires ON apartados (expires_at)`;
   await sql`CREATE INDEX IF NOT EXISTS ix_apartados_consulta ON apartados (consulta_id)`;
   await sql`CREATE INDEX IF NOT EXISTS ix_apartados_dispositivo ON apartados (dispositivo_id, created_at DESC)`;
+  await sql`ALTER TABLE apartados ADD COLUMN IF NOT EXISTS lineas_json JSONB NOT NULL DEFAULT '[]'::jsonb`;
   apartadosReady = true;
 }
 
@@ -357,32 +428,85 @@ async function registrarApartado(
   consulta: { id: string; dispositivo_id: string },
   borrador: BorradorApartado
 ): Promise<ApartadoActivo> {
-  const rows = await sql.query(
-    `INSERT INTO apartados (
-       consulta_id, dispositivo_id, sku, nombre_pieza,
-       cliente_nombre, cliente_telefono, recoger_en, estatus, expires_at
-     ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'activo', NOW() + INTERVAL '24 hours')
-     RETURNING id, sku, nombre_pieza, cliente_nombre, cliente_telefono, recoger_en, expires_at`,
-    [
-      consulta.id,
-      consulta.dispositivo_id,
-      borrador.sku,
-      borrador.nombre,
-      borrador.cliente_nombre,
-      borrador.cliente_telefono,
-      borrador.recoger_en,
-    ]
-  );
+  const lineas = normalizarLineasCarrito(borrador.lineas);
+  const params = [
+    consulta.id,
+    consulta.dispositivo_id,
+    borrador.sku.slice(0, 200),
+    borrador.nombre.slice(0, 400),
+    borrador.cliente_nombre,
+    borrador.cliente_telefono,
+    borrador.recoger_en,
+    toJsonbParam(lineas),
+  ];
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await sql.query(
+      `INSERT INTO apartados (
+         consulta_id, dispositivo_id, sku, nombre_pieza,
+         cliente_nombre, cliente_telefono, recoger_en, estatus, expires_at, lineas_json
+       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'activo', NOW() + INTERVAL '24 hours', $8::jsonb)
+       RETURNING id, sku, nombre_pieza, cliente_nombre, cliente_telefono, recoger_en, expires_at`,
+      params
+    );
+  } catch {
+    rows = await sql.query(
+      `INSERT INTO apartados (
+         consulta_id, dispositivo_id, sku, nombre_pieza,
+         cliente_nombre, cliente_telefono, recoger_en, estatus, expires_at
+       ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, 'activo', NOW() + INTERVAL '24 hours')
+       RETURNING id, sku, nombre_pieza, cliente_nombre, cliente_telefono, recoger_en, expires_at`,
+      params.slice(0, 7)
+    );
+  }
   const row = rows[0] ?? {};
   return {
     id: String(row.id ?? ""),
     sku: String(row.sku ?? borrador.sku),
     nombre: String(row.nombre_pieza ?? borrador.nombre),
+    lineas,
     cliente_nombre: String(row.cliente_nombre ?? borrador.cliente_nombre),
     cliente_telefono: String(row.cliente_telefono ?? borrador.cliente_telefono),
     recoger_en: String(row.recoger_en ?? borrador.recoger_en),
     expires_at: row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at ?? ""),
   };
+}
+
+export async function iniciarApartadoPedido(
+  sql: Sql,
+  consultaId: string,
+  lineas: LineaCarrito[]
+): Promise<BorradorApartado> {
+  await ensureApartadosSchema(sql);
+  const utiles = normalizarLineasCarrito(lineas);
+  if (utiles.length === 0) {
+    throw new AppError(400, "El carrito está vacío.", "CARRITO_VACIO");
+  }
+  const pendiente: BorradorApartado = {
+    sku: utiles.map((linea) => linea.sku).join(",").slice(0, 200),
+    nombre: etiquetaPedido(utiles),
+    lineas: utiles,
+    cliente_nombre: "",
+    cliente_telefono: "",
+    recoger_en: "",
+  };
+  await guardarPendiente(sql, consultaId, pendiente);
+  return pendiente;
+}
+
+function extraerLineasDeTextoPedido(texto: string): LineaCarrito[] {
+  const out: LineaCarrito[] = [];
+  const re = /^\s*\d+\)\s+(.+?)\s+\(([A-Za-z0-9._-]+)\)\s+x(\d+)/gim;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(texto))) {
+    out.push({
+      sku: match[2],
+      nombre: match[1].trim(),
+      cantidad: Math.max(1, Number.parseInt(match[3], 10) || 1),
+      precio: 0,
+    });
+  }
+  return normalizarLineasCarrito(out);
 }
 
 function pareceRespuestaDatos(texto: string, pendiente: BorradorApartado | null, historial: MensajeHilo[]): boolean {
@@ -424,9 +548,17 @@ export async function procesarFlujoApartado(input: {
   }
 
   const datos = extraerDatosCliente(texto);
-  const elegido = resolverProductoApartado(texto, historial, stock);
+  const lineasTexto = extraerLineasDeTextoPedido(texto);
+  const carritoPendiente = Boolean(pendiente && pendiente.lineas.length > 1);
+  const elegido = carritoPendiente ? null : resolverProductoApartado(texto, historial, stock);
 
-  if (elegido) {
+  if (lineasTexto.length > 1) {
+    pendiente = mergeBorrador(pendiente, {
+      sku: lineasTexto.map((linea) => linea.sku).join(",").slice(0, 200),
+      nombre: etiquetaPedido(lineasTexto),
+      lineas: lineasTexto,
+    });
+  } else if (elegido && !carritoPendiente) {
     pendiente = mergeBorrador(pendiente, { sku: elegido.sku, nombre: elegido.nombre });
   } else if (!pendiente && (pideApartar(texto) || afirmaApartado(texto, ultimoAsistente(historial)))) {
     if (mencionaProductoEspecifico(texto)) {

@@ -329,6 +329,9 @@ export async function aplicarSkuConsultaCampo(
     ]
   );
   const consulta = mapConsulta(rows[0] ?? {});
+  if (!consulta.id || consulta.id === "undefined") {
+    throw new AppError(500, "No se pudo guardar el SKU en la consulta.", "SKU_SAVE_FAILED");
+  }
   if (!opciones.omitirMensajeGuia) {
     await agregarMensajeCampo(
       sql,

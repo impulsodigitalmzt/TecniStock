@@ -76,7 +76,7 @@ type WaitUntilContext = {
  * y PostgreSQL rechaza la columna JSONB. Siempre serializar a JSON válido.
  */
 export function toJsonbParam(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined) return "{}";
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
@@ -88,10 +88,14 @@ export function toJsonbParam(value: unknown): string | null {
     }
   }
   try {
-    const serialized = JSON.stringify(value, (_key, item) => (item === undefined ? null : item));
-    return serialized ?? null;
+    const serialized = JSON.stringify(value, (_key, item) => {
+      if (item === undefined) return null;
+      if (typeof item === "bigint") return Number(item);
+      return item;
+    });
+    return serialized ?? "{}";
   } catch {
-    return null;
+    return "{}";
   }
 }
 
@@ -103,9 +107,15 @@ export function createSql(databaseUrl: string): Sql {
   const sql = httpSql as unknown as Sql;
 
   sql.json = toJsonbParam;
-  sql.query = (query: string, params?: unknown[]) =>
-    nativeQuery(query, params ?? []) as Promise<Record<string, unknown>[]>;
-  sql.unsafe = (query: string) => nativeQuery(query) as Promise<Record<string, unknown>[]>;
+  const asRows = (result: unknown): Record<string, unknown>[] => {
+    if (Array.isArray(result)) return result as Record<string, unknown>[];
+    if (result && typeof result === "object" && Array.isArray((result as { rows?: unknown }).rows)) {
+      return (result as { rows: Record<string, unknown>[] }).rows;
+    }
+    return [];
+  };
+  sql.query = async (query: string, params?: unknown[]) => asRows(await nativeQuery(query, params ?? []));
+  sql.unsafe = async (query: string) => asRows(await nativeQuery(query));
   sql.end = async () => undefined;
 
   return sql;

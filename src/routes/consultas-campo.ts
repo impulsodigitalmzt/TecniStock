@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { AppError } from "../lib/errors";
+import { AppError, isAppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO, redactarMensajeFotoHilo } from "../ia/prompts";
 import { cantidadStock, esComboApagadorContacto, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
@@ -13,7 +13,15 @@ import {
   type TarjetaChat,
 } from "../lib/ficha-chat";
 import { dataUrlDesdeBase64, identificarPiezaConVision, type PiezaDetectada } from "../lib/pieza-ia";
-import { cancelaApartado, pideApartar, procesarFlujoApartado } from "../lib/apartados";
+import {
+  cancelaApartado,
+  iniciarApartadoPedido,
+  mensajePedirDatos,
+  normalizarLineasCarrito,
+  pideApartar,
+  procesarFlujoApartado,
+  textoPedidoCarrito,
+} from "../lib/apartados";
 import {
   buscarInventarioLocal,
   extraerConsultaInventario,
@@ -24,6 +32,7 @@ import {
   reescribirConsultaVenta,
   resolverStockInventarioLocal,
   stockDesdeResultadosBusqueda,
+  obtenerInventarioPorSku,
   type ResultadoBusquedaInventario,
 } from "../lib/inventario-local";
 import { createSql } from "../db";
@@ -121,43 +130,113 @@ consultasCampoRoutes.delete("/:id", async (c) => {
 });
 
 consultasCampoRoutes.post("/:id/sku", async (c) => {
-  const sql = await sqlCampo(c.env);
-  const dispositivo = dispositivoDe(c);
-  const body = await c.req.json<{ sku?: string; confirmar?: boolean }>().catch(() => ({} as { sku?: string; confirmar?: boolean }));
-  const confirmar = body.confirmar === true;
-  const { consulta, stock } = await aplicarSkuConsultaCampo(sql, c.req.param("id"), dispositivo, body.sku ?? "", {
-    omitirMensajeGuia: confirmar,
-  });
-  if (confirmar) {
-    const nombre = String(stock.nombre || consulta.pieza_nombre || "").trim();
-    const codigo = String(stock.sku || body.sku || "").trim();
-    const texto = `Seleccioné este: ${nombre} - ${codigo}`;
-    const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto);
+  try {
+    const sql = await sqlCampo(c.env);
+    const dispositivo = dispositivoDe(c);
+    const body = await c.req.json<{ sku?: string; confirmar?: boolean }>().catch(() => ({} as { sku?: string; confirmar?: boolean }));
+    const confirmar = body.confirmar === true;
+    const { consulta, stock } = await aplicarSkuConsultaCampo(sql, c.req.param("id"), dispositivo, body.sku ?? "", {
+      omitirMensajeGuia: true,
+    });
+    if (confirmar) {
+      const nombre = String(stock.nombre || consulta.pieza_nombre || "").trim();
+      const codigo = String(stock.sku || body.sku || "").trim();
+      await agregarMensajeCampo(sql, consulta.id, "user", `Seleccioné este: ${nombre} - ${codigo}`);
+      await agregarMensajeCampo(
+        sql,
+        consulta.id,
+        "assistant",
+        `Agregué ${nombre} a tu selección. Puedes seguir eligiendo piezas o generar el apartado para recoger en tienda.`
+      );
+    }
+    const mensajes = await listarMensajesCampo(sql, consulta.id);
     return c.json({
       ok: true,
       consulta: detalleConsulta({ ...consulta, stock: stock as unknown as Record<string, unknown> }),
       stock,
       mensajes,
     });
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    console.error(
+      JSON.stringify({
+        event: "sku_apply_failed",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+    throw new AppError(500, "No se pudo aplicar ese producto. Intenta de nuevo.", "SKU_APPLY_FAILED");
   }
-  const mensajes = await listarMensajesCampo(sql, consulta.id);
-  return c.json({
-    ok: true,
-    consulta: detalleConsulta({ ...consulta, stock: stock as unknown as Record<string, unknown> }),
-    stock,
-    mensajes,
-  });
+});
+
+consultasCampoRoutes.post("/:id/apartado", async (c) => {
+  try {
+    const sql = await sqlCampo(c.env);
+    const dispositivo = dispositivoDe(c);
+    const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
+    const body = await c.req.json<{ lineas?: unknown }>().catch(() => ({} as { lineas?: unknown }));
+    const pedidas = normalizarLineasCarrito(body.lineas);
+    if (pedidas.length === 0) throw new AppError(400, "El carrito está vacío.", "CARRITO_VACIO");
+    const lineas = [];
+    for (const linea of pedidas) {
+      const fila = await obtenerInventarioPorSku(sql, linea.sku);
+      if (!fila) throw new AppError(404, `${linea.nombre} no está en inventario local.`, "SKU_NO_ENCONTRADO");
+      if (fila.stock_disponible <= 0) {
+        throw new AppError(409, `${fila.nombre_pieza} no tiene existencia para apartar.`, "SIN_EXISTENCIA");
+      }
+      if (linea.cantidad > fila.stock_disponible) {
+        throw new AppError(409, `Solo hay ${fila.stock_disponible} pza de ${fila.nombre_pieza}.`, "STOCK_INSUFICIENTE");
+      }
+      lineas.push({
+        sku: fila.sku,
+        nombre: fila.nombre_pieza,
+        cantidad: linea.cantidad,
+        precio: fila.precio,
+        url_imagen: fila.url_imagen || linea.url_imagen,
+      });
+    }
+    const pendiente = await iniciarApartadoPedido(sql, consulta.id, lineas);
+    await agregarMensajeCampo(sql, consulta.id, "user", textoPedidoCarrito(lineas));
+    await agregarMensajeCampo(sql, consulta.id, "assistant", mensajePedirDatos(pendiente.nombre));
+    const actualizada = await obtenerConsultaCampo(sql, consulta.id, dispositivo);
+    const mensajes = await listarMensajesCampo(sql, consulta.id);
+    return c.json({
+      ok: true,
+      consulta: detalleConsulta(actualizada),
+      apartado: pendiente,
+      mensajes,
+    });
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    console.error(
+      JSON.stringify({
+        event: "apartado_carrito_failed",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+    throw new AppError(500, "No se pudo iniciar el apartado. Intenta de nuevo.", "APARTADO_FAILED");
+  }
 });
 
 consultasCampoRoutes.post("/:id/mensajes", async (c) => {
-  const sql = await sqlCampo(c.env);
-  const dispositivo = dispositivoDe(c);
-  const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
-  const body = await c.req.json<{ texto?: string }>().catch(() => ({} as { texto?: string }));
-  const texto = (body.texto ?? "").trim();
-  if (!texto) throw new AppError(400, "Escribe un mensaje de texto.", "MENSAJE_VACIO");
-  const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto);
-  return c.json({ ok: true, mensajes });
+  try {
+    const sql = await sqlCampo(c.env);
+    const dispositivo = dispositivoDe(c);
+    const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
+    const body = await c.req.json<{ texto?: string }>().catch(() => ({} as { texto?: string }));
+    const texto = (body.texto ?? "").trim();
+    if (!texto) throw new AppError(400, "Escribe un mensaje de texto.", "MENSAJE_VACIO");
+    const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto);
+    return c.json({ ok: true, mensajes });
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    console.error(
+      JSON.stringify({
+        event: "mensaje_campo_failed",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+    throw new AppError(500, "No se pudo enviar el mensaje. Intenta de nuevo.", "MENSAJE_FAILED");
+  }
 });
 
 consultasCampoRoutes.post("/:id/foto", async (c) => {
@@ -608,13 +687,15 @@ async function responderConsultaCampo(
   }
 
   const piezas = cantidadStock(stockParaFicha);
-  const respuesta = await groqChatPlainText(
-    env,
-    [
-      { role: "system", content: PROMPT_CHAT_CAMPO },
-      {
-        role: "user",
-        content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados (mecanismo + placa si ambos vienen); PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo o corrigió: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales (salvo seguimiento). NUNCA digas que no hay artículo si hay filas en busqueda.resultados o stock.alternativas. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+  let respuesta = "";
+  try {
+    respuesta = await groqChatPlainText(
+      env,
+      [
+        { role: "system", content: PROMPT_CHAT_CAMPO },
+        {
+          role: "user",
+          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados (mecanismo + placa si ambos vienen); PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo o corrigió: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales (salvo seguimiento). NUNCA digas que no hay artículo si hay filas en busqueda.resultados o stock.alternativas. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
           correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,
@@ -669,7 +750,22 @@ async function responderConsultaCampo(
       })),
     ],
     { maxTokens: 700, temperature: 0.3 }
-  );
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "chat_campo_groq_failed",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+    if (alternativas.length > 0) {
+      respuesta = `En anaquel veo: ${alternativas.map((item) => item.nombre).join(", ")}. ¿Cuál agregamos al pedido o generamos el apartado para recoger en tienda?`;
+    } else if (stockParaFicha.encontrado && stockParaFicha.nombre) {
+      respuesta = `Sobre ${stockParaFicha.nombre}: hay ${piezas} pza en inventario local. ¿Lo agregamos al apartado para recoger en tienda?`;
+    } else {
+      respuesta = "No pude completar la respuesta del asesor. Puedes elegir piezas del carrusel o generar el apartado desde el carrito.";
+    }
+  }
   let textoAsesor =
     compactarTextoAsesor(respuesta || "No pude completar la respuesta. Intenta de nuevo.").slice(0, 8000) ||
     "No pude completar la respuesta. Intenta de nuevo.";

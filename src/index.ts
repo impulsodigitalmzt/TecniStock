@@ -81,8 +81,18 @@ api.onError((err, c) => {
   if (isAppError(err)) {
     return c.json({ ok: false, detail: err.message, code: err.code }, err.status);
   }
-  console.error(JSON.stringify({ event: "unhandled_error", name: err.name, path: c.req.path }));
-  return c.json({ detail: "An internal error occurred. Please try again." }, 500);
+  console.error(
+    JSON.stringify({
+      event: "unhandled_error",
+      name: err.name,
+      message: err instanceof Error ? err.message : String(err),
+      path: c.req.path,
+    })
+  );
+  return c.json(
+    { ok: false, detail: "No se pudo completar la operación. Intenta de nuevo.", code: "INTERNAL_ERROR" },
+    500
+  );
 });
 
 function isWorkerPath(pathname: string): boolean {
