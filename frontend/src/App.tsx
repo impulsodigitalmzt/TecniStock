@@ -1207,6 +1207,7 @@ export default function App() {
   };
 
   const abrirBuscador = () => {
+    setTab('nueva');
     setMenuExportar(false);
     setMenuCorreccion(false);
     setError('');
@@ -1539,40 +1540,34 @@ export default function App() {
     []
   );
 
-  const layoutMostrador = tab === 'nueva' && hayResultado && Boolean(consultaId);
+  const chatListo = Boolean(consultaId);
 
   return (
-    <div
-      className={`mostrador-shell${layoutMostrador ? ' es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]' : ''}`}
-    >
-      <aside
-        className={`mostrador-col-izq${layoutMostrador ? ' w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-y-auto' : ''}`}
-      >
+    <div className="mostrador-shell es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]">
+      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-y-auto">
       <header className="mostrador-header">
-        <div className={`mx-auto ${layoutMostrador ? 'max-w-lg lg:mx-0 lg:max-w-none' : 'max-w-lg'}`}>
-          <div className={`flex items-center gap-3 ${layoutMostrador ? 'mb-3 lg:mb-2' : 'mb-4'}`}>
-            <span className={`flex items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30 ${layoutMostrador ? 'h-12 w-12 lg:h-10 lg:w-10' : 'h-12 w-12'}`}>
-              <Wrench className={layoutMostrador ? 'h-6 w-6 lg:h-5 lg:w-5' : 'h-6 w-6'} strokeWidth={2.2} />
+        <div className="mx-auto max-w-lg lg:mx-0 lg:max-w-none">
+          <div className="flex items-center gap-3 mb-4 lg:mb-2">
+            <span className="flex h-12 w-12 lg:h-10 lg:w-10 items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30">
+              <Wrench className="h-6 w-6 lg:h-5 lg:w-5" strokeWidth={2.2} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400 ${layoutMostrador ? 'lg:hidden' : ''}`}>Campo</p>
-              <h1 className={`font-bold tracking-tight leading-none ${layoutMostrador ? 'text-3xl lg:text-xl' : 'text-3xl'}`}>TecniStock</h1>
-              {layoutMostrador ? (
-                <p className="hidden lg:block text-[11px] leading-snug text-stone-300 mt-0.5">Tu Asesor Técnico en Campo 24/7</p>
-              ) : null}
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400 lg:hidden">Campo</p>
+              <h1 className="text-3xl lg:text-xl font-bold tracking-tight leading-none">TecniStock</h1>
+              <p className="hidden lg:block text-[11px] leading-snug text-stone-300 mt-0.5">Tu Asesor Técnico en Campo 24/7</p>
             </div>
             <BotonCarritoHeader piezas={piezasCarrito(carrito)} onClick={() => setCarritoAbierto((prev) => !prev)} />
             <button
               type="button"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 lg:h-10 lg:w-10"
+              className="flex h-11 w-11 lg:h-10 lg:w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
               aria-label={oscuro ? 'Activar modo día' : 'Activar modo noche'}
               onClick={alternarTema}
             >
               {oscuro ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
           </div>
-          <p className={`text-stone-300 text-base leading-snug ${layoutMostrador ? 'lg:hidden' : ''}`}>Tu Asesor Técnico en Campo 24/7</p>
-          <div className={`grid grid-cols-2 gap-2 ${layoutMostrador ? 'mt-4 lg:mt-3' : 'mt-5'}`}>
+          <p className="text-stone-300 text-base leading-snug lg:hidden">Tu Asesor Técnico en Campo 24/7</p>
+          <div className="mt-5 lg:mt-3 grid grid-cols-2 gap-2">
             <button
               type="button"
               className={`min-h-12 rounded-xl font-semibold ${tab === 'nueva' ? 'bg-orange-500 text-white' : 'bg-white/10 text-stone-200'}`}
@@ -2106,8 +2101,7 @@ export default function App() {
       </main>
       </aside>
 
-      {tab === 'nueva' && consultaId && pieza && stock ? (
-        <section className="mostrador-col-der lg:flex-1 lg:flex lg:flex-col lg:h-full dark:lg:bg-[#0b141a] lg:relative lg:overflow-hidden">
+      <section className="mostrador-col-der lg:flex-1 lg:flex lg:flex-col lg:h-full dark:lg:bg-[#0b141a] lg:relative lg:overflow-hidden">
                   <article ref={chatPanelRef} className="mostrador-chat card overflow-hidden flex flex-col lg:h-full lg:min-h-0">
                     <header className="flex items-center gap-2.5 px-4 py-3 border-b border-stone-200 bg-stone-50 shrink-0">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500 text-white">
@@ -2115,12 +2109,15 @@ export default function App() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold leading-tight">Asesor técnico</p>
-                        <p className="text-[11px] text-stone-500">Chat · se borra en {diasRestantes(expiresAt)}</p>
+                        <p className="text-[11px] text-stone-500">
+                          {expiresAt ? `Chat · se borra en ${diasRestantes(expiresAt)}` : 'Chat · toma una foto para iniciar'}
+                        </p>
                       </div>
                       <button
                         type="button"
                         className={`btn-icon shrink-0 ${buscadorAbierto ? 'text-orange-600' : 'text-stone-400 hover:text-stone-700'}`}
                         aria-label="Buscar en inventario local"
+                        disabled={!chatListo}
                         onClick={() => {
                           if (buscadorAbierto) {
                             setBuscadorAbierto(false);
@@ -2147,6 +2144,17 @@ export default function App() {
                       </p>
                     ) : null}
                     <div ref={chatListaRef} className="chat-hilo chat-wallpaper lg:flex-1 lg:min-h-0">
+                      {!chatListo && hiloChat.length === 0 ? (
+                        <div className="flex h-full min-h-[12rem] flex-col items-center justify-center px-8 py-10 text-center">
+                          <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-orange-500/15 text-orange-500">
+                            <MessageCircle className="h-6 w-6" />
+                          </span>
+                          <p className="text-sm font-semibold text-stone-700">Asesor técnico</p>
+                          <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-stone-500">
+                            Fotografía la pieza. Aquí te digo qué hay en anaquel y te armo el pedido.
+                          </p>
+                        </div>
+                      ) : null}
                       {hiloChat.map((msg) => {
                         if (msg.rol === 'user') {
                           const foto = fotosHilo[msg.id];
@@ -2168,7 +2176,7 @@ export default function App() {
                             </div>
                           );
                         }
-                        const tarjetas = stock ? tarjetasDeBurbuja(msg, stock, pieza) : msg.tarjetas;
+                        const tarjetas = stock ? tarjetasDeBurbuja(msg, stock, pieza ?? null) : msg.tarjetas;
                         return (
                           <div key={msg.id} className="space-y-2">
                             {msg.texto ? (
@@ -2224,7 +2232,7 @@ export default function App() {
                         <button
                           type="button"
                           className="composer-wa-icon"
-                          disabled={enviando || transcribiendo || grabando || analizandoFotoHilo}
+                          disabled={!chatListo || enviando || transcribiendo || grabando || analizandoFotoHilo}
                           aria-label="Adjuntar foto"
                           aria-expanded={menuAdjuntarChat}
                           onClick={() => setMenuAdjuntarChat((abierto) => !abierto)}
@@ -2262,7 +2270,9 @@ export default function App() {
                         ref={chatInputRef}
                         className="composer-wa-input"
                         placeholder={
-                          grabando
+                          !chatListo
+                            ? 'Toma una foto para chatear'
+                            : grabando
                             ? 'Grabando… toca el recuadro rojo para enviar'
                             : transcribiendo
                               ? 'Transcribiendo con Whisper…'
@@ -2272,7 +2282,7 @@ export default function App() {
                         }
                         rows={1}
                         value={borrador}
-                        disabled={grabando || transcribiendo}
+                        disabled={!chatListo || grabando || transcribiendo}
                         onChange={(e) => setBorrador(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && !e.shiftKey) {
@@ -2285,7 +2295,7 @@ export default function App() {
                         <button
                           type="submit"
                           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-600 disabled:opacity-40"
-                          disabled={enviando || transcribiendo || analizandoFotoHilo}
+                          disabled={!chatListo || enviando || transcribiendo || analizandoFotoHilo}
                           aria-label="Enviar"
                         >
                           {enviando && !analizandoFotoHilo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
@@ -2300,7 +2310,7 @@ export default function App() {
                                 ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-400 ring-offset-2'
                                 : 'composer-wa-icon'
                           }`}
-                          disabled={enviando || transcribiendo || analizandoFotoHilo}
+                          disabled={!chatListo || enviando || transcribiendo || analizandoFotoHilo}
                           aria-label={grabando ? 'Detener grabación' : 'Grabar mensaje de voz'}
                           onClick={() => void toggleGrabacion()}
                         >
@@ -2315,8 +2325,7 @@ export default function App() {
                       )}
                     </form>
                   </article>
-        </section>
-      ) : null}
+      </section>
       <CarritoApartado
           lineas={carrito}
           abierto={carritoAbierto}
