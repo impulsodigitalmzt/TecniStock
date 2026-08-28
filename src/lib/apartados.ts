@@ -99,6 +99,58 @@ export function textoPedidoCarrito(lineas: LineaCarrito[]): string {
   return `Quiero apartar este pedido para recoger en tienda:\n${lista}\n\nTotal: ${precioMx(totalCarrito(lineas))}`;
 }
 
+export type SnapshotPedido = {
+  lineas: Array<{ sku: string; nombre: string; cantidad: number; precio: number; subtotal: number }>;
+  piezas: number;
+  total: number;
+  total_obligatorio: string;
+};
+
+export function snapshotPedido(lineas: LineaCarrito[]): SnapshotPedido {
+  const utiles = normalizarLineasCarrito(lineas);
+  const piezas = utiles.reduce((n, linea) => n + linea.cantidad, 0);
+  const total = totalCarrito(utiles);
+  return {
+    lineas: utiles.map((linea) => ({
+      sku: linea.sku,
+      nombre: linea.nombre,
+      cantidad: linea.cantidad,
+      precio: linea.precio,
+      subtotal: Number(linea.precio) * linea.cantidad,
+    })),
+    piezas,
+    total,
+    total_obligatorio: precioMx(total),
+  };
+}
+
+export function textoCuentaPedido(lineas: LineaCarrito[]): string {
+  const snap = snapshotPedido(lineas);
+  if (snap.lineas.length === 0) {
+    return "Aún no hay piezas en el pedido. Toca Elegir en las tarjetas para agregarlas y te digo el total.";
+  }
+  const lista = snap.lineas
+    .map((linea, i) => `${i + 1}) ${linea.nombre} x${linea.cantidad} — ${precioMx(linea.subtotal)}`)
+    .join("\n");
+  return `Tu pedido para recoger lleva ${snap.piezas} pza:\n\n${lista}\n\nTotal: ${snap.total_obligatorio}\n\n¿Lo apartamos o agregas algo más?`;
+}
+
+/** Piden la cuenta, el total o recuerdan que ya eligieron más de una pieza. */
+export function pideResumenPedido(texto: string): boolean {
+  const t = norm(texto);
+  if (!t) return false;
+  if (
+    /\b(la cuenta|el total|cuenta total|total del pedido|cuanto (es|sale|va|quedo|queda|debo|suman)|cuanto es (el|la) (pedido|cuenta|total)|dame (la )?cuenta|cuanto llevo|cuanto va (el|mi) pedido|a cuanto (queda|sale)|cuanto es todo)\b/.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return /\b(ya (lo |las |los )?(habia |he )?(pedido|elegido|agregado)|tambien .{0,24}(pedi|pedido|elegi|elegido)|ya estan en el pedido|lo que ya (elegi|pedi|agregue)|el pedido (completo|entero)|todo lo que pedi|pero (tambien |ya )?(pedi|ordene|elegi))\b/.test(
+    t
+  );
+}
+
 export function parseBorradorApartado(value: unknown): BorradorApartado | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;

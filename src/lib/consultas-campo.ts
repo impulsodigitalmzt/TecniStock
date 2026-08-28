@@ -5,7 +5,7 @@ import type { PiezaDetectada } from "./pieza-ia";
 import { resolverStockInventarioLocal } from "./inventario-local";
 import { cantidadStock, type BloqueStock } from "./stock";
 import { redactarMensajeInicial } from "../ia/prompts";
-import { ensureApartadosSchema, parseBorradorApartado, type BorradorApartado } from "./apartados";
+import { ensureApartadosSchema, parseBorradorApartado, snapshotPedido, type BorradorApartado } from "./apartados";
 
 export const RETENCION_DIAS = 30;
 
@@ -416,6 +416,25 @@ export async function recordarHallazgosChat(
     hallazgos_chat: extra.hallazgos_chat,
     sku_conversacion: extra.sku_conversacion,
     query_busqueda: extra.query_busqueda,
+  };
+  await sql.query(`UPDATE consultas_campo SET stock_json = $1::jsonb, updated_at = NOW() WHERE id = $2::uuid AND dispositivo_id = $3`, [
+    toJsonbParam(stock),
+    id,
+    dispositivoId,
+  ]);
+}
+
+/** El carrito del mostrador: lo que el cliente ya eligió, para la cuenta. */
+export async function recordarPedidoCampo(
+  sql: Sql,
+  id: string,
+  dispositivoId: string,
+  lineas: unknown
+): Promise<void> {
+  const actual = await obtenerConsultaCampo(sql, id, dispositivoId);
+  const stock = {
+    ...actual.stock,
+    pedido: snapshotPedido(Array.isArray(lineas) ? lineas : []),
   };
   await sql.query(`UPDATE consultas_campo SET stock_json = $1::jsonb, updated_at = NOW() WHERE id = $2::uuid AND dispositivo_id = $3`, [
     toJsonbParam(stock),

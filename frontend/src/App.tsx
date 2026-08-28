@@ -690,6 +690,7 @@ export default function App() {
   const [carrito, setCarrito] = useState<LineaCarrito[]>([]);
   const [carritoAbierto, setCarritoAbierto] = useState(false);
   const [enviandoApartado, setEnviandoApartado] = useState(false);
+  const carritoHidratadoRef = useRef<string | null>(null);
   const [oscuro, setOscuro] = useState(temaNocheInicial);
   const chatListaRef = useRef<HTMLDivElement>(null);
   const menuExportarRef = useRef<HTMLDivElement>(null);
@@ -861,6 +862,7 @@ export default function App() {
     if (!consultaId) {
       setCarrito([]);
       setCarritoAbierto(false);
+      carritoHidratadoRef.current = null;
       return;
     }
     let loaded: LineaCarrito[] = [];
@@ -874,6 +876,7 @@ export default function App() {
       loaded = [];
     }
     setCarrito(loaded);
+    carritoHidratadoRef.current = consultaId;
   }, [consultaId]);
 
   useEffect(() => {
@@ -883,6 +886,22 @@ export default function App() {
     } catch {
       /* cuota local */
     }
+    if (carritoHidratadoRef.current !== consultaId) return;
+    void fetchCampo(`/api/consultas/${consultaId}/carrito`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lineas: carrito.map((linea) => ({
+          sku: linea.sku,
+          nombre: linea.nombre,
+          cantidad: linea.cantidad,
+          precio: linea.precio,
+          url_imagen: linea.url_imagen,
+        })),
+      }),
+    }).catch(() => {
+      /* el chat igual manda el pedido en el siguiente mensaje */
+    });
   }, [consultaId, carrito]);
 
   const agregarArchivos = async (lista: FileList | File[] | null, reemplazar = false) => {
@@ -1084,7 +1103,16 @@ export default function App() {
         await fetchCampo(`/api/consultas/${consultaId}/mensajes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ texto }),
+          body: JSON.stringify({
+            texto,
+            lineas: carrito.map((linea) => ({
+              sku: linea.sku,
+              nombre: linea.nombre,
+              cantidad: linea.cantidad,
+              precio: linea.precio,
+              url_imagen: linea.url_imagen,
+            })),
+          }),
         }),
         'No se pudo enviar el mensaje.'
       );
@@ -1287,6 +1315,18 @@ export default function App() {
     try {
       const form = new FormData();
       form.append('audio', blob, `nota.${ext}`);
+      form.append(
+        'lineas',
+        JSON.stringify(
+          carrito.map((linea) => ({
+            sku: linea.sku,
+            nombre: linea.nombre,
+            cantidad: linea.cantidad,
+            precio: linea.precio,
+            url_imagen: linea.url_imagen,
+          }))
+        )
+      );
       const data = await leerJson<{ mensajes: Mensaje[] }>(
         await fetchCampo(`/api/consultas/${consultaId}/voz`, { method: 'POST', body: form }),
         'No se pudo transcribir el audio.'

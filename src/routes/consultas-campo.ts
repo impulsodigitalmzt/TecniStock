@@ -19,8 +19,12 @@ import {
   mensajePedirDatos,
   normalizarLineasCarrito,
   pideApartar,
+  pideResumenPedido,
   procesarFlujoApartado,
+  snapshotPedido,
+  textoCuentaPedido,
   textoPedidoCarrito,
+  type LineaCarrito,
 } from "../lib/apartados";
 import {
   buscarInventarioLocal,
@@ -49,6 +53,7 @@ import {
   obtenerConsultaCampo,
   purgarConsultasVencidas,
   recordarHallazgosChat,
+  recordarPedidoCampo,
   validarDispositivoId,
   type ConsultaCampo,
   type MensajeCampo,
@@ -223,10 +228,10 @@ consultasCampoRoutes.post("/:id/mensajes", async (c) => {
     const sql = await sqlCampo(c.env);
     const dispositivo = dispositivoDe(c);
     const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
-    const body = await c.req.json<{ texto?: string }>().catch(() => ({} as { texto?: string }));
+    const body = await c.req.json<{ texto?: string; lineas?: unknown }>().catch(() => ({} as { texto?: string; lineas?: unknown }));
     const texto = (body.texto ?? "").trim();
     if (!texto) throw new AppError(400, "Escribe un mensaje de texto.", "MENSAJE_VACIO");
-    const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto);
+    const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto, body.lineas);
     return c.json({ ok: true, mensajes });
   } catch (error) {
     if (isAppError(error)) throw error;
@@ -238,6 +243,15 @@ consultasCampoRoutes.post("/:id/mensajes", async (c) => {
     );
     throw new AppError(500, "No se pudo enviar el mensaje. Intenta de nuevo.", "MENSAJE_FAILED");
   }
+});
+
+consultasCampoRoutes.put("/:id/carrito", async (c) => {
+  const sql = await sqlCampo(c.env);
+  const dispositivo = dispositivoDe(c);
+  const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
+  const body = await c.req.json<{ lineas?: unknown }>().catch(() => ({} as { lineas?: unknown }));
+  await recordarPedidoCampo(sql, consulta.id, dispositivo, Array.isArray(body.lineas) ? body.lineas : []);
+  return c.json({ ok: true, pedido: snapshotPedido(normalizarLineasCarrito(body.lineas)) });
 });
 
 consultasCampoRoutes.post("/:id/foto", async (c) => {
@@ -290,7 +304,16 @@ consultasCampoRoutes.post("/:id/voz", async (c) => {
   const audio = extractAudioFromBody(form);
   // El audio no se persiste: solo alimenta a Whisper y se descarta.
   const whisper = await transcribeAudio(c.env, audio.blob, audio.filename, "es");
-  const mensajes = await responderConsultaCampo(c.env, sql, consulta, whisper.text);
+  let lineasRaw: unknown = undefined;
+  const crudoLineas = form.lineas;
+  if (typeof crudoLineas === "string" && crudoLineas.trim()) {
+    try {
+      lineasRaw = JSON.parse(crudoLineas) as unknown;
+    } catch {
+      lineasRaw = undefined;
+    }
+  }
+  const mensajes = await responderConsultaCampo(c.env, sql, consulta, whisper.text, lineasRaw);
   return c.json({ ok: true, transcripcion: whisper.text, mensajes });
 });
 
@@ -385,9 +408,16 @@ function debeBuscarInventarioPorTexto(texto: string): boolean {
   if (pideApartar(texto) || cancelaApartado(texto) || pideMostrarProducto(texto)) return false;
   if (esSeleccionProducto(texto)) return false;
   if (pideMasOpciones(texto)) return false;
+  if (pideResumenPedido(texto)) return false;
   if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
   if (esCorreccionCliente(texto)) return true;
   return pideBusquedaNuevaInventario(texto);
+}
+
+function lineasPedidoActual(consulta: ConsultaCampo, raw: unknown): LineaCarrito[] {
+  if (Array.isArray(raw)) return normalizarLineasCarrito(raw);
+  const guardado = (consulta.stock as { pedido?: { lineas?: unknown } }).pedido?.lineas;
+  return normalizarLineasCarrito(guardado);
 }
 
 function queryRespaldoCorreccion(consulta: ConsultaCampo): string {
@@ -568,8 +598,14 @@ async function responderConsultaCampo(
   env: Env,
   sql: Awaited<ReturnType<typeof sqlCampo>>,
   consulta: ConsultaCampo,
-  texto: string
+  texto: string,
+  lineasRaw?: unknown
 ): Promise<MensajeCampo[]> {
+  const lineasPedido = lineasPedidoActual(consulta, lineasRaw);
+  if (Array.isArray(lineasRaw) || lineasPedido.length > 0) {
+    await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
+  }
+  const pedido = snapshotPedido(lineasPedido);
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const stockFoto = await stockDesdeInventarioLocal(sql, consulta);
@@ -581,6 +617,7 @@ async function responderConsultaCampo(
   const seguimiento =
     !correccionCliente &&
     !verMas &&
+    !pideResumenPedido(texto) &&
     (esPreguntaSeguimientoPieza(texto) || esSeleccionProducto(texto)) &&
     !debeBuscarInventarioPorTexto(texto);
   let stockVivo = seguimiento
@@ -662,6 +699,11 @@ async function responderConsultaCampo(
     return [userMsg, assistantMsg];
   }
 
+  if (pideResumenPedido(texto)) {
+    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoCuentaPedido(lineasPedido));
+    return [userMsg, assistantMsg];
+  }
+
   const piezas = cantidadStock(stockParaFicha);
   let respuesta = "";
   try {
@@ -671,7 +713,7 @@ async function responderConsultaCampo(
         { role: "system", content: PROMPT_CHAT_CAMPO },
         {
           role: "user",
-          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados (mecanismo + placa si ambos vienen); PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo o corrigió: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false, NO enumeres el anaquel en texto (las tarjetas ya están en pantalla); solo amplia si pide otras opciones o consulta_secundaria=true. NUNCA digas que no hay artículo si hay filas en busqueda.resultados o stock.alternativas. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pide la cuenta, el total o dice que ya había pedido más cosas, responde con esas líneas y copia pedido.total_obligatorio; PROHIBIDO preguntar qué más pidió si ya está en pedido. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
           correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,
@@ -717,6 +759,7 @@ async function responderConsultaCampo(
             alternativas,
             sustituto: alternativas[0] ?? null,
           },
+          pedido,
           estatus: consulta.pieza_estatus,
         })}`,
       },

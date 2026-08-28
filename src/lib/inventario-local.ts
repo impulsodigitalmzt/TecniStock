@@ -556,6 +556,9 @@ export function esPreguntaSeguimientoPieza(texto: string): boolean {
   if (!t) return false;
   if (esCorreccionCliente(texto)) return false;
   if (pideMasOpciones(texto)) return false;
+  if (/\b(la cuenta|el total|cuanto (es|sale|va|debo)|el pedido|ya (lo )?habia (pedido|elegido)|tambien .{0,24}pedi)\b/.test(t)) {
+    return false;
+  }
   if (INTENTO_BUSQUEDA_RE.test(t) && !SEGUIMIENTO_RE.test(t)) return false;
   if (SEGUIMIENTO_RE.test(t)) return true;
   if (/^(que|como|cual|para que|de que|dime|explica)\b/.test(t) && !INTENTO_BUSQUEDA_RE.test(t)) return true;

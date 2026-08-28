@@ -441,10 +441,31 @@ html.dark section {
 /* Section headers */
 .dark .section-header { color: #2dd4bf; }
 
-/* Badges */
+/* Badges / chips: dark letters on a tinted fill — never white on pastel */
+.dark .badge-green {
+  background-color: #6ee7b7 !important;
+  color: #022c22 !important;
+}
+.dark .badge-teal {
+  background-color: #5eead4 !important;
+  color: #042f2e !important;
+}
+.dark .badge-amber {
+  background-color: #fbbf24 !important;
+  color: #451a03 !important;
+}
+.dark .badge-red {
+  background-color: #fca5a5 !important;
+  color: #450a0a !important;
+}
 .dark .badge-slate {
-  background-color: #1e293b;
-  color: #94a3b8;
+  background-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+.dark .chip {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f1f5f9 !important;
 }
 
 /* Scrollbar */
@@ -497,11 +518,6 @@ html.dark section {
 .dark .bubble-bot {
   background-color: #1f2c34 !important;
   color: #e8edf0 !important;
-}
-.dark .chip {
-  background-color: #1e293b;
-  border-color: #334155;
-  color: #e2e8f0;
 }
 .dark .bg-stone-100 { background-color: #0b141a !important; }
 .dark .bg-stone-50 { background-color: #111b21 !important; }
