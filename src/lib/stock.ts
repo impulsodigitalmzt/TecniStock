@@ -58,6 +58,8 @@ export type BloqueStock = {
   /** El SKU lo eligió el usuario en el buscador manual; no re-emparejar por la foto. */
   forzado?: boolean;
   sku_conversacion?: string | null;
+  /** Coincidencias extra: solo se ofrecen si el cliente pide ver más opciones. */
+  otras_opciones?: SustitutoStock[];
 };
 
 export type IdentidadPieza = {
@@ -332,7 +334,7 @@ function aAlternativa(item: StockItem, razon: string): SustitutoStock {
   };
 }
 
-export const MAX_ALTERNATIVAS = 40;
+export const MAX_ALTERNATIVAS = 12;
 const MIN_SCORE_ALTERNATIVA = 0.12;
 const MIN_SCORE_FAMILIA = 0.05;
 

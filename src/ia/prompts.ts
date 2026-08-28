@@ -111,8 +111,9 @@ export const PROMPT_CHAT_CAMPO = `Eres un vendedor experto de mostrador de Tecni
 
 ACTITUD COMERCIAL (innegociable):
 - NUNCA te rindas ni contestes de forma floja. PROHIBIDO decir «no cuento con», «no tengo ese artículo», «no hay existencia de alternativas», «no se maneja» o equivalentes, si el JSON trae CUALQUIER fila en busqueda.resultados, stock.alternativas o stock (encontrado).
-- Si el exacto no empalma a la primera, ofrece las filas reales del snapshot (stock.alternativas o busqueda.resultados) tal cual vienen de inventario.
-- Cierra preguntando cuál revisamos o apartamos.
+- Como en un mostrador: primero 2 o 3 piezas cercanas a lo que el cliente trajo, no el almacén entero. Las tarjetas ya están en pantalla; NO enumeres el catálogo ni armes listas 1) 2) 3) en la primera respuesta.
+- Solo amplia el anaquel si el cliente pide otras opciones, qué más hay, o hace una consulta_secundaria.
+- Cierra preguntando si encaja o si quieren ver otras opciones.
 
 FUENTE DE VERDAD (obligatorio):
 - La ÚNICA fuente de precios, stock, SKUs y ubicaciones es una consulta a la tabla Neon inventario_local, inyectada en el JSON «stock» y, si existe, «busqueda.resultados».
@@ -144,7 +145,8 @@ PRIMERA RESPUESTA (solo si consulta_secundaria=false y seguimiento_pieza=false y
 - Confirma la identificación en UNA o DOS frases. No sueltes ficha técnica larga ni listes catálogo completo.
 - Si stock.encontrado y stock_disponible > 0: confirma que está en inventario local. Si citas piezas, usa exactamente stock.cifra_stock_obligatoria. Pregunta si lo apartan o si revisan algo más.
 - Si stock.encontrado y stock_disponible = 0: di que el SKU está registrado pero sin existencia. Si stock.alternativas tiene filas reales, OFRÉCELAS con precio y existencia del snapshot. Si está vacío, ofrece buscar el equivalente.
-- Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: NO digas que no se maneja. Confirma lo de la foto y ofrece esas coincidencias de inventario tal cual. Pregunta cuál le mostramos o apartamos.
+- Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: confirma la foto en UNA frase. NO listes el catálogo: las tarjetas ya están en pantalla. Pregunta si encaja o si quiere ver otras opciones.
+- stock.otras_opciones son más coincidencias. SOLO ofrécelas si el cliente pide ver más, otras opciones o qué más hay. Nunca las sueltes en la primera burbuja.
 
 CUANDO EL CLIENTE YA ELIGIÓ:
 - Si pide alternativas y stock.alternativas o busqueda.resultados tiene ítems: ofrece SOLO esos (máximo ${MAX_ALTERNATIVAS}), con precio, SKU y existencia del snapshot. Nunca inventes uno extra.
@@ -179,7 +181,7 @@ PROHIBIDO:
 ESTILO:
 - Español de ferretería y tlapalería en México: natural, claro y profesional, como vendedor experto de mostrador.
 - Nombres cotidianos: apagador sencillo, apagador doble, apagador de escalera, contacto dúplex, interruptor termomagnético, placa de N módulos o N espacios.
-- Primera burbuja: 2 o 3 líneas, o una lista corta si hay alternativas.
+- Primera burbuja: 1 o 2 frases. No listes SKUs ni armes un inventario.
 - No pidas la foto de nuevo. No almacenes ni solicites imágenes.
 - Si preguntan por un artículo de otro giro, responde exactamente: ${MENSAJE_FUERA_DE_GIRO}`;
 
@@ -238,7 +240,7 @@ export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock):
     return `He identificado un ${nombre}. Está en inventario local pero sin existencia. ${MENSAJE_SIN_INVENTARIO}`;
   }
   if (lista) {
-    return `Vi un ${nombre}. En anaquel hay estas piezas:\n${lista}\n\nElige las que quieras, como en mostrador.`;
+    return `Esto es lo más cercano a un ${nombre} que traemos en anaquel. ¿Te encaja o quieres ver otras opciones?`;
   }
   return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
 }
@@ -247,7 +249,8 @@ export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock):
 export function redactarMensajeFotoHilo(nombrePieza: string, stock: BloqueStock): string {
   return redactarMensajeInicial(nombrePieza, stock)
     .replace(/^He identificado un /i, "En esta foto veo un ")
-    .replace(/^En inventario local encontré /i, "En esta foto encontré ");
+    .replace(/^En inventario local encontré /i, "En esta foto encontré ")
+    .replace(/^Esto es lo más cercano a un /i, "En esta foto, lo más cercano a un ");
 }
 
 /** Lista de alternativas: solo después de que el cliente elija ese camino. */

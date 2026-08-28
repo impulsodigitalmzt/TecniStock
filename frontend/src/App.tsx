@@ -72,6 +72,7 @@ type BloqueStock = {
   consulta_ok?: boolean;
   filas_catalogo?: number;
   forzado?: boolean;
+  otras_opciones?: SustitutoStock[];
 };
 
 type Mensaje = { id: string; rol: string; texto: string; created_at: string };
@@ -100,7 +101,7 @@ function dinero(valor: number | null, moneda = 'MXN'): string {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: moneda }).format(valor);
 }
 
-const MAX_ALTERNATIVAS = 40;
+const MAX_ALTERNATIVAS = 3;
 
 function urlFotoCatalogo(url?: string): string | null {
   const valor = (url ?? '').trim();
@@ -222,12 +223,25 @@ type ResultadoBusquedaInventario = {
   url_imagen?: string;
 };
 
+function recortarListaMostrador(texto: string): string {
+  return texto
+    .replace(/\s*(En anaquel hay estas piezas:)\s*/gi, ' ')
+    .replace(/(?:^|\n)\s*\d+\)[^\n]+/g, '')
+    .replace(/\n{2,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function esOpenerInventario(texto: string): boolean {
   const plano = texto.replace(/\s+/g, ' ').trim();
   return (
-    /^He identificado un .+\. (Hay existencia en inventario local \(\d+ pza\)|Está en inventario local|No cuento con ese artículo|No tengo ese modelo exacto)/i.test(
-      plano
-    ) || /^En inventario local encontré /i.test(plano)
+    /^He identificado un /i.test(plano) ||
+    /^En inventario local encontré /i.test(plano) ||
+    /^Esto es lo más cercano a un /i.test(plano) ||
+    /^En esta foto/i.test(plano) ||
+    /^Vi un /i.test(plano) ||
+    /En anaquel hay estas piezas/i.test(plano)
   );
 }
 
@@ -256,7 +270,7 @@ function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
     vistos.add(clave);
     out.push(item);
   }
-  return out.slice(0, 40);
+  return out.slice(0, 12);
 }
 
 function burbujasChat(
@@ -314,16 +328,18 @@ function burbujasChat(
         continue;
       }
       if (norma === pregunta) continue;
-      if (openerNorma && norma === openerNorma) {
-        if (marca.sku || marca.tarjetas.length || marca.miniaturas.length) {
-          resto.push({ ...vacia, id: `${msg.id}-ficha` });
-        }
-        continue;
-      }
-      if (opener && esOpenerInventario(cuerpo)) {
-        if (marca.sku || marca.tarjetas.length || marca.miniaturas.length) {
-          resto.push({ ...vacia, id: `${msg.id}-ficha` });
-        }
+      if (esOpenerInventario(cuerpo)) {
+        const textoCorto = recortarListaMostrador(cuerpo);
+        if (openerNorma && normaTexto(textoCorto) === openerNorma) continue;
+        resto.push({
+          id: msg.id,
+          rol: 'assistant',
+          texto: textoCorto,
+          fichaSku: null,
+          miniaturas: [],
+          tarjetas: [],
+          fotoHilo: false,
+        });
         continue;
       }
       if (/para no dejarte sin material|estas alternativas compatibles sí están listas/i.test(norma)) continue;
@@ -568,7 +584,7 @@ function openerDesdeStock(nombre: string, stock: BloqueStock): string {
     return `He identificado un ${pieza}. Está en inventario local pero sin existencia. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (lista) {
-    return `Vi un ${pieza}. En anaquel hay estas piezas:\n${lista}\n\nElige las que quieras, como en mostrador.`;
+    return `Esto es lo más cercano a un ${pieza} que traemos en anaquel. ¿Te encaja o quieres ver otras opciones?`;
   }
   return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
 }
@@ -1911,7 +1927,7 @@ export default function App() {
                     <p className="mt-1 text-xs text-red-800">Ya no se maneja: no se va a resurtir.</p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' && alternativasStock.length > 0 ? (
                     <p className="mt-1 text-xs text-stone-600">
-                      Piezas de anaquel que coinciden con lo de la foto. Elige las que necesites.
+                      Lo más cercano a la foto. Si no te encaja, pide ver otras opciones.
                     </p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' ? (
                     <p className="mt-1 text-xs text-stone-500">
@@ -1935,9 +1951,9 @@ export default function App() {
                   {mostrarCarrusel ? (
                     <div className="mt-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">
-                        En anaquel · {alternativasStock.length}
+                        Lo más cercano · {alternativasStock.length}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-stone-500">Toca Elegir para armar el pedido</p>
+                      <p className="mt-0.5 text-[11px] text-stone-500">Toca Elegir si es lo que buscas</p>
                       <CarruselEnChat
                         tarjetas={alternativasStock.map((item) => ({
                           sku: item.sku,

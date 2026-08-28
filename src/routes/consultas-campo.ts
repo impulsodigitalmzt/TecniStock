@@ -29,6 +29,7 @@ import {
   esSeleccionProducto,
   esCorreccionCliente,
   pideBusquedaNuevaInventario,
+  pideMasOpciones,
   reescribirConsultaVenta,
   resolverStockInventarioLocal,
   stockDesdeResultadosBusqueda,
@@ -268,7 +269,7 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
     query_busqueda: (pieza.palabras_clave ?? []).join(" "),
   });
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", MARCA_FOTO_HILO);
-  const textoAsesor = conTarjetas(redactarMensajeFotoHilo(pieza.nombre, stock), tarjetasDesdeFotoHilo(stock));
+  const textoAsesor = redactarMensajeFotoHilo(pieza.nombre, stock);
   await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
@@ -309,25 +310,6 @@ function extraerImagenesFotoHilo(body: {
     throw new AppError(400, "Falta la imagen. Usa el botón + del chat para enviar una foto.", "IMAGE_REQUIRED");
   }
   return unicas.slice(0, 1).map((item) => dataUrlDesdeBase64(item, body.mimeType || "image/jpeg"));
-}
-
-function tarjetasDesdeFotoHilo(stock: BloqueStock): TarjetaChat[] {
-  const items: TarjetaChat[] = [];
-  if (stock.sku && stock.nombre) {
-    items.push(
-      tarjetaDesdeCatalogo({
-        sku: stock.sku,
-        nombre: stock.nombre,
-        url_imagen: stock.url_imagen,
-        precio: stock.precio ?? 0,
-        existencia: cantidadStock(stock),
-      })
-    );
-  }
-  for (const alt of stock.alternativas ?? []) {
-    if (alt.existencia > 0) items.push(tarjetaDesdeCatalogo(alt));
-  }
-  return items;
 }
 
 function piezaPublicaCampo(pieza: PiezaDetectada) {
@@ -402,6 +384,7 @@ function fusionarHallazgosConversacion(stockFoto: BloqueStock, consulta: Consult
 function debeBuscarInventarioPorTexto(texto: string): boolean {
   if (pideApartar(texto) || cancelaApartado(texto) || pideMostrarProducto(texto)) return false;
   if (esSeleccionProducto(texto)) return false;
+  if (pideMasOpciones(texto)) return false;
   if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
   if (esCorreccionCliente(texto)) return true;
   return pideBusquedaNuevaInventario(texto);
@@ -591,11 +574,13 @@ async function responderConsultaCampo(
   const historial = await listarMensajesCampo(sql, consulta.id);
   const stockFoto = await stockDesdeInventarioLocal(sql, consulta);
   const correccionCliente = esCorreccionCliente(texto);
+  const verMas = pideMasOpciones(texto);
   const queryBusqueda = reescribirConsultaVenta(texto) || extraerConsultaInventario(texto);
   let consultaSecundaria = false;
   let resultadosBusqueda: ResultadoBusquedaInventario[] = [];
   const seguimiento =
     !correccionCliente &&
+    !verMas &&
     (esPreguntaSeguimientoPieza(texto) || esSeleccionProducto(texto)) &&
     !debeBuscarInventarioPorTexto(texto);
   let stockVivo = seguimiento
@@ -617,6 +602,23 @@ async function responderConsultaCampo(
       sku_conversacion: stockVivo.sku,
       query_busqueda: queryEfectiva,
     });
+  }
+
+  if (verMas && !consultaSecundaria) {
+    const extra = (stockFoto.otras_opciones ?? []).filter((item) => item.existencia > 0);
+    if (extra.length > 0) {
+      resultadosBusqueda = extra.map((item) => ({
+        sku: item.sku,
+        nombre: item.nombre,
+        categoria: "",
+        stock_disponible: item.existencia,
+        precio: item.precio,
+        ubicacion_tienda: item.ubicacion_tienda ?? "",
+        url_imagen: item.url_imagen ?? "",
+      }));
+      stockVivo = { ...stockFoto, alternativas: extra, sustituto: extra[0] ?? null };
+      consultaSecundaria = true;
+    }
   }
 
   const crudas =
@@ -669,7 +671,7 @@ async function responderConsultaCampo(
         { role: "system", content: PROMPT_CHAT_CAMPO },
         {
           role: "user",
-          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados (mecanismo + placa si ambos vienen); PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo o corrigió: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false PERO alternativas o busqueda.resultados tienen filas, OFRECE esas filas reales (salvo seguimiento). NUNCA digas que no hay artículo si hay filas en busqueda.resultados o stock.alternativas. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock o busqueda.resultados. La cifra de piezas es stock.cifra_stock_obligatoria; no la cambies. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados (mecanismo + placa si ambos vienen); PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs, alternativas o catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo o corrigió: responde con busqueda/stock de esa búsqueda, NO asumas que sigue hablando de la foto. Si encontrado=false, NO enumeres el anaquel en texto (las tarjetas ya están en pantalla); solo amplia si pide otras opciones o consulta_secundaria=true. NUNCA digas que no hay artículo si hay filas en busqueda.resultados o stock.alternativas. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
           correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,
