@@ -120,7 +120,7 @@ const FAMILIAS: { id: string; claves: string[] }[] = [
   { id: "clavija", claves: ["clavija"] },
 ];
 
-/** «Paso doble / 3 vías» es función (suele ser 1 ganga), no el número de módulos de la placa. */
+/** «Apagador de escalera / 3 vías» es función (suele ser 1 módulo), no el número de espacios de la placa. */
 function textoSinFuncionTresVias(texto: string): string {
   return texto
     .replace(/\bpaso doble\b/g, " ")
@@ -135,23 +135,23 @@ function textoSinFuncionTresVias(texto: string): string {
 
 function esFuncionTresVias(texto: string): boolean {
   const t = normalizar(texto);
-  if (/\b(\d+\s*gangas?|triple)\b/.test(t)) return false;
+  if (/\b(\d+\s*(m[oó]dulos?|espacios?|ventanas?|gangas?)|triple)\b/.test(t)) return false;
   return /\b(paso doble|3 vias|tres vias|escalera|3 way)\b/.test(t);
 }
 
-/** Cuenta de gangas/módulos de la placa. No usa «doble» suelto ni «3 vías». */
+/** Cuenta de módulos/espacios/ventanas de la placa. Acepta «gangas» solo como sinónimo de entrada. */
 export function gangasEnTexto(texto: string): number | null {
   const t = textoSinFuncionTresVias(normalizar(texto));
-  if (/\b(4 gangas|cuatro gangas|cuadruple|4 palancas|4 botones|4 modulos|4 espacios|4g)\b/.test(t)) return 4;
-  if (/\b(3 gangas|tres gangas|triple|3 palancas|3 botones|3 modulos|3 espacios|placa de 3|3g)\b/.test(t)) return 3;
+  if (/\b(4 (m[oó]dulos?|espacios?|ventanas?|gangas)|cuatro (m[oó]dulos?|espacios?|ventanas?|gangas)|cuadruple|4 palancas|4 botones|4g)\b/.test(t)) return 4;
+  if (/\b(3 (m[oó]dulos?|espacios?|ventanas?|gangas)|tres (m[oó]dulos?|espacios?|ventanas?|gangas)|triple|3 palancas|3 botones|placa de 3|3g)\b/.test(t)) return 3;
   if (
-    /\b(2 gangas|dos gangas|doble ganga|2 palancas|2 botones|2 modulos|2 espacios|placa de 2|apagador doble|interruptor doble|2g)\b/.test(
+    /\b(2 (m[oó]dulos?|espacios?|ventanas?|gangas)|dos (m[oó]dulos?|espacios?|ventanas?|gangas)|doble ganga|2 palancas|2 botones|placa de 2|apagador doble|interruptor doble|2g)\b/.test(
       t
     )
   ) {
     return 2;
   }
-  if (/\b(sencillo|1 ganga|una ganga|simple|1 palanca|1 boton|1 modulo|placa de 1)\b/.test(t)) return 1;
+  if (/\b(sencillo|1 (m[oó]dulo|espacio|ventana|ganga)|una (ganga|ventana)|simple|1 palanca|1 boton|placa de 1)\b/.test(t)) return 1;
   return null;
 }
 

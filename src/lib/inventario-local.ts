@@ -330,7 +330,13 @@ const SINONIMOS_BUSQUEDA: Record<string, string[]> = {
   vias: ["via", "escalera", "conmutador", "doble"],
   via: ["vias", "escalera", "conmutador"],
   escalera: ["vias", "conmutador", "3 vias"],
-  doble: ["2 gangas", "dos gangas", "dos"],
+  doble: ["2 modulos", "2 espacios", "2 ventanas", "dos", "2 gangas", "dos gangas"],
+  modulos: ["espacios", "ventanas", "modulo"],
+  modulo: ["modulos", "espacios", "espacio"],
+  espacios: ["modulos", "ventanas"],
+  espacio: ["modulos", "espacios"],
+  ventanas: ["modulos", "espacios"],
+  ventana: ["modulos", "espacios"],
   completo: ["interruptor", "apagador", "mecanismo"],
   mecanismo: ["interruptor", "apagador"],
   placa: ["tapa", "embellecedor"],
@@ -377,7 +383,7 @@ const INTENTO_BUSQUEDA_RE =
   /\b(tienes|tienen|hay|trae|traen|vende|venden|busco|busca|buscando|necesito|quiero|quisiera|consigue|consiguen|maneja|manejan|me das|otra cosa|otro modelo|otro articulo|ademas|tambien tienen|tambien hay|en vez|en lugar|lo que (busco|quiero|necesito)|estoy buscando)\b/;
 
 const SEGUIMIENTO_RE =
-  /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles)\b/;
+  /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantos modulos|cuantas ventanas|cuantos espacios|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles)\b/;
 
 const CORRECCION_RE =
   /\b(no solo(?: la)? placa|no es(?: la)? placa|no la placa|no(?: es)? la tapa|el completo|apagador completo|interruptor completo|estoy buscando|lo que (?:busco|quiero|necesito|estoy buscando)|en realidad|me referia|no es (?:eso|esa|este|esta|una placa)|te equivoc|no esa|armado|con mecanismo|el kit)\b/;
@@ -445,9 +451,9 @@ export function esSeleccionProducto(texto: string): boolean {
 
 function consultaParaPuntaje(query: string): string {
   const q = extraerConsultaInventario(query) || normalizarBusqueda(query);
-  if (q === "3" || q === "03") return "3 triple tres gangas vias";
-  if (q === "2" || q === "02") return "2 doble dos gangas";
-  if (q === "1" || q === "01") return "1 sencillo simple ganga";
+  if (q === "3" || q === "03") return "3 triple tres modulos espacios ventanas";
+  if (q === "2" || q === "02") return "2 doble dos modulos espacios ventanas";
+  if (q === "1" || q === "01") return "1 sencillo simple modulo espacio ventana";
   if (/\b(dos vias|2 vias)\b/.test(q)) return `${q} doble escalera 3 vias interruptor apagador`;
   return q;
 }
@@ -478,7 +484,7 @@ function ajustarScoreAccesorio(query: string, fila: FilaInventarioLocal, score: 
   if (score <= 0) return 0;
   const qNorm = normalizarBusqueda(query);
   const familia = familiaCatalogo(fila.nombre_pieza);
-  const pidePared = /\b(apagador|gangas|placa|vias|mecanismo|rocker)\b/.test(qNorm);
+  const pidePared = /\b(apagador|modulos|espacios|ventanas|gangas|placa|vias|mecanismo|tecla)\b/.test(qNorm);
   if (pidePared && familia !== "interruptor" && familia !== "placa") return 0;
   const pideAparato = /\b(completo|mecanismo|interruptor|apagador)\b/.test(qNorm);
   if (!pideAparato) return score;

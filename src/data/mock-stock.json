@@ -219,8 +219,8 @@
     },
     {
       "sku": "INT-SENC-127",
-      "nombre": "Interruptor sencillo 127 V",
-      "aliases": ["apagon", "switch sencillo", "interruptor luz"],
+      "nombre": "Apagador sencillo 127 V",
+      "aliases": ["apagador sencillo", "interruptor de luz", "switch sencillo"],
       "material": "Policarbonato / contactos de cobre",
       "medida": "127 V 10 A",
       "categoria": "electricidad",

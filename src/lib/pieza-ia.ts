@@ -1,7 +1,7 @@
 import { AppError } from "./errors";
 import { GROQ_CHAT_URL, claveApiGroq, parseJsonObject } from "./groq";
 import { GROQ_CHAT_TIMEOUT_MS, fetchTimeout, isTimeoutError } from "./edge";
-import { compactarTextoAsesor, PROMPT_ANALISIS_VISUAL, USER_PROMPT_ANALISIS_VISUAL, MENSAJE_FUERA_DE_GIRO } from "../ia/prompts";
+import { compactarTextoAsesor, mexicanizarMostrador, PROMPT_ANALISIS_VISUAL, USER_PROMPT_ANALISIS_VISUAL, MENSAJE_FUERA_DE_GIRO } from "../ia/prompts";
 
 export const DEFAULT_GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -164,16 +164,23 @@ function enteroModulos(value: unknown): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(8, n)) : 0;
 }
 
-function etiquetaGangas(modulos: number): string {
-  return modulos === 1 ? "1 ganga" : `${modulos} gangas`;
+function etiquetaModulos(modulos: number): string {
+  if (modulos === 1) return "sencillo";
+  if (modulos === 2) return "doble";
+  if (modulos === 3) return "triple";
+  return `de ${modulos} módulos`;
 }
 
-function nombreYaTieneGangas(nombre: string): boolean {
-  return /\b(\d+\s*gangas?|triple)\b/i.test(nombre);
+function etiquetaMedidaModulos(modulos: number): string {
+  return modulos === 1 ? "1 módulo" : `${modulos} módulos`;
+}
+
+function nombreYaTieneModulos(nombre: string): boolean {
+  return /\b(\d+\s*(m[oó]dulos?|espacios?|ventanas?|gangas?)|sencillo|doble|triple)\b/i.test(nombre);
 }
 
 function esMecanismoAccionable(mecanismo: string, nombre: string): boolean {
-  return /\b(rocker|palanca|boton|botón|switch|conmutador|basculante)\b/i.test(`${mecanismo} ${nombre}`);
+  return /\b(tecla|palanca|boton|botón|apagador|conmutador|basculante|rocker|switch)\b/i.test(`${mecanismo} ${nombre}`);
 }
 
 /** Si el aparato es un interruptor/apagador, no arrastres «placa/tapa» a la búsqueda de inventario. */
@@ -187,7 +194,7 @@ function depurarIdentidadPared(
   const pareceInterruptor = /\b(interruptor|apagador|switch)\b/i.test(nombre) && !parecePlaca;
   let nombreFinal = nombre;
   if (parecePlaca && modulos >= 1 && esMecanismoAccionable(mecanismo, nombre)) {
-    nombreFinal = `Interruptor ${etiquetaGangas(modulos)}`;
+    nombreFinal = `Apagador ${etiquetaModulos(modulos)}`;
   }
   const esAparato = pareceInterruptor || /\b(interruptor|apagador)\b/i.test(nombreFinal);
   if (!esAparato && !(modulos >= 1 && esMecanismoAccionable(mecanismo, nombreFinal))) {
@@ -207,13 +214,16 @@ function aplicarConteoModulos(
   modulos: number
 ): { nombre: string; medida: string; palabras_clave: string[] } {
   if (modulos < 1) return { nombre, medida, palabras_clave: claves };
-  const etiqueta = etiquetaGangas(modulos);
-  const extra = [etiqueta];
-  if (modulos === 1) extra.push("sencillo", "1 ganga");
-  if (modulos === 2) extra.push("doble ganga", "2 gangas");
-  if (modulos === 3) extra.push("triple", "3 gangas");
-  const nombreFinal = nombreYaTieneGangas(nombre) ? nombre : `${nombre} ${etiqueta}`;
-  const medidaFinal = !medida || /^no visible$/i.test(medida) || !/\bganga/i.test(medida) ? etiqueta : medida;
+  const etiqueta = etiquetaMedidaModulos(modulos);
+  const extra = [etiqueta, "módulos", "espacios"];
+  if (modulos === 1) extra.push("sencillo", "1 módulo", "1 espacio");
+  if (modulos === 2) extra.push("doble", "2 módulos", "2 espacios");
+  if (modulos === 3) extra.push("triple", "3 módulos", "3 espacios");
+  const nombreFinal = nombreYaTieneModulos(nombre) ? nombre : `${nombre} ${etiquetaModulos(modulos)}`;
+  const medidaFinal =
+    !medida || /^no visible$/i.test(medida) || !/\b(m[oó]dulo|espacio|ventana|ganga)\b/i.test(medida)
+      ? etiqueta
+      : mexicanizarMostrador(medida);
   return {
     nombre: nombreFinal,
     medida: medidaFinal,
@@ -268,19 +278,19 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones)
   );
   return {
-    nombre: pared.nombre,
+    nombre: mexicanizarMostrador(pared.nombre),
     material: texto(raw.material) || "No determinado",
-    medida: conModulos.medida,
+    medida: mexicanizarMostrador(conModulos.medida),
     categoria: categoriaAbierta(raw.categoria),
     rosca: texto(raw.rosca),
-    mecanismo: texto(raw.mecanismo),
+    mecanismo: mexicanizarMostrador(texto(raw.mecanismo)),
     acabado: texto(raw.acabado),
     marca: texto(raw.marca),
-    descripcion,
+    descripcion: mexicanizarMostrador(descripcion),
     pregunta,
-    observaciones: descripcion,
+    observaciones: mexicanizarMostrador(descripcion),
     confianza: Math.max(0, Math.min(1, confianza)),
-    palabras_clave: pared.palabras_clave,
+    palabras_clave: pared.palabras_clave.map((clave) => mexicanizarMostrador(clave)).filter(Boolean),
   };
 }
 

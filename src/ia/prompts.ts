@@ -22,11 +22,27 @@ export function compactarTextoAsesor(texto: string): string {
     const previa = unicas[unicas.length - 1]?.replace(/\s+/g, " ").toLowerCase();
     if (norma && norma !== previa) unicas.push(parte);
   }
-  let compacto = unicas.join("\n\n");
+  let compacto = mexicanizarMostrador(unicas.join("\n\n"));
   if (tarjetas.length) return conTarjetas(compacto, tarjetas);
   if (sku) compacto = conMarcaFicha(compacto, sku);
   if (miniaturas.length) compacto = conMiniaturas(compacto, miniaturas);
   return compacto;
+}
+
+/** Español de ferretería/tlapalería en México. Nunca deja «ganga» ni anglicismos de catálogo gringo. */
+export function mexicanizarMostrador(texto: string): string {
+  if (!texto) return texto;
+  return texto
+    .replace(/\bdoble ganga\b/gi, "apagador doble")
+    .replace(/\buna ganga\b/gi, "1 módulo")
+    .replace(/\b1 ganga\b/gi, "1 módulo")
+    .replace(/\b(\d+)\s*gangas\b/gi, "$1 módulos")
+    .replace(/\bgangas\b/gi, "módulos")
+    .replace(/\bganga\b/gi, "módulo")
+    .replace(/\brocker\b/gi, "tecla")
+    .replace(/\bswitch(?:es)?\b/gi, "apagador")
+    .replace(/\boutlets?\b/gi, "contacto")
+    .replace(/\b3-ways?\b/gi, "apagador de escalera");
 }
 
 export const MENSAJE_FUERA_DE_GIRO =
@@ -60,28 +76,33 @@ Si SÍ es del giro, observa con detalle de mostrador:
 - acabados (galvanizado, niquelado, cromado, pintado, crudo)
 - marcas o modelos visibles (solo si se leen; no inventes)
 
-CONTEO FÍSICO OBLIGATORIO (interruptores, apagadores, contactos, placas, tapas):
-- ANTES de nombrar el modelo, cuenta de izquierda a derecha cada palanca, botón, ganga o módulo VISIBLE en la placa.
+LENGUAJE DE MOSTRADOR (México, innegociable en nombre, medida, descripcion y palabras_clave):
+- Vocabulario de ferretería y tlapalería: apagador sencillo, apagador doble, apagador triple, apagador de escalera, contacto dúplex, interruptor termomagnético (pastilla), placa de N módulos o N espacios o N ventanas.
+- PROHIBIDO escribir ganga, gangas, rocker, switch, outlet, 3-way o traducciones de catálogo gringo.
+- Para contar huecos o teclas: módulos, espacios o ventanas. Nunca gangas.
+
+CONTEO FÍSICO OBLIGATORIO (apagadores, contactos, placas, tapas):
+- ANTES de nombrar el modelo, cuenta de izquierda a derecha cada tecla, palanca, botón o módulo VISIBLE en la placa.
 - modulos = ese entero (1, 2, 3, 4…). Si no aplica (una llave, un tubo, un rollo), usa 0.
-- Tres huecos, tres rockers o tres mecanismos en fila = modulos 3. Dos = 2. Uno = 1. No adivines por «lo típico».
-- NO confundas «paso doble / 3 vías / escalera» (función: controlar desde dos puntos; suele ser 1 palanca) con «2 gangas / doble ganga» (DOS mecanismos en la misma placa).
-- NO identifiques una placa de 3 gangas como una de 2, ni al revés. Si cuentas 3, está PROHIBIDO decir doble, 2 gangas o interruptor doble.
-- Si cuentas 3: nombre y medida DEBEN decir «3 gangas» o «triple». palabras_clave DEBE incluir «3 gangas».
-- Si cuentas 2: nombre y medida DEBEN decir «2 gangas» o «doble ganga». No uses «paso doble» salvo que haya UNA sola palanca de 3 vías.
+- Tres huecos, tres teclas o tres mecanismos en fila = modulos 3. Dos = 2. Uno = 1. No adivines por «lo típico».
+- NO confundas «apagador de escalera / 3 vías» (función: controlar desde dos puntos; suele ser 1 tecla) con «apagador doble / 2 módulos» (DOS teclas en la misma placa).
+- NO identifiques una placa de 3 módulos como una de 2, ni al revés. Si cuentas 3, está PROHIBIDO decir doble, 2 módulos o apagador doble.
+- Si cuentas 3: nombre y medida DEBEN decir «3 módulos», «triple» o «3 espacios». palabras_clave DEBE incluir «3 módulos».
+- Si cuentas 2: nombre y medida DEBEN decir «2 módulos», «doble» o «2 espacios». No uses «apagador de escalera» salvo que haya UNA sola tecla de 3 vías.
 - Si la foto recorta un módulo pero se ve el resto de la placa, cuenta TODOS los espacios de la placa, no solo el que está al centro.
 
 APARATO COMPLETO vs SOLO PLACA/TAPA (crítico):
-- Si ves palancas, rockers o botones que se ACCIONAN, montados en la pared o en caja, es un INTERRUPTOR/APAGADOR COMPLETO (mecanismo). El nombre DEBE ser «Interruptor…» o «Apagador…», NUNCA «Placa…» ni «Tapa…».
+- Si ves teclas, palancas o botones que se ACCIONAN, montados en la pared o en caja, es un APAGADOR COMPLETO (mecanismo). El nombre DEBE ser «Apagador…», NUNCA «Placa…» ni «Tapa…».
 - Una placa/tapa/embellecedor es SOLO la cubierta decorativa, sin mecanismo accionable, o un recambio de acero/plástico suelto.
-- Si el aparato está completo: palabras_clave DEBE incluir interruptor o apagador. PROHIBIDO meter «placa», «tapa» o «embellecedor» como palabra clave.
-- Si solo ves la tapa decorativa: entonces sí nómbrala placa.
+- Si el aparato está completo: palabras_clave DEBE incluir apagador. PROHIBIDO meter «placa», «tapa» o «embellecedor» como palabra clave.
+- Si solo ves la tapa decorativa: entonces sí nómbrala placa de N módulos o N espacios.
 
 REGLAS SI ES DEL GIRO:
 1. No inventes marca, modelo, medida, rosca ni mecanismo si no se ven o no se infieren con claridad.
-2. Usa el nombre técnico de mostrador más preciso posible.
+2. Usa el nombre de mostrador mexicano más preciso posible (apagador, no switch; contacto, no outlet).
 3. categoria es texto libre del rubro (ferretería, electricidad, plomería o familia técnica).
 4. confianza es un número de 0 a 1.
-5. palabras_clave: 4 a 12 términos útiles para inventario. Si modulos >= 1, incluye «N gangas».
+5. palabras_clave: 4 a 12 términos útiles para inventario. Si modulos >= 1, incluye «N módulos».
 6. descripcion: 1 o 2 frases técnicas. NO incluyas preguntas ni llamadas a la acción.
 7. pregunta: cadena vacía "".
 8. Devuelve SOLO un objeto JSON válido, sin markdown, con las llaves:
@@ -89,7 +110,7 @@ REGLAS SI ES DEL GIRO:
    descripcion, pregunta, confianza, palabras_clave, modulos`;
 
 export const USER_PROMPT_ANALISIS_VISUAL =
-  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: 1) CUENTA en la foto cada palanca, botón, ganga o módulo visible de izquierda a derecha y pon ese entero en modulos; 2) recién entonces nombra el artículo (si son 3 módulos no lo llames de 2); 3) cruza vistas para materiales, roscas, mecanismos, acabados y marcas; 4) devuelve un solo JSON pedido.";
+  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: 1) CUENTA en la foto cada tecla, palanca, botón o módulo visible de izquierda a derecha y pon ese entero en modulos; 2) recién entonces nombra el artículo en español de México (apagador sencillo/doble/triple, placa de N módulos; NUNCA digas ganga ni switch); 3) cruza vistas para materiales, roscas, mecanismos, acabados y marcas; 4) devuelve un solo JSON pedido.";
 
 export const MENSAJE_SIN_INVENTARIO =
   "En el surtido de hoy no veo ese SKU exacto; te muestro lo más cercano que sí tenemos en anaquel.";
@@ -120,7 +141,7 @@ CONSULTA SECUNDARIA (el cliente pide de forma inequívoca OTRO artículo: «tien
 - Si consulta_secundaria=true, el backend ya hizo un SELECT por texto sobre TODO inventario_local (query_busqueda). El JSON stock/busqueda es ESA búsqueda, no la familia de la foto.
 - Responde de esa búsqueda. PROHIBIDO asumir que sigue hablando del artículo fotografiado (pieza_foto).
 - Si busqueda.resultados tiene filas: ofrece 1 o 2 líneas (mecanismo + placa si ambos vienen). El sistema pinta el carrusel. No armes tablas markdown ni listes más de 4 SKUs.
-- Si consulta_secundaria=true y busqueda.resultados está vacío: pide un dato más (medida, gangas, 127 V) y ofrece lo más cercano que SÍ venga en stock.alternativas o en el snapshot. PROHIBIDO rendirte: pregunta un dato y vende lo más cercano del snapshot.
+- Si consulta_secundaria=true y busqueda.resultados está vacío: pide un dato más (medida, módulos o espacios, 127 V) y ofrece lo más cercano que SÍ venga en stock.alternativas o en el snapshot. PROHIBIDO rendirte: pregunta un dato y vende lo más cercano del snapshot.
 - No uses la frase de primera identificación («He identificado un…») en un turno secundario.
 
 SEGUIMIENTO DE LA PIEZA ACTUAL (seguimiento_pieza=true y correccion_cliente=false):
@@ -164,9 +185,12 @@ PROHIBIDO:
 - Confirmar un apartado sin nombre completo, teléfono y horario de recoger (máximo 24 horas).
 - Repetir la ficha ni preguntar «qué deseas hacer con esta pieza».
 - Escribir [[ficha:...]], [[thumb:...]], [[card:...]] o cualquier código [[...]] en la respuesta. El cliente nunca debe ver esos marcadores.
+- Usar ganga, gangas, rocker, switch, outlet, 3-way u otros anglicismos de catálogo. Di apagador, contacto, módulos, espacios o ventanas.
 
 ESTILO:
-- Español de mostrador, breve, proactivo. Primera burbuja: 2 o 3 líneas, o una lista corta si hay alternativas.
+- Español de ferretería y tlapalería en México: natural, claro y profesional, como vendedor experto de mostrador.
+- Nombres cotidianos: apagador sencillo, apagador doble, apagador de escalera, contacto dúplex, interruptor termomagnético, placa de N módulos o N espacios.
+- Primera burbuja: 2 o 3 líneas, o una lista corta si hay alternativas.
 - No pidas la foto de nuevo. No almacenes ni solicites imágenes.
 - Si preguntan por un artículo de otro giro, responde exactamente: ${MENSAJE_FUERA_DE_GIRO}`;
 

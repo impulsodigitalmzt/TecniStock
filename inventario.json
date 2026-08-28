@@ -3,18 +3,18 @@
   "piezas": [
     {
       "sku": "INT-SENC-127",
-      "nombre_pieza": "Interruptor sencillo 127 V",
+      "nombre_pieza": "Apagador sencillo 127 V",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Apagador o switch sencillo color blanco, diseño estándar de empotrar",
+      "descripcion_tecnica": "Apagador sencillo de empotrar, una tecla, color blanco, 127 V",
       "stock_disponible": 45,
       "precio": 28.5,
       "url_imagen": "/static/productos/INT-SENC-127.webp"
     },
     {
       "sku": "INT-DOB-127",
-      "nombre_pieza": "Interruptor doble 127 V",
+      "nombre_pieza": "Apagador doble 127 V",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Interruptor de paso doble empotrado con placa plástica blanca",
+      "descripcion_tecnica": "Apagador doble de empotrar, dos teclas, 127 V, con placa plástica blanca",
       "stock_disponible": 30,
       "precio": 45,
       "url_imagen": "/static/productos/INT-DOB-127.jpg"
@@ -23,7 +23,7 @@
       "sku": "INT-ESC-03",
       "nombre_pieza": "Apagador de escalera 3 vías",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Interruptor de tres vías para control de iluminación desde dos puntos",
+      "descripcion_tecnica": "Apagador de escalera (3 vías) para controlar la luz desde dos puntos",
       "stock_disponible": 25,
       "precio": 38,
       "url_imagen": "/static/productos/INT-ESC-03.jpg"
@@ -32,7 +32,7 @@
       "sku": "CONT-DUP-127",
       "nombre_pieza": "Contacto dúplex aterrizado",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Tomacorriente doble con ranura de tierra, 15A 127V",
+      "descripcion_tecnica": "Contacto dúplex con ranura de tierra, 15A 127V",
       "stock_disponible": 60,
       "precio": 35,
       "url_imagen": "/static/productos/CONT-DUP-127.png"
@@ -41,25 +41,25 @@
       "sku": "CONT-USB-01",
       "nombre_pieza": "Contacto dúplex con puertos USB",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Tomacorriente doble con dos puertos de carga USB integrados de 2.1A",
+      "descripcion_tecnica": "Contacto dúplex con dos puertos de carga USB integrados de 2.1A",
       "stock_disponible": 12,
       "precio": 210,
       "url_imagen": "/static/productos/CONT-USB-01.webp"
     },
     {
       "sku": "PLAC-ACEO-01",
-      "nombre_pieza": "Placa de acero inoxidable 1 ganga",
+      "nombre_pieza": "Placa de acero inoxidable de 1 módulo",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Tapa o placa decorativa de acero cepillado para una pastilla/interruptor, Artlite APL-102",
+      "descripcion_tecnica": "Tapa o placa decorativa de acero cepillado para un espacio (apagador o contacto), Artlite APL-102",
       "stock_disponible": 25,
       "precio": 66,
       "url_imagen": "/static/productos/PLAC-ACEO-01.webp"
     },
     {
       "sku": "PLAC-ACEO-02",
-      "nombre_pieza": "Placa de acero inoxidable 2 gangas",
+      "nombre_pieza": "Placa de acero inoxidable de 2 módulos",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Tapa o placa de acero inoxidable cepillado para dos espacios",
+      "descripcion_tecnica": "Tapa o placa de acero inoxidable cepillado para dos espacios o ventanas",
       "stock_disponible": 15,
       "precio": 78,
       "url_imagen": "/static/productos/PLAC-ACEO-02.jpg"
@@ -122,7 +122,7 @@
       "sku": "INT-TIM-01",
       "nombre_pieza": "Botón pulsador para timbre",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Interruptor tipo botón de presión momentánea para sistema de timbre",
+      "descripcion_tecnica": "Botón de timbre de presión momentánea para empotrar",
       "stock_disponible": 20,
       "precio": 32,
       "url_imagen": "/static/productos/INT-TIM-01.webp"
@@ -140,7 +140,7 @@
       "sku": "CONT-INT-01",
       "nombre_pieza": "Contacto dúplex para intemperie con tapa",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Tomacorriente protegido con tapa plástica de cierre hermético contra humedad",
+      "descripcion_tecnica": "Contacto protegido con tapa plástica de cierre hermético contra humedad",
       "stock_disponible": 9,
       "precio": 140,
       "url_imagen": "/static/productos/CONT-INT-01.avif"
@@ -149,7 +149,7 @@
       "sku": "FOCO-LED-10W",
       "nombre_pieza": "Foco LED A19 10W Luz de Día",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Bombilla LED ahorradora de 10 watts rosca estándar E27",
+      "descripcion_tecnica": "Foco LED ahorrador de 10 watts rosca estándar E27",
       "stock_disponible": 80,
       "precio": 22,
       "url_imagen": "/static/productos/FOCO-LED-10W.jpg"

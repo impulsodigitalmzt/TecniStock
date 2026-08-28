@@ -25,7 +25,7 @@ const pares = [
   { sku: "CONT-DUP-127", claves: ["aterrizado"] },
   { sku: "CONT-USB-01", claves: ["usb"] },
   { sku: "PLAC-ACEO-01", claves: ["artlite"] },
-  { sku: "PLAC-ACEO-02", claves: ["2 gangas"] },
+  { sku: "PLAC-ACEO-02", claves: ["2 gangas", "2 espacios", "2 modulos"] },
   { sku: "TMT-1P-20A", claves: ["1x20"] },
   { sku: "TMT-2P-30A", claves: ["2x30"] },
   { sku: "CC-2Q-01", claves: ["centro de carga"] },

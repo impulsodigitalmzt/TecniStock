@@ -341,7 +341,7 @@ function queryRespaldoCorreccion(consulta: ConsultaCampo): string {
   const nombre = [consulta.pieza_nombre, consulta.pieza_categoria].filter(Boolean).join(" ");
   const fam = familiaCatalogo(nombre);
   if (fam === "placa" || /\b(placa|tapa|embellecedor)\b/i.test(nombre)) {
-    return "interruptor apagador doble mecanismo 2 gangas";
+    return "apagador doble mecanismo 2 modulos 2 espacios";
   }
   return extraerConsultaInventario(nombre) || "interruptor apagador";
 }
