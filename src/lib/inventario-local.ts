@@ -1,13 +1,6 @@
-import type { Sql } from "../db.js";
+﻿import type { Sql } from "../db.js";
 import { estadoDesdeStock } from "./productos-schema";
 import {
-  alternativasDeCatalogo,
-  cantidadStock,
-  consultarStock,
-  esComboApagadorContacto,
-  familiaCatalogo,
-  gangasEnTexto,
-  textoIdentidadPieza,
   type BloqueStock,
   type IdentidadPieza,
   type StockItem,
@@ -70,6 +63,20 @@ export async function ensureInventarioLocalSchema(sql: Sql): Promise<void> {
     /* espejo puede no existir aún */
   }
   schemaReady = true;
+}
+
+let trgmListo: boolean | null = null;
+
+async function asegurarTrgm(sql: Sql): Promise<boolean> {
+  if (trgmListo !== null) return trgmListo;
+  try {
+    await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`;
+    await sql`CREATE INDEX IF NOT EXISTS inventario_local_nombre_trgm ON inventario_local USING gin (nombre_pieza gin_trgm_ops)`;
+    trgmListo = true;
+  } catch {
+    trgmListo = false;
+  }
+  return trgmListo;
 }
 
 function mapFila(row: Record<string, unknown>): FilaInventarioLocal | null {
@@ -180,16 +187,6 @@ function bloqueDesdeFila(fila: FilaInventarioLocal, coincidencia = 1): BloqueSto
     },
     fila
   );
-}
-
-function conAlternativas(stock: BloqueStock, pieza: IdentidadPieza, items: StockItem[]): BloqueStock {
-  const hayExacto = stock.encontrado && cantidadStock(stock) > 0 && !stock.requiere_sustituto;
-  if (hayExacto) return stock;
-  if (stock.alternativas && stock.alternativas.length > 0) return stock;
-  const alternativas = alternativasDeCatalogo(pieza, items, stock.sku ?? "");
-  stock.alternativas = alternativas;
-  stock.sustituto = alternativas[0] ?? stock.sustituto ?? null;
-  return stock;
 }
 
 function normalizarBusqueda(texto: string): string {
@@ -318,61 +315,70 @@ const RELLENO_CONSULTA = new Set([
   "instalacion",
 ]);
 
-const SINONIMOS_BUSQUEDA: Record<string, string[]> = {
-  cinta: ["aislar", "aislante", "ailante"],
-  aislante: ["aislar", "cinta", "ailante"],
-  aislar: ["aislante", "cinta"],
-  ailante: ["aislante", "aislar", "cinta"],
-  foco: ["focos", "lampara", "luminaria", "bombilla", "bombillo"],
-  focos: ["foco", "lampara", "luminaria", "bombilla"],
-  bombillo: ["foco", "lampara"],
-  lampara: ["foco", "luminaria"],
-  interruptor: ["apagador", "switch"],
-  apagador: ["interruptor", "switch"],
-  switch: ["interruptor", "apagador"],
-  vias: ["via", "escalera", "conmutador", "doble"],
-  via: ["vias", "escalera", "conmutador"],
-  escalera: ["vias", "conmutador", "3 vias"],
-  doble: ["2 modulos", "2 espacios", "2 ventanas", "dos", "2 gangas", "dos gangas"],
-  modulos: ["espacios", "ventanas", "modulo"],
-  modulo: ["modulos", "espacios", "espacio"],
-  espacios: ["modulos", "ventanas"],
-  espacio: ["modulos", "espacios"],
-  ventanas: ["modulos", "espacios"],
-  ventana: ["modulos", "espacios"],
-  completo: ["interruptor", "apagador", "mecanismo"],
-  mecanismo: ["interruptor", "apagador"],
-  placa: ["tapa", "embellecedor"],
-};
-
-function expandirTokensBusqueda(tokens: string[]): string[] {
-  const out = new Set<string>();
-  for (const token of tokens) {
-    if (!token) continue;
-    out.add(token);
-    for (const sinonimo of SINONIMOS_BUSQUEDA[token] ?? []) out.add(sinonimo);
-    if (token.endsWith("s") && token.length > 3) out.add(token.slice(0, -1));
-    else if (token.length > 2 && !/^\d+$/.test(token)) out.add(`${token}s`);
-  }
-  return [...out];
-}
-
-function tokenCatalogoCerca(token: string, haystack: string): boolean {
-  if (!token || token.length < 2) return false;
-  if (haystack.includes(token)) return true;
-  if (token.length < 5) return false;
-  return haystack.split(" ").some((palabra) => {
-    if (palabra.length < 5) return false;
-    return palabra.slice(0, 4) === token.slice(0, 4) && Math.abs(palabra.length - token.length) <= 2;
-  });
-}
-
 /** Quita muletillas de mostrador y deja el término a buscar en inventario_local. */
 export function extraerConsultaInventario(texto: string): string {
   const q = normalizarBusqueda(limpiarNegacionesCatalogo(texto));
   if (!q) return "";
   const tokens = q.split(" ").filter((token) => token && (!RELLENO_CONSULTA.has(token) || /^\d+$/.test(token)));
   return tokens.join(" ").trim();
+}
+
+const STOP_ILIKE = new Set([
+  "para",
+  "con",
+  "una",
+  "uno",
+  "unos",
+  "unas",
+  "los",
+  "las",
+  "del",
+  "por",
+  "que",
+  "tipo",
+  "color",
+  "visible",
+  "generica",
+  "generico",
+  "n/a",
+  "the",
+  "and",
+  "esta",
+  "este",
+  "esos",
+  "esas",
+]);
+
+function plegarToken(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+/** Tokens sueltos para ILIKE de anaquel. Sin frases ni filtros de familia. */
+export function extraerTerminosIlike(claves: string[]): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const clave of claves) {
+    for (const crudo of String(clave ?? "").split(/[\s,/|+-]+/)) {
+      const t = plegarToken(crudo.replace(/[%_\\]/g, ""));
+      if (t.length < 3 || STOP_ILIKE.has(t) || vistos.has(t)) continue;
+      vistos.add(t);
+      out.push(t);
+    }
+  }
+  return out.slice(0, 12);
+}
+
+function terminosDesdePieza(pieza: IdentidadPieza): string[] {
+  const claves = (pieza.palabras_clave ?? []).filter(Boolean);
+  if (claves.length > 0) return extraerTerminosIlike(claves);
+  const extra = [pieza.material, pieza.medida].filter(
+    (item) => item && !/^no\s/i.test(item.trim()) && !/^n\/a$/i.test(item.trim())
+  );
+  return extraerTerminosIlike([pieza.nombre ?? "", ...extra]);
 }
 
 function limpiarNegacionesCatalogo(texto: string): string {
@@ -452,15 +458,6 @@ export function esSeleccionProducto(texto: string): boolean {
   );
 }
 
-function consultaParaPuntaje(query: string): string {
-  const q = extraerConsultaInventario(query) || normalizarBusqueda(query);
-  if (q === "3" || q === "03") return "3 triple tres modulos espacios ventanas";
-  if (q === "2" || q === "02") return "2 doble dos modulos espacios ventanas";
-  if (q === "1" || q === "01") return "1 sencillo simple modulo espacio ventana";
-  if (/\b(dos vias|2 vias)\b/.test(q)) return `${q} doble escalera 3 vias interruptor apagador`;
-  return q;
-}
-
 export type ResultadoBusquedaInventario = {
   sku: string;
   nombre: string;
@@ -471,93 +468,10 @@ export type ResultadoBusquedaInventario = {
   url_imagen: string;
 };
 
-function filaEsParedElectrica(fila: FilaInventarioLocal): boolean {
-  const t = normalizarBusqueda(fila.nombre_pieza);
-  if (/\b(timbre|termomagnet|pastilla|cable|cinta|foco|lampara|conduit|cople|clavija|calibre)\b/.test(t)) return false;
-  return /\b(apagador|interruptor|contacto|placa)\b/.test(t);
-}
+export const MAX_HALLAZGOS_VISION = 40;
 
-function tomarFila(
-  filas: FilaInventarioLocal[],
-  pred: (fila: FilaInventarioLocal) => boolean,
-  skuPreferido?: string
-): FilaInventarioLocal | null {
-  const utiles = filas.filter((fila) => fila.stock_disponible > 0 && pred(fila));
-  if (skuPreferido) {
-    const exacto = utiles.find((fila) => fila.sku.toUpperCase() === skuPreferido.toUpperCase());
-    if (exacto) return exacto;
-  }
-  return utiles[0] ?? null;
-}
-
-/** Piezas reales de anaquel para armar un juego de pared (nunca timbre ni SKUs inventados). */
-export function armarKitPared(filas: FilaInventarioLocal[], pieza: IdentidadPieza): ResultadoBusquedaInventario[] {
-  const utiles = filas.filter(filaEsParedElectrica);
-  const blob = normalizarBusqueda(
-    [
-      pieza.nombre,
-      pieza.medida,
-      pieza.categoria,
-      pieza.mecanismo,
-      pieza.descripcion,
-      ...(pieza.palabras_clave ?? []),
-    ]
-      .filter(Boolean)
-      .join(" ")
-  );
-  const combo = esComboApagadorContacto(pieza);
-  const quiereApagador = combo || /\b(apagador|interruptor|tecla)\b/.test(blob);
-  const quiereContacto = combo || /\b(contacto|tomacorriente|duplex)\b/.test(blob);
-  const quierePlaca = combo || /\b(placa|tapa|modulo|espacio|ventana)\b/.test(blob);
-  const modulos = gangasEnTexto(blob);
-  const kit: FilaInventarioLocal[] = [];
-  const meter = (fila: FilaInventarioLocal | null) => {
-    if (!fila || kit.some((item) => item.sku === fila.sku)) return;
-    kit.push(fila);
-  };
-
-  if (quiereApagador) {
-    if (modulos === 1 && !combo) {
-      meter(
-        tomarFila(
-          utiles,
-          (fila) => familiaCatalogo(fila.nombre_pieza) === "interruptor" && /\bsencillo\b/.test(normalizarBusqueda(fila.nombre_pieza)),
-          "INT-SENC-127"
-        )
-      );
-    } else {
-      meter(
-        tomarFila(
-          utiles,
-          (fila) => familiaCatalogo(fila.nombre_pieza) === "interruptor" && /\bdoble\b/.test(normalizarBusqueda(fila.nombre_pieza)),
-          "INT-DOB-127"
-        )
-      );
-    }
-  }
-  if (quiereContacto) {
-    meter(
-      tomarFila(
-        utiles,
-        (fila) =>
-          familiaCatalogo(fila.nombre_pieza) === "contacto" &&
-          !/\b(usb|intemperie)\b/.test(normalizarBusqueda(fila.nombre_pieza)),
-        "CONT-DUP-127"
-      )
-    );
-  }
-  if (quierePlaca || combo) {
-    const skuPlaca = modulos === 1 ? "PLAC-ACEO-01" : "PLAC-ACEO-02";
-    meter(
-      tomarFila(
-        utiles,
-        (fila) => familiaCatalogo(fila.nombre_pieza) === "placa",
-        skuPlaca
-      )
-    );
-  }
-  return kit.map(filaAResultado);
-}
+const NOMBRE_PLEGADO = `translate(lower(nombre_pieza), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
+const SKU_PLEGADO = `translate(lower(sku), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
 
 function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario {
   return {
@@ -571,105 +485,66 @@ function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario 
   };
 }
 
-function stockDesdeKit(kit: ResultadoBusquedaInventario[], filasCatalogo: number): BloqueStock {
-  const alternativas = kit.map((item) => ({
-    ...resultadoASustituto(item),
-    razon: "Pieza para armar el juego de la foto; no hay un SKU combinado.",
-  }));
-  return {
-    encontrado: false,
-    sku: null,
-    nombre: null,
-    material: null,
-    medida: null,
-    existencia: 0,
-    precio: null,
-    moneda: "MXN",
-    estado: "sin_coincidencia",
-    requiere_sustituto: true,
-    sustituto: alternativas[0] ?? null,
-    alternativas,
-    coincidencia: 0,
-    stock_disponible: null,
-    fuente: "inventario_local",
-    consulta_ok: true,
-    filas_catalogo: filasCatalogo,
-    motivo_indisponible: "fuera_de_surtido",
-  };
-}
-
-function ajustarScoreAccesorio(query: string, fila: FilaInventarioLocal, score: number): number {
-  if (score <= 0) return 0;
-  const qNorm = normalizarBusqueda(query);
-  const nombre = normalizarBusqueda(fila.nombre_pieza);
-  if (/\btimbre\b/.test(nombre) && !/\btimbre\b/.test(qNorm)) return 0;
-  const familia = familiaCatalogo(fila.nombre_pieza);
-  const pidePared = /\b(apagador|interruptor|modulos|espacios|ventanas|gangas|placa|vias|mecanismo|tecla|contacto|duplex)\b/.test(
-    qNorm
-  );
-  if (pidePared && familia && familia !== "interruptor" && familia !== "placa" && familia !== "contacto") return 0;
-  const pideAparato = /\b(completo|mecanismo|interruptor|apagador)\b/.test(qNorm);
-  if (!pideAparato) return score;
-  if (familia === "placa") return Math.max(12, score - 28);
-  if (familia === "interruptor") return score + 20;
-  return score;
-}
-
-function puntuarBusqueda(query: string, fila: FilaInventarioLocal): number {
-  const q = consultaParaPuntaje(query);
-  if (!q) return 0;
-  const sku = fila.sku.toLowerCase();
-  const nombre = normalizarBusqueda(fila.nombre_pieza);
-  const categoria = normalizarBusqueda(fila.categoria);
-  const qRaw = extraerConsultaInventario(query) || query.trim().toLowerCase();
-  if (sku === qRaw) return ajustarScoreAccesorio(query, fila, 100);
-  if (qRaw.length >= 3 && sku.startsWith(qRaw)) return ajustarScoreAccesorio(query, fila, 90);
-  if (qRaw.length >= 3 && !/^\d+$/.test(qRaw) && sku.includes(qRaw)) return ajustarScoreAccesorio(query, fila, 80);
-  if (nombre === q || nombre === qRaw) return ajustarScoreAccesorio(query, fila, 75);
-  if (qRaw.length >= 3 && (nombre.startsWith(qRaw) || nombre.includes(` ${qRaw} `) || nombre.includes(` ${qRaw}`) || nombre.startsWith(`${qRaw} `))) {
-    return ajustarScoreAccesorio(query, fila, 65);
+/** SELECT abierto de anaquel: cada token con ILIKE (y trigram si Neon lo permite). */
+export async function buscarInventarioPorPalabrasClave(
+  sql: Sql,
+  claves: string[],
+  limit = MAX_HALLAZGOS_VISION
+): Promise<ResultadoBusquedaInventario[]> {
+  const tokens = extraerTerminosIlike(claves);
+  if (tokens.length === 0) return [];
+  await ensureInventarioLocalSchema(sql);
+  const usarTrgm = await asegurarTrgm(sql);
+  const tope = Math.max(1, Math.min(60, Math.trunc(limit) || MAX_HALLAZGOS_VISION));
+  const likes = tokens.map((token) => `%${token}%`);
+  const where = likes
+    .map((_, i) => {
+      const n = i + 1;
+      const ilike = `(${NOMBRE_PLEGADO} LIKE $${n} OR ${SKU_PLEGADO} LIKE $${n})`;
+      if (!usarTrgm) return ilike;
+      const t = likes.length + i + 1;
+      return `(${ilike} OR word_similarity($${t}, ${NOMBRE_PLEGADO}) > 0.45)`;
+    })
+    .join(" OR ");
+  const relevancia = likes
+    .map((_, i) => {
+      const n = i + 1;
+      return `(CASE WHEN ${NOMBRE_PLEGADO} LIKE $${n} OR ${SKU_PLEGADO} LIKE $${n} THEN 1 ELSE 0 END)`;
+    })
+    .join(" + ");
+  const params = usarTrgm ? [...likes, ...tokens, tope] : [...likes, tope];
+  const limitIdx = params.length;
+  try {
+    const rows = await sql.query(
+      `SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
+       FROM inventario_local
+       WHERE ${where}
+       ORDER BY (${relevancia}) DESC, stock_disponible DESC NULLS LAST, nombre_pieza ASC
+       LIMIT $${limitIdx}`,
+      params
+    );
+    return rows
+      .map((row) => mapFila(row))
+      .filter((item): item is FilaInventarioLocal => Boolean(item))
+      .map(filaAResultado);
+  } catch (error) {
+    if (usarTrgm) {
+      trgmListo = false;
+      return buscarInventarioPorPalabrasClave(sql, claves, limit);
+    }
+    throw error;
   }
-  if (qRaw.length >= 3 && nombre.includes(qRaw)) return ajustarScoreAccesorio(query, fila, 55);
-  const tokens = expandirTokensBusqueda(q.split(" ").filter((token) => token.length > 1 || /^\d+$/.test(token)));
-  if (tokens.length === 0) return 0;
-  const hits = tokens.filter(
-    (token) => tokenCatalogoCerca(token, nombre) || tokenCatalogoCerca(token, sku) || tokenCatalogoCerca(token, categoria)
-  ).length;
-  if (hits === 0) return 0;
-  const score = 20 + hits * 12 + (hits === tokens.length ? 10 : 0);
-  return ajustarScoreAccesorio(query, fila, score);
 }
 
 /** Búsqueda directa por nombre o SKU sobre inventario_local. */
 export async function buscarInventarioLocal(
   sql: Sql,
   query: string,
-  limit = 12
+  limit = MAX_HALLAZGOS_VISION
 ): Promise<ResultadoBusquedaInventario[]> {
   const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 120);
   if (!q) return [];
-  const filas = await listarFilasInventarioLocal(sql);
-  const tope = Math.max(1, Math.min(24, Math.trunc(limit) || 12));
-  const qNorm = normalizarBusqueda(q);
-  const pidePared = /\b(apagador|interruptor|contacto|tecla|placa)\b/.test(qNorm) && !/\btimbre\b/.test(qNorm);
-  const candidatas = pidePared
-    ? filas.filter((fila) => {
-        const n = normalizarBusqueda(fila.nombre_pieza);
-        if (/\b(timbre|termomagnet|pastilla)\b/.test(n)) return false;
-        return /\b(interruptor|apagador|contacto|placa)\b/.test(n);
-      })
-    : filas;
-  return candidatas
-    .map((fila) => ({ fila, score: puntuarBusqueda(q, fila) }))
-    .filter((row) => row.score > 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      const stockDelta = Number(b.fila.stock_disponible > 0) - Number(a.fila.stock_disponible > 0);
-      if (stockDelta !== 0) return stockDelta;
-      return a.fila.nombre_pieza.localeCompare(b.fila.nombre_pieza, "es");
-    })
-    .slice(0, tope)
-    .map((row) => filaAResultado(row.fila));
+  return buscarInventarioPorPalabrasClave(sql, [q], limit);
 }
 
 function resultadoASustituto(item: ResultadoBusquedaInventario): {
@@ -690,38 +565,40 @@ function resultadoASustituto(item: ResultadoBusquedaInventario): {
     medida: "",
     existencia: item.stock_disponible,
     precio: item.precio,
-    razon: "Coincidencia por texto en inventario local",
+    razon: "Coincidencia en inventario local",
     ubicacion_tienda: item.ubicacion_tienda || undefined,
     url_imagen: item.url_imagen || undefined,
+  };
+}
+
+function bloqueVacioInventario(filasCatalogo = 0): BloqueStock {
+  return {
+    encontrado: false,
+    sku: null,
+    nombre: null,
+    material: null,
+    medida: null,
+    existencia: 0,
+    precio: null,
+    moneda: "MXN",
+    estado: "sin_coincidencia",
+    requiere_sustituto: true,
+    sustituto: null,
+    alternativas: [],
+    coincidencia: 0,
+    stock_disponible: null,
+    fuente: "inventario_local",
+    consulta_ok: true,
+    filas_catalogo: filasCatalogo,
+    motivo_indisponible: "fuera_de_surtido",
   };
 }
 
 /** Snapshot de inventario a partir de una búsqueda por texto (no de la foto). */
 export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInventario[]): BloqueStock {
   const mejor = resultados[0];
-  if (!mejor) {
-    return {
-      encontrado: false,
-      sku: null,
-      nombre: null,
-      material: null,
-      medida: null,
-      existencia: 0,
-      precio: null,
-      moneda: "MXN",
-      estado: "sin_coincidencia",
-      requiere_sustituto: true,
-      sustituto: null,
-      alternativas: [],
-      coincidencia: 0,
-      stock_disponible: null,
-      fuente: "inventario_local",
-      consulta_ok: true,
-      filas_catalogo: 0,
-      motivo_indisponible: "fuera_de_surtido",
-    };
-  }
-  const alternativas = resultados.slice(1, 4).map(resultadoASustituto);
+  if (!mejor) return bloqueVacioInventario(0);
+  const alternativas = resultados.slice(1, MAX_HALLAZGOS_VISION).map(resultadoASustituto);
   const piezas = mejor.stock_disponible;
   return {
     encontrado: true,
@@ -742,14 +619,38 @@ export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInvent
     stock_disponible: piezas,
     fuente: "inventario_local",
     consulta_ok: true,
+    filas_catalogo: resultados.length,
     motivo_indisponible: piezas > 0 ? null : "faltante_temporal",
   };
 }
 
-/**
- * 1) elige SKU por coincidencia de familia/nombre
- * 2) relee esa fila por SKU (`WHERE sku = $1`) y copia stock_disponible / precio sin alterar
- */
+/** Todas las coincidencias van al carrusel: el anaquel, no un SKU forzado. */
+export function stockDesdeHallazgosVision(resultados: ResultadoBusquedaInventario[]): BloqueStock {
+  if (resultados.length === 0) return bloqueVacioInventario(0);
+  const alternativas = resultados.map(resultadoASustituto);
+  return {
+    encontrado: false,
+    sku: null,
+    nombre: null,
+    material: null,
+    medida: null,
+    existencia: 0,
+    precio: null,
+    moneda: "MXN",
+    estado: "sin_coincidencia",
+    requiere_sustituto: true,
+    sustituto: alternativas[0] ?? null,
+    alternativas,
+    coincidencia: 0,
+    stock_disponible: null,
+    fuente: "inventario_local",
+    consulta_ok: true,
+    filas_catalogo: resultados.length,
+    motivo_indisponible: "fuera_de_surtido",
+  };
+}
+
+/** Visión o SKU forzado: filas literales de inventario_local, sin kits ni scoring de familia. */
 export async function resolverStockInventarioLocal(
   sql: Sql,
   pieza: IdentidadPieza,
@@ -758,53 +659,13 @@ export async function resolverStockInventarioLocal(
   const skuForzado = (opciones.skuForzado ?? "").trim();
   if (skuForzado) {
     const filaForzada = await obtenerInventarioPorSku(sql, skuForzado);
-    if (filaForzada) {
-      const bloque = bloqueDesdeFila(filaForzada, 1);
-      const filas = await listarFilasInventarioLocal(sql);
-      const items = filas.map(filaAStockItem);
-      bloque.filas_catalogo = filas.length;
-      bloque.forzado = true;
-      return conAlternativas(bloque, pieza, items);
-    }
+    if (!filaForzada) return bloqueVacioInventario(0);
+    const bloque = bloqueDesdeFila(filaForzada, 1);
+    bloque.filas_catalogo = 1;
+    bloque.forzado = true;
+    return bloque;
   }
 
-  const filas = await listarFilasInventarioLocal(sql);
-  const items = filas.map(filaAStockItem);
-  const kit = armarKitPared(filas, pieza);
-  if (esComboApagadorContacto(pieza) && kit.length > 0) {
-    return stockDesdeKit(kit, filas.length);
-  }
-
-  const stock = consultarStock(pieza, items, { estricta: true });
-  stock.fuente = "inventario_local";
-  stock.consulta_ok = true;
-  stock.filas_catalogo = filas.length;
-  const elegidoEsTimbre = /\btimbre\b/i.test(`${stock.sku ?? ""} ${stock.nombre ?? ""}`) || /\bint[-_]?tim\b/i.test(stock.sku ?? "");
-  if (elegidoEsTimbre && !/\btimbre\b/.test(textoIdentidadPieza(pieza))) {
-    if (kit.length > 0) return stockDesdeKit(kit, filas.length);
-    stock.encontrado = false;
-    stock.sku = null;
-    stock.nombre = null;
-    stock.stock_disponible = null;
-    stock.existencia = 0;
-    stock.precio = null;
-    stock.requiere_sustituto = true;
-    stock.motivo_indisponible = "fuera_de_surtido";
-    return conAlternativas(stock, pieza, items);
-  }
-  if (!stock.sku) {
-    stock.stock_disponible = null;
-    stock.existencia = 0;
-    stock.precio = null;
-    return conAlternativas(stock, pieza, items);
-  }
-  const fila = (await obtenerInventarioPorSku(sql, stock.sku)) ?? filas.find((item) => item.sku === stock.sku);
-  if (!fila) {
-    stock.encontrado = false;
-    stock.stock_disponible = null;
-    stock.existencia = 0;
-    stock.precio = null;
-    return conAlternativas(stock, pieza, items);
-  }
-  return conAlternativas(aplicarFilaLiteral(stock, fila), pieza, items);
+  const hallazgos = await buscarInventarioPorPalabrasClave(sql, terminosDesdePieza(pieza), MAX_HALLAZGOS_VISION);
+  return stockDesdeHallazgosVision(hallazgos);
 }

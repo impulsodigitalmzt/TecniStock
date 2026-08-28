@@ -222,13 +222,18 @@
   .tarjeta-chat-elegir {
     @apply mt-2 flex min-h-[1.75rem] w-full items-center justify-center rounded-lg bg-orange-500 px-2 py-1.5 text-center text-[11px] font-semibold text-white;
   }
-  .carrito-fab {
-    @apply fixed z-30 flex h-14 w-14 items-center justify-center rounded-full bg-orange-500 text-white shadow-lg shadow-orange-500/40;
-    right: 1rem;
-    bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  .carrito-header {
+    @apply relative shrink-0 border-0 bg-transparent p-0 text-white shadow-none;
+    appearance: none;
+    width: auto;
+    height: auto;
+    line-height: 0;
   }
-  .carrito-fab-badge {
-    @apply absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-stone-950 px-1 text-[10px] font-bold text-white;
+  .carrito-header:hover {
+    color: #fdba74;
+  }
+  .carrito-header-badge {
+    @apply absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-none text-white;
   }
   .carrito-sheet-backdrop {
     @apply fixed inset-0 z-40 bg-black/40;

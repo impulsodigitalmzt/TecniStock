@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { AppError, isAppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO, redactarMensajeFotoHilo } from "../ia/prompts";
-import { cantidadStock, esComboApagadorContacto, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
+import { cantidadStock, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import {
   conTarjetas,
   extraerMarcaFicha,
@@ -254,20 +254,21 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
     .catch(() => ({} as { image?: string }));
   const dataUrls = extraerImagenesFotoHilo(body);
   const pieza = await identificarPiezaConVision(c.env, dataUrls);
-  const queryVision = queryDesdePiezaVisual(pieza);
-  const resultadosBusqueda = queryVision ? await buscarInventarioLocal(sql, queryVision, 8) : [];
-  let stock = await resolverStockInventarioLocal(sql, pieza);
-  if (!stock.encontrado && (!stock.alternativas || stock.alternativas.length === 0) && resultadosBusqueda.length) {
-    stock = stockDesdeResultadosBusqueda(resultadosBusqueda);
-  }
+  const stock = await resolverStockInventarioLocal(sql, pieza);
   const actualizada = await actualizarConsultaCampo(sql, consulta.id, dispositivo, { pieza, stock }, { omitirMensajeGuia: true });
   await recordarHallazgosChat(sql, consulta.id, dispositivo, {
-    hallazgos_chat: resultadosBusqueda,
+    hallazgos_chat: (stock.alternativas ?? []).map((item) => ({
+      sku: item.sku,
+      nombre: item.nombre,
+      stock_disponible: item.existencia,
+      precio: item.precio,
+      url_imagen: item.url_imagen ?? "",
+    })),
     sku_conversacion: stock.sku,
-    query_busqueda: queryVision,
+    query_busqueda: (pieza.palabras_clave ?? []).join(" "),
   });
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", MARCA_FOTO_HILO);
-  const textoAsesor = conTarjetas(redactarMensajeFotoHilo(pieza.nombre, stock), tarjetasDesdeFotoHilo(stock, resultadosBusqueda));
+  const textoAsesor = conTarjetas(redactarMensajeFotoHilo(pieza.nombre, stock), tarjetasDesdeFotoHilo(stock));
   await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
@@ -310,19 +311,7 @@ function extraerImagenesFotoHilo(body: {
   return unicas.slice(0, 1).map((item) => dataUrlDesdeBase64(item, body.mimeType || "image/jpeg"));
 }
 
-function queryDesdePiezaVisual(pieza: PiezaDetectada): string {
-  if (esComboApagadorContacto(pieza)) {
-    return "apagador interruptor contacto duplex placa";
-  }
-  return [pieza.nombre, pieza.medida, pieza.categoria, ...(pieza.palabras_clave ?? [])]
-    .map((item) => String(item ?? "").trim())
-    .filter((item) => !/\b(timbre|pulsador|bot[oó]n)\b/i.test(item))
-    .filter(Boolean)
-    .join(" ")
-    .slice(0, 120);
-}
-
-function tarjetasDesdeFotoHilo(stock: BloqueStock, resultados: ResultadoBusquedaInventario[]): TarjetaChat[] {
+function tarjetasDesdeFotoHilo(stock: BloqueStock): TarjetaChat[] {
   const items: TarjetaChat[] = [];
   if (stock.sku && stock.nombre) {
     items.push(
@@ -335,10 +324,8 @@ function tarjetasDesdeFotoHilo(stock: BloqueStock, resultados: ResultadoBusqueda
       })
     );
   }
-  if (!stock.encontrado || stock.requiere_sustituto) {
-    for (const item of resultados) items.push(tarjetaDesdeCatalogo(item));
-    for (const alt of stock.alternativas ?? []) items.push(tarjetaDesdeCatalogo(alt));
-    if (stock.sustituto) items.push(tarjetaDesdeCatalogo(stock.sustituto));
+  for (const alt of stock.alternativas ?? []) {
+    if (alt.existencia > 0) items.push(tarjetaDesdeCatalogo(alt));
   }
   return items;
 }
@@ -369,11 +356,7 @@ function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
     material: String(pieza.material ?? consulta.pieza_material ?? ""),
     medida: String(pieza.medida ?? consulta.pieza_medida ?? ""),
     categoria: String(pieza.categoria ?? consulta.pieza_categoria ?? ""),
-    palabras_clave: [
-      ...(Array.isArray(claves) ? claves.map((item) => String(item)) : []),
-      String(pieza.mecanismo ?? ""),
-      String(pieza.descripcion ?? ""),
-    ].filter(Boolean),
+    palabras_clave: Array.isArray(claves) ? claves.map((item) => String(item)).filter(Boolean) : [],
   };
 }
 
@@ -556,7 +539,7 @@ function adjuntarTarjetasRespuesta(opts: {
     pideMostrarProducto(opts.textoUsuario);
 
   if (opts.consultaSecundaria || opts.correccionCliente) {
-    for (const item of opts.resultadosBusqueda.slice(0, 4)) {
+    for (const item of opts.resultadosBusqueda.slice(0, 40)) {
       tarjetas.push(tarjetaDesdeCatalogo(item));
     }
   } else if (pideMostrarProducto(opts.textoUsuario)) {
@@ -592,18 +575,9 @@ function esNegativaFloja(texto: string): boolean {
   );
 }
 
-function reforzarActitudComercial(
-  texto: string,
-  resultados: ResultadoBusquedaInventario[],
-  correccionCliente: boolean
-): string {
+function reforzarActitudComercial(texto: string, resultados: ResultadoBusquedaInventario[]): string {
   if (!resultados.length) return texto;
   if (!esNegativaFloja(texto)) return texto;
-  const hayMecanismo = resultados.some((item) => familiaCatalogo(item.nombre) === "interruptor");
-  const hayPlaca = resultados.some((item) => familiaCatalogo(item.nombre) === "placa");
-  if (correccionCliente && hayMecanismo && hayPlaca) {
-    return "Entendido: buscas el apagador completo, no solo la placa. No traigo el paquete armado exacto, pero te vendo el mecanismo interno y su placa por separado. Te muestro lo que hay en anaquel. ¿Armamos los dos o solo el mecanismo?";
-  }
   return "En anaquel sí hay opciones cercanas; te las muestro para que elijas. ¿Cuál apartamos?";
 }
 
@@ -630,9 +604,9 @@ async function responderConsultaCampo(
 
   if (debeBuscarInventarioPorTexto(texto) && (queryBusqueda || correccionCliente)) {
     const queryEfectiva = queryBusqueda || queryRespaldoCorreccion(consulta);
-    resultadosBusqueda = await buscarInventarioLocal(sql, queryEfectiva, 8);
+    resultadosBusqueda = await buscarInventarioLocal(sql, queryEfectiva, 40);
     if (resultadosBusqueda.length === 0 && correccionCliente) {
-      resultadosBusqueda = await buscarInventarioLocal(sql, queryRespaldoCorreccion(consulta), 8);
+      resultadosBusqueda = await buscarInventarioLocal(sql, queryRespaldoCorreccion(consulta), 40);
     }
     consultaSecundaria = true;
     stockVivo = stockDesdeResultadosBusqueda(resultadosBusqueda);
@@ -770,7 +744,7 @@ async function responderConsultaCampo(
     compactarTextoAsesor(respuesta || "No pude completar la respuesta. Intenta de nuevo.").slice(0, 8000) ||
     "No pude completar la respuesta. Intenta de nuevo.";
   textoAsesor = alinearCifrasStock(textoAsesor, stockParaFicha);
-  textoAsesor = reforzarActitudComercial(textoAsesor, resultadosBusqueda, correccionCliente);
+  textoAsesor = reforzarActitudComercial(textoAsesor, resultadosBusqueda);
   textoAsesor = adjuntarTarjetasRespuesta({
     texto: textoAsesor,
     textoUsuario: texto,

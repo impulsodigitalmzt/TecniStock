@@ -332,7 +332,7 @@ function aAlternativa(item: StockItem, razon: string): SustitutoStock {
   };
 }
 
-export const MAX_ALTERNATIVAS = 3;
+export const MAX_ALTERNATIVAS = 40;
 const MIN_SCORE_ALTERNATIVA = 0.12;
 const MIN_SCORE_FAMILIA = 0.05;
 
@@ -473,12 +473,6 @@ export function consultarStock(
   }
 
   const catalogo = poolParedElectrica(pieza, piezas);
-  if (esComboApagadorContacto(pieza)) {
-    const bloque = conCatalogo(bloqueVacio(), piezas.length);
-    bloque.requiere_sustituto = true;
-    bloque.motivo_indisponible = "fuera_de_surtido";
-    return bloque;
-  }
 
   let mejor: StockItem | null = null;
   let mejorScore = 0;

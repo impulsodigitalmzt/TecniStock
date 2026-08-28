@@ -16,6 +16,6 @@ inventarioLocalRoutes.get("/", async (c) => {
     return c.json({ ok: true, query: q, resultados: [] });
   }
   const sql = createSql(c.env.DATABASE_URL);
-  const resultados = await buscarInventarioLocal(sql, q, 12);
+  const resultados = await buscarInventarioLocal(sql, q, 40);
   return c.json({ ok: true, query: q, resultados });
 });

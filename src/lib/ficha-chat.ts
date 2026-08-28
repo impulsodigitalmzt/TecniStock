@@ -103,7 +103,7 @@ function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
       existencia: Math.max(0, Math.trunc(item.existencia) || 0),
     });
   }
-  return out.slice(0, 4);
+  return out.slice(0, 40);
 }
 
 export function extraerMarcaFicha(texto: string): {

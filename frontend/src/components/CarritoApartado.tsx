@@ -46,19 +46,24 @@ export function agregarAlCarrito(prev: LineaCarrito[], item: LineaCarrito): Line
   ];
 }
 
-export function lineasDesdeKit(alternativas: Array<{ sku: string; nombre: string; precio: number; existencia: number; url_imagen?: string }>): LineaCarrito[] {
-  const utiles = alternativas.filter((item) => item.existencia > 0 && item.sku && item.nombre);
-  const blob = utiles.map((item) => item.nombre.toLowerCase()).join(' ');
-  const kit = /\b(apagador|interruptor)\b/.test(blob) && /\b(contacto|placa)\b/.test(blob);
-  if (!kit || utiles.length < 2) return [];
-  return utiles.map((item) => ({
-    sku: item.sku,
-    nombre: item.nombre,
-    cantidad: 1,
-    precio: item.precio,
-    url_imagen: item.url_imagen,
-    existencia: item.existencia,
-  }));
+export function BotonCarritoHeader({
+  piezas,
+  onClick,
+}: {
+  piezas: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="carrito-header"
+      aria-label={piezas > 0 ? `Pedido: ${piezas} piezas` : 'Pedido'}
+      onClick={onClick}
+    >
+      <ShoppingCart className="h-6 w-6" strokeWidth={2} />
+      {piezas > 0 ? <span className="carrito-header-badge">{piezas > 99 ? '99+' : piezas}</span> : null}
+    </button>
+  );
 }
 
 export function CarritoApartado({
@@ -82,21 +87,9 @@ export function CarritoApartado({
 }) {
   const piezas = piezasCarrito(lineas);
   const total = totalCarrito(lineas);
-  if (piezas === 0 && !abierto) return null;
+  if (!abierto) return null;
 
   return (
-    <>
-      <button
-        type="button"
-        className="carrito-fab"
-        aria-label={piezas > 0 ? `Pedido: ${piezas} piezas` : 'Pedido'}
-        onClick={onToggle}
-      >
-        <ShoppingCart className="h-5 w-5" />
-        {piezas > 0 ? <span className="carrito-fab-badge">{piezas > 99 ? '99+' : piezas}</span> : null}
-      </button>
-
-      {abierto ? (
         <div className="carrito-sheet-backdrop" onClick={onToggle} role="presentation">
           <section
             className="carrito-sheet"
@@ -190,7 +183,5 @@ export function CarritoApartado({
             </footer>
           </section>
         </div>
-      ) : null}
-    </>
   );
 }

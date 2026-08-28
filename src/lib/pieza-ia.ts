@@ -163,129 +163,25 @@ function palabrasClave(value: unknown): string[] {
   return value
     .map((item) => texto(item))
     .filter(Boolean)
-    .slice(0, 12);
+    .slice(0, 16);
 }
 
-function enteroModulos(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(0, Math.min(8, Math.trunc(value)));
+/** Entidades sueltas para buscar en anaquel: apagador, doble, placa… nunca frases. */
+function entidadesSueltas(claves: string[]): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const clave of claves) {
+    for (const palabra of mexicanizarMostrador(clave)
+      .split(/[\s,/|+-]+/)
+      .map((item) => item.replace(/[^\p{L}\p{N}]/gu, ""))
+      .filter((item) => item.length >= 3)) {
+      const norma = palabra.toLowerCase();
+      if (vistos.has(norma)) continue;
+      vistos.add(norma);
+      out.push(palabra);
+    }
   }
-  const n = Number.parseInt(texto(value), 10);
-  return Number.isFinite(n) ? Math.max(0, Math.min(8, n)) : 0;
-}
-
-function etiquetaModulos(modulos: number): string {
-  if (modulos === 1) return "sencillo";
-  if (modulos === 2) return "doble";
-  if (modulos === 3) return "triple";
-  return `de ${modulos} módulos`;
-}
-
-function etiquetaMedidaModulos(modulos: number): string {
-  return modulos === 1 ? "1 módulo" : `${modulos} módulos`;
-}
-
-function nombreYaTieneModulos(nombre: string): boolean {
-  return /\b(\d+\s*(m[oó]dulos?|espacios?|ventanas?|gangas?)|sencillo|doble|triple)\b/i.test(nombre);
-}
-
-function blobVisionPared(partes: string[]): string {
-  return partes
-    .join(" ")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-}
-
-function esComboApagadorContactoVision(blob: string): boolean {
-  const apagador = /\b(apagador|interruptor|tecla)\b/.test(blob);
-  const contacto = /\b(contacto|tomacorriente|duplex|duplez|enchufe)\b/.test(blob);
-  return apagador && contacto;
-}
-
-function clavesSinTimbreNiFantasma(claves: string[]): string[] {
-  return claves.filter(
-    (clave) => !/\b(timbre|pulsador|bot[oó]n(?:\s+pulsador)?|apagador\s+triple|triple)\b/i.test(clave)
-  );
-}
-
-function identidadComboPared(
-  modulos: number,
-  claves: string[]
-): { nombre: string; medida: string; palabras_clave: string[] } {
-  const n = modulos >= 2 ? modulos : 3;
-  return {
-    nombre: `Placa de ${n} módulos con apagadores y contacto`,
-    medida: `${n} módulos`,
-    palabras_clave: [
-      ...new Set(["apagador", "interruptor", "contacto", "dúplex", `${n} módulos`, ...clavesSinTimbreNiFantasma(claves)]),
-    ].slice(0, 12),
-  };
-}
-
-function esMecanismoAccionable(mecanismo: string, nombre: string): boolean {
-  return /\b(tecla|palanca|boton|botón|apagador|conmutador|basculante|rocker|switch)\b/i.test(`${mecanismo} ${nombre}`);
-}
-
-/** Si el aparato es un interruptor/apagador, no arrastres «placa/tapa» a la búsqueda de inventario. */
-function depurarIdentidadPared(
-  nombre: string,
-  mecanismo: string,
-  claves: string[],
-  modulos: number,
-  combo: boolean
-): { nombre: string; palabras_clave: string[] } {
-  if (combo) {
-    return { nombre, palabras_clave: claves };
-  }
-  const parecePlaca = /^\s*(placa|tapa|embellecedor)\b/i.test(nombre);
-  const pareceInterruptor = /\b(interruptor|apagador|switch)\b/i.test(nombre) && !parecePlaca;
-  let nombreFinal = nombre;
-  if (parecePlaca && modulos >= 1 && esMecanismoAccionable(mecanismo, nombre)) {
-    nombreFinal = `Apagador ${etiquetaModulos(modulos)}`;
-  }
-  const esAparato = pareceInterruptor || /\b(interruptor|apagador)\b/i.test(nombreFinal);
-  if (!esAparato && !(modulos >= 1 && esMecanismoAccionable(mecanismo, nombreFinal))) {
-    return { nombre: nombreFinal, palabras_clave: claves };
-  }
-  const filtradas = claves.filter((clave) => !/^(placa|tapa|embellecedor)s?$/i.test(clave.trim()));
-  const conAparato = filtradas.some((clave) => /\b(interruptor|apagador)\b/i.test(clave))
-    ? filtradas
-    : ["interruptor", "apagador", ...filtradas];
-  return { nombre: nombreFinal, palabras_clave: [...new Set(conAparato)].slice(0, 12) };
-}
-
-function aplicarConteoModulos(
-  nombre: string,
-  medida: string,
-  claves: string[],
-  modulos: number,
-  combo: boolean
-): { nombre: string; medida: string; palabras_clave: string[] } {
-  if (combo) {
-    const comboId = identidadComboPared(modulos, claves);
-    return {
-      nombre: comboId.nombre,
-      medida: comboId.medida,
-      palabras_clave: comboId.palabras_clave,
-    };
-  }
-  if (modulos < 1) return { nombre, medida, palabras_clave: claves };
-  const etiqueta = etiquetaMedidaModulos(modulos);
-  const extra = [etiqueta, "módulos", "espacios"];
-  if (modulos === 1) extra.push("sencillo", "1 módulo", "1 espacio");
-  if (modulos === 2) extra.push("doble", "2 módulos", "2 espacios");
-  if (modulos === 3) extra.push("triple", "3 módulos", "3 espacios");
-  const nombreFinal = nombreYaTieneModulos(nombre) ? nombre : `${nombre} ${etiquetaModulos(modulos)}`;
-  const medidaFinal =
-    !medida || /^no visible$/i.test(medida) || !/\b(m[oó]dulo|espacio|ventana|ganga)\b/i.test(medida)
-      ? etiqueta
-      : mexicanizarMostrador(medida);
-  return {
-    nombre: nombreFinal,
-    medida: medidaFinal,
-    palabras_clave: [...new Set([...claves, ...extra])].slice(0, 12),
-  };
+  return out.slice(0, 10);
 }
 
 function conPregunta(descripcion: string): { descripcion: string; pregunta: string } {
@@ -321,48 +217,27 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
   const { descripcion, pregunta } = conPregunta(
     texto(raw.descripcion || raw.observaciones || raw.notas || raw.pregunta)
   );
-  const extras = [raw.rosca, raw.mecanismo, raw.acabado, raw.marca].map((item) => texto(item)).filter(Boolean);
-  const clavesBase = [...new Set([...palabrasClave(raw.palabras_clave), ...extras])].slice(0, 12);
-  const modulos = enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones);
-  const blobCombo = blobVisionPared([
-    nombre,
-    texto(raw.mecanismo),
-    descripcion,
-    texto(raw.medida),
-    ...clavesBase,
-  ]);
-  const combo = esComboApagadorContactoVision(blobCombo);
-  const conModulos = aplicarConteoModulos(
-    nombre,
-    texto(raw.medida || raw.medida_detectada) || "No visible",
-    clavesBase,
-    modulos,
-    combo
+  const extras = [raw.rosca, raw.mecanismo, raw.acabado, raw.marca]
+    .map((item) => texto(item))
+    .filter((item) => item && item.split(/\s+/).length <= 2);
+  const clavesModelo = palabrasClave(raw.palabras_clave);
+  const palabras_clave = entidadesSueltas(
+    clavesModelo.length ? [...clavesModelo, ...extras] : [nombre, ...extras]
   );
-  const pared = depurarIdentidadPared(
-    conModulos.nombre,
-    texto(raw.mecanismo),
-    conModulos.palabras_clave,
-    modulos,
-    combo
-  );
-  const mecanismo = combo
-    ? "Teclas de apagador y contacto dúplex"
-    : mexicanizarMostrador(texto(raw.mecanismo));
   return {
-    nombre: mexicanizarMostrador(pared.nombre),
+    nombre: mexicanizarMostrador(nombre),
     material: texto(raw.material) || "No determinado",
-    medida: mexicanizarMostrador(conModulos.medida),
+    medida: mexicanizarMostrador(texto(raw.medida || raw.medida_detectada) || "No visible"),
     categoria: categoriaAbierta(raw.categoria),
     rosca: texto(raw.rosca),
-    mecanismo,
+    mecanismo: mexicanizarMostrador(texto(raw.mecanismo)),
     acabado: texto(raw.acabado),
     marca: texto(raw.marca),
     descripcion: mexicanizarMostrador(descripcion),
     pregunta,
     observaciones: mexicanizarMostrador(descripcion),
     confianza: Math.max(0, Math.min(1, confianza)),
-    palabras_clave: pared.palabras_clave.map((clave) => mexicanizarMostrador(clave)).filter(Boolean),
+    palabras_clave,
   };
 }
 

@@ -1,4 +1,4 @@
-import { cantidadStock, familiaCatalogo, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible, type SustitutoStock } from "../lib/stock";
+import { cantidadStock, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible, type SustitutoStock } from "../lib/stock";
 
 import { extraerMarcaFicha, conMarcaFicha, conMiniaturas, conTarjetas } from "../lib/ficha-chat";
 
@@ -81,44 +81,27 @@ LENGUAJE DE MOSTRADOR (México, innegociable en nombre, medida, descripcion y pa
 - PROHIBIDO escribir ganga, gangas, rocker, switch, outlet, 3-way o traducciones de catálogo gringo.
 - Para contar huecos o teclas: módulos, espacios o ventanas. Nunca gangas.
 
-COMBINACIÓN APAGADOR + CONTACTO (crítico; no es un SKU único):
-- Si en la MISMA placa hay teclas de apagador/interruptor Y además un contacto/toma, NO es «apagador triple», NO es «apagador de 3 teclas» y NO es un timbre.
-- nombre DEBE ser «Placa de N módulos con apagadores y contacto». palabras_clave DEBE incluir apagador y contacto.
-- Un timbre/botón pulsador es UN solo pulsador de puerta, sin teclas de apagador y sin toma. PROHIBIDO decir timbre, pulsador o INT-TIM si ves apagadores o un contacto.
-- No inventes un producto armado. El backend buscará las piezas por separado.
-
-CONTEO FÍSICO OBLIGATORIO (apagadores, contactos, placas, tapas):
-- ANTES de nombrar el modelo, cuenta de izquierda a derecha cada tecla, palanca, botón o módulo VISIBLE en la placa.
-- modulos = ese entero (1, 2, 3, 4…). Si no aplica (una llave, un tubo, un rollo), usa 0.
-- Tres huecos, tres teclas o tres mecanismos en fila = modulos 3. Dos = 2. Uno = 1. No adivines por «lo típico».
-- NO confundas «apagador de escalera / 3 vías» (función: controlar desde dos puntos; suele ser 1 tecla) con «apagador doble / 2 módulos» (DOS teclas en la misma placa).
-- NO identifiques una placa de 3 módulos como una de 2, ni al revés. Si cuentas 3, está PROHIBIDO decir doble, 2 módulos o apagador doble.
-- Si cuentas 3 huecos pero hay apagadores Y un contacto: NO digas «triple» como si fueran 3 apagadores. Usa el nombre de combinación de arriba.
-- Si cuentas 3: nombre y medida DEBEN decir «3 módulos» o «3 espacios» (salvo combinación apagador+contacto). palabras_clave DEBE incluir «3 módulos».
-- Si cuentas 2: nombre y medida DEBEN decir «2 módulos», «doble» o «2 espacios». No uses «apagador de escalera» salvo que haya UNA sola tecla de 3 vías.
-- Si la foto recorta un módulo pero se ve el resto de la placa, cuenta TODOS los espacios de la placa, no solo el que está al centro.
-
-APARATO COMPLETO vs SOLO PLACA/TAPA (crítico):
-- EXCEPCIÓN: si hay apagadores Y un contacto en la misma placa, usa el nombre de COMBINACIÓN de arriba (no lo rebautices «Apagador triple»).
-- Si ves teclas, palancas o botones que se ACCIONAN, montados en la pared o en caja, y NO hay contacto en la misma placa, es un APAGADOR COMPLETO (mecanismo). El nombre DEBE ser «Apagador…», NUNCA «Placa…» ni «Tapa…».
-- Una placa/tapa/embellecedor es SOLO la cubierta decorativa, sin mecanismo accionable, o un recambio de acero/plástico suelto.
-- Si el aparato está completo: palabras_clave DEBE incluir apagador. PROHIBIDO meter «placa», «tapa» o «embellecedor» como palabra clave.
-- Si solo ves la tapa decorativa: entonces sí nómbrala placa de N módulos o N espacios.
+PALABRAS CLAVE (lo más importante; el backend busca con ellas en inventario):
+- palabras_clave es una lista LIMPIA de entidades sueltas detectadas en la foto, una palabra por ítem.
+- Ejemplo: ["apagador", "doble", "contacto", "placa", "acero"]. Otro: ["válvula", "esfera", "latón"]. Otro: ["cinta", "aislar"].
+- PROHIBIDO frases compuestas («apagador doble»). Separa: apagador + doble.
+- Incluye cada cosa visible: aparato, cantidad (sencillo/doble), material, placa, contacto, etc.
+- No elijas un producto del catálogo. No armes un kit. Sin SKUs.
+- 4 a 10 palabras sueltas.
 
 REGLAS SI ES DEL GIRO:
 1. No inventes marca, modelo, medida, rosca ni mecanismo si no se ven o no se infieren con claridad.
 2. Usa el nombre de mostrador mexicano más preciso posible (apagador, no switch; contacto, no outlet).
 3. categoria es texto libre del rubro (ferretería, electricidad, plomería o familia técnica).
 4. confianza es un número de 0 a 1.
-5. palabras_clave: 4 a 12 términos útiles para inventario. Si modulos >= 1, incluye «N módulos».
-6. descripcion: 1 o 2 frases técnicas. NO incluyas preguntas ni llamadas a la acción.
-7. pregunta: cadena vacía "".
-8. Devuelve SOLO un objeto JSON válido, sin markdown, con las llaves:
+5. descripcion: 1 o 2 frases técnicas. NO incluyas preguntas ni llamadas a la acción.
+6. pregunta: cadena vacía "".
+7. Devuelve SOLO un objeto JSON válido, sin markdown, con las llaves:
    fuera_de_giro (false), nombre, material, medida, categoria, rosca, mecanismo, acabado, marca,
    descripcion, pregunta, confianza, palabras_clave, modulos`;
 
 export const USER_PROMPT_ANALISIS_VISUAL =
-  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: 1) CUENTA en la foto cada tecla, palanca, botón o módulo visible de izquierda a derecha y pon ese entero en modulos; 2) si hay apagadores Y un contacto en la misma placa, nómbrala «Placa de N módulos con apagadores y contacto» (NUNCA apagador triple ni timbre); 3) si no es combinación, nombra el artículo en español de México (apagador sencillo/doble, placa de N módulos; NUNCA digas ganga ni switch); 4) cruza vistas para materiales, roscas, mecanismos, acabados y marcas; 5) devuelve un solo JSON pedido.";
+  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: nombra lo que ves en español de México y llena palabras_clave con palabras SUELTAS (ej. apagador, doble, contacto, placa, acero). NUNCA frases ni SKUs ni kits. Devuelve un solo JSON pedido.";
 
 export const MENSAJE_SIN_INVENTARIO =
   "En el surtido de hoy no veo ese SKU exacto; te muestro lo más cercano que sí tenemos en anaquel.";
@@ -128,9 +111,8 @@ export const PROMPT_CHAT_CAMPO = `Eres un vendedor experto de mostrador de Tecni
 
 ACTITUD COMERCIAL (innegociable):
 - NUNCA te rindas ni contestes de forma floja. PROHIBIDO decir «no cuento con», «no tengo ese artículo», «no hay existencia de alternativas», «no se maneja» o equivalentes, si el JSON trae CUALQUIER fila en busqueda.resultados, stock.alternativas o stock (encontrado).
-- Si el exacto no empalma a la primera, VENDE la alternativa lógica o el desglose: mecanismo + placa, modelo equivalente, o el más cercano de la misma familia.
-- Si la foto era una placa y el cliente quiere el apagador/interruptor COMPLETO: ofrece el mecanismo (interruptor/apagador) y, si aplica, la placa por separado: «No tengo el paquete armado exacto, pero te vendo el mecanismo interno y su placa por separado».
-- Cierra preguntando cuál apartamos o si arma el juego (mecanismo + placa).
+- Si el exacto no empalma a la primera, ofrece las filas reales del snapshot (stock.alternativas o busqueda.resultados) tal cual vienen de inventario.
+- Cierra preguntando cuál revisamos o apartamos.
 
 FUENTE DE VERDAD (obligatorio):
 - La ÚNICA fuente de precios, stock, SKUs y ubicaciones es una consulta a la tabla Neon inventario_local, inyectada en el JSON «stock» y, si existe, «busqueda.resultados».
@@ -143,12 +125,12 @@ FUENTE DE VERDAD (obligatorio):
 CORRECCIÓN DEL CLIENTE (correccion_cliente=true):
 - El cliente acaba de corregir la identificación (quería el completo, no la placa; otro modelo; «estoy buscando…»). El backend YA buscó de nuevo.
 - Confirma la corrección en una frase y OFRECE las filas de busqueda.resultados con el carrusel (el sistema pinta fotos). NUNCA contestes con una negativa plana.
-- Si hay interruptor/apagador Y placa en los resultados: explícalo como juego (mecanismo + tapa) y pregunta si arma los dos o solo el mecanismo.
+- Ofrece las filas de busqueda.resultados; no armes kits ni desgloses inventados.
 
 CONSULTA SECUNDARIA (el cliente pide de forma inequívoca OTRO artículo: «tienes cinta», «busco focos», «hay de 3?»):
 - Si consulta_secundaria=true, el backend ya hizo un SELECT por texto sobre TODO inventario_local (query_busqueda). El JSON stock/busqueda es ESA búsqueda, no la familia de la foto.
 - Responde de esa búsqueda. PROHIBIDO asumir que sigue hablando del artículo fotografiado (pieza_foto).
-- Si busqueda.resultados tiene filas: ofrece 1 o 2 líneas (mecanismo + placa si ambos vienen). El sistema pinta el carrusel. No armes tablas markdown ni listes más de 4 SKUs.
+- Si busqueda.resultados tiene filas: ofrece 1 o 2 líneas. El sistema pinta el carrusel. No armes tablas markdown ni listes más de 4 SKUs.
 - Si consulta_secundaria=true y busqueda.resultados está vacío: pide un dato más (medida, módulos o espacios, 127 V) y ofrece lo más cercano que SÍ venga en stock.alternativas o en el snapshot. PROHIBIDO rendirte: pregunta un dato y vende lo más cercano del snapshot.
 - No uses la frase de primera identificación («He identificado un…») en un turno secundario.
 
@@ -162,8 +144,7 @@ PRIMERA RESPUESTA (solo si consulta_secundaria=false y seguimiento_pieza=false y
 - Confirma la identificación en UNA o DOS frases. No sueltes ficha técnica larga ni listes catálogo completo.
 - Si stock.encontrado y stock_disponible > 0: confirma que está en inventario local. Si citas piezas, usa exactamente stock.cifra_stock_obligatoria. Pregunta si lo apartan o si revisan algo más.
 - Si stock.encontrado y stock_disponible = 0: di que el SKU está registrado pero sin existencia. Si stock.alternativas tiene filas reales, OFRÉCELAS con precio y existencia del snapshot. Si está vacío, ofrece buscar el equivalente.
-- Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: NO digas que no se maneja. Si hay apagador/interruptor Y contacto (o placa) entre las alternativas, explica que NO vendemos el juego armado en un solo SKU y ofrece esas piezas por separado, como vendedor de mostrador. Si no es kit, confirma la pieza de la foto y ofrece esas alternativas. Pregunta cuál le mostramos o apartamos.
-- Si parece un aparato de pared completo (interruptor/apagador) y el match es solo una placa: aclara la diferencia y ofrece mecanismo + placa por separado si ambos vienen en el snapshot.
+- Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: NO digas que no se maneja. Confirma lo de la foto y ofrece esas coincidencias de inventario tal cual. Pregunta cuál le mostramos o apartamos.
 
 CUANDO EL CLIENTE YA ELIGIÓ:
 - Si pide alternativas y stock.alternativas o busqueda.resultados tiene ítems: ofrece SOLO esos (máximo ${MAX_ALTERNATIVAS}), con precio, SKU y existencia del snapshot. Nunca inventes uno extra.
@@ -208,18 +189,13 @@ function precioMx(valor: number): string {
   return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(valor);
 }
 
-function esKitPartes(stock: BloqueStock): boolean {
-  const fams = new Set((stock.alternativas ?? []).map((item) => familiaCatalogo(item.nombre)));
-  return fams.has("interruptor") && (fams.has("contacto") || fams.has("placa"));
-}
-
 function articuloNombre(nombrePieza: string): string {
   return (nombrePieza.trim() || "esta pieza").replace(/^un\s+/i, "").replace(/\.$/, "");
 }
 
 function alternativasConExistencia(stock: BloqueStock): SustitutoStock[] {
   const crudas = stock.alternativas && stock.alternativas.length > 0 ? stock.alternativas : stock.sustituto ? [stock.sustituto] : [];
-  return crudas.filter((item) => item.existencia > 0).slice(0, MAX_ALTERNATIVAS);
+  return crudas.filter((item) => item.existencia > 0).slice(0, 6);
 }
 
 function listarAlternativas(items: SustitutoStock[]): string {
@@ -261,11 +237,8 @@ export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock):
     }
     return `He identificado un ${nombre}. Está en inventario local pero sin existencia. ${MENSAJE_SIN_INVENTARIO}`;
   }
-  if (lista && esKitPartes(stock)) {
-    return `Vi una placa con apagadores y contacto. No traemos ese juego armado en un solo SKU; te vendo las piezas por separado:\n${lista}\n\n¿Armamos el juego o quieres revisar alguna pieza?`;
-  }
   if (lista) {
-    return `He identificado un ${nombre}. No tengo ese modelo exacto en inventario local. Sí hay alternativas de la misma categoría con existencia real:\n${lista}\n\n¿Cuál te aparto o le mostramos al cliente?`;
+    return `Vi un ${nombre}. En anaquel hay estas piezas:\n${lista}\n\nElige las que quieras, como en mostrador.`;
   }
   return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
 }

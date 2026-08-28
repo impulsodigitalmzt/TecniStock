@@ -6,8 +6,9 @@ import {
 import { fetchCampo, leerJson } from './lib/campo-api';
 import {
   agregarAlCarrito,
+  BotonCarritoHeader,
   CarritoApartado,
-  lineasDesdeKit,
+  piezasCarrito,
   type LineaCarrito,
 } from './components/CarritoApartado';
 import {
@@ -99,7 +100,7 @@ function dinero(valor: number | null, moneda = 'MXN'): string {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: moneda }).format(valor);
 }
 
-const MAX_ALTERNATIVAS = 3;
+const MAX_ALTERNATIVAS = 40;
 
 function urlFotoCatalogo(url?: string): string | null {
   const valor = (url ?? '').trim();
@@ -255,7 +256,7 @@ function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
     vistos.add(clave);
     out.push(item);
   }
-  return out.slice(0, 4);
+  return out.slice(0, 40);
 }
 
 function burbujasChat(
@@ -521,7 +522,7 @@ function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
     return { texto: 'Faltante momentáneo', clase: 'badge-amber' };
   }
   if ((stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) && alts.length > 0) {
-    return { texto: 'Hay alternativas', clase: 'badge-teal' };
+    return { texto: 'En anaquel', clase: 'badge-teal' };
   }
   if (stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) {
     return { texto: 'No se maneja', clase: 'badge-slate' };
@@ -537,7 +538,7 @@ function listarAlternativasOpener(stock: BloqueStock, moneda = 'MXN'): string {
   const crudas = stock.alternativas && stock.alternativas.length > 0 ? stock.alternativas : stock.sustituto ? [stock.sustituto] : [];
   return crudas
     .filter((item) => item.existencia > 0)
-    .slice(0, MAX_ALTERNATIVAS)
+    .slice(0, 6)
     .map((item, i) => `${i + 1}) ${item.nombre} — ${dinero(item.precio, moneda)} (${item.existencia} pza)`)
     .join('\n');
 }
@@ -567,13 +568,7 @@ function openerDesdeStock(nombre: string, stock: BloqueStock): string {
     return `He identificado un ${pieza}. Está en inventario local pero sin existencia. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (lista) {
-    const nombres = (stock.alternativas ?? []).map((item) => item.nombre.toLowerCase()).join(' ');
-    const kit =
-      /\b(apagador|interruptor)\b/.test(nombres) && /\b(contacto|placa)\b/.test(nombres);
-    if (kit) {
-      return `Vi una placa con apagadores y contacto. No traemos ese juego armado en un solo SKU; te vendo las piezas por separado:\n${lista}\n\n¿Armamos el juego o quieres revisar alguna pieza?`;
-    }
-    return `He identificado un ${pieza}. No tengo ese modelo exacto en inventario local. Sí hay alternativas de la misma categoría con existencia real:\n${lista}\n\n¿Cuál te aparto o le mostramos al cliente?`;
+    return `Vi un ${pieza}. En anaquel hay estas piezas:\n${lista}\n\nElige las que quieras, como en mostrador.`;
   }
   return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
 }
@@ -679,7 +674,6 @@ export default function App() {
   const [carrito, setCarrito] = useState<LineaCarrito[]>([]);
   const [carritoAbierto, setCarritoAbierto] = useState(false);
   const [enviandoApartado, setEnviandoApartado] = useState(false);
-  const kitSembradoRef = useRef('');
   const [oscuro, setOscuro] = useState(temaNocheInicial);
   const chatListaRef = useRef<HTMLDivElement>(null);
   const menuExportarRef = useRef<HTMLDivElement>(null);
@@ -851,7 +845,6 @@ export default function App() {
     if (!consultaId) {
       setCarrito([]);
       setCarritoAbierto(false);
-      kitSembradoRef.current = '';
       return;
     }
     let loaded: LineaCarrito[] = [];
@@ -865,7 +858,6 @@ export default function App() {
       loaded = [];
     }
     setCarrito(loaded);
-    kitSembradoRef.current = loaded.length ? consultaId : '';
   }, [consultaId]);
 
   useEffect(() => {
@@ -876,14 +868,6 @@ export default function App() {
       /* cuota local */
     }
   }, [consultaId, carrito]);
-
-  useEffect(() => {
-    if (!consultaId || kitSembradoRef.current === consultaId) return;
-    const kit = lineasDesdeKit(resultado?.stock?.alternativas ?? []);
-    if (kit.length < 2) return;
-    kitSembradoRef.current = consultaId;
-    setCarrito((prev) => (prev.length === 0 ? kit : prev));
-  }, [consultaId, resultado?.stock?.alternativas]);
 
   const agregarArchivos = async (lista: FileList | File[] | null, reemplazar = false) => {
     const incoming = Array.from(lista ?? []).filter((file) => file && file.size > 0);
@@ -1453,7 +1437,6 @@ export default function App() {
     setCarrito([]);
     setCarritoAbierto(false);
     setEnviandoApartado(false);
-    kitSembradoRef.current = '';
     setAnalizando(false);
     setAnalizandoFotoHilo(false);
     setPreparando(false);
@@ -1510,6 +1493,7 @@ export default function App() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400">Campo</p>
               <h1 className="text-3xl font-bold tracking-tight leading-none">TecniStock</h1>
             </div>
+            <BotonCarritoHeader piezas={piezasCarrito(carrito)} onClick={() => setCarritoAbierto((prev) => !prev)} />
             <button
               type="button"
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
@@ -1927,7 +1911,7 @@ export default function App() {
                     <p className="mt-1 text-xs text-red-800">Ya no se maneja: no se va a resurtir.</p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' && alternativasStock.length > 0 ? (
                     <p className="mt-1 text-xs text-stone-600">
-                      No es el modelo exacto; estas opciones sí están en inventario local.
+                      Piezas de anaquel que coinciden con lo de la foto. Elige las que necesites.
                     </p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' ? (
                     <p className="mt-1 text-xs text-stone-500">
@@ -1951,37 +1935,23 @@ export default function App() {
                   {mostrarCarrusel ? (
                     <div className="mt-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">
-                        Mejores alternativas · {alternativasStock.length}
+                        En anaquel · {alternativasStock.length}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-stone-500">Toca una tarjeta para verla en el chat</p>
-                      <div className="carrusel-alts mt-1.5">
-                        {alternativasStock.map((item) => {
-                          const foto = urlFotoCatalogo(item.url_imagen);
-                          return (
-                            <button
-                              key={item.sku}
-                              type="button"
-                              className="tarjeta-alt"
-                              disabled={enviando || transcribiendo || grabando || !consultaId}
-                              onClick={() => void enviarChat(`Muéstrame ${item.nombre}`)}
-                            >
-                              {foto ? (
-                                <div className="tarjeta-alt-foto">
-                                  <img src={foto} alt="" />
-                                </div>
-                              ) : (
-                                <div className="tarjeta-alt-foto text-[10px] font-semibold text-amber-800">
-                                  En anaquel
-                                </div>
-                              )}
-                              <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-snug text-stone-800">{item.nombre}</p>
-                              <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-amber-900">
-                                {dinero(item.precio, stock.moneda)} · {item.existencia} pza
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <p className="mt-0.5 text-[11px] text-stone-500">Toca Elegir para armar el pedido</p>
+                      <CarruselEnChat
+                        tarjetas={alternativasStock.map((item) => ({
+                          sku: item.sku,
+                          nombre: item.nombre,
+                          url: item.url_imagen ?? '',
+                          precio: item.precio,
+                          existencia: item.existencia,
+                        }))}
+                        stock={stock}
+                        disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
+                        aplicandoSku={aplicandoSku}
+                        onElegir={elegirProductoCarrusel}
+                        skusCarrito={carrito.map((linea) => linea.sku)}
+                      />
                     </div>
                   ) : null}
                 </article>
@@ -2270,8 +2240,7 @@ export default function App() {
           </>
         )}
       </main>
-      {consultaId ? (
-        <CarritoApartado
+      <CarritoApartado
           lineas={carrito}
           abierto={carritoAbierto}
           enviando={enviandoApartado}
@@ -2290,7 +2259,6 @@ export default function App() {
           onVaciar={() => setCarrito([])}
           onGenerarApartado={() => void generarApartadoCarrito()}
         />
-      ) : null}
     </div>
   );
 }
