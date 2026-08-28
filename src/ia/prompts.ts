@@ -81,6 +81,12 @@ LENGUAJE DE MOSTRADOR (México, innegociable en nombre, medida, descripcion y pa
 - PROHIBIDO escribir ganga, gangas, rocker, switch, outlet, 3-way o traducciones de catálogo gringo.
 - Para contar huecos o teclas: módulos, espacios o ventanas. Nunca gangas.
 
+PIEZA COMPUESTA / INSTALADA (innegociable):
+- Si se ven teclas, palancas o mecanismos (apagador doble con placa, interruptor ya instalado, contacto en la pared): el nombre DEBE empezar por apagador, contacto o kit. NUNCA por «Placa de…».
+- Esa foto es el aparato completo, no el marco vacío. palabras_clave DEBE incluir apagador (o contacto) y sencillo/doble; «placa» es accesorio, no el objeto principal.
+- «Placa de N módulos» SOLO si la foto es la tapa VACÍA: huecos sin teclas, sin palancas y sin mecanismos internos.
+- No confundas el embellecedor con la pieza física que está en la foto.
+
 PALABRAS CLAVE (lo más importante; el backend busca con ellas en inventario):
 - palabras_clave es una lista LIMPIA de entidades sueltas detectadas en la foto, una palabra por ítem.
 - Ejemplo: ["apagador", "doble", "contacto", "placa", "acero"]. Otro: ["válvula", "esfera", "latón"]. Otro: ["cinta", "aislar"].
@@ -101,7 +107,7 @@ REGLAS SI ES DEL GIRO:
    descripcion, pregunta, confianza, palabras_clave, modulos`;
 
 export const USER_PROMPT_ANALISIS_VISUAL =
-  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: nombra lo que ves en español de México y llena palabras_clave con palabras SUELTAS (ej. apagador, doble, contacto, placa, acero). NUNCA frases ni SKUs ni kits. Devuelve un solo JSON pedido.";
+  "Decide primero si estas fotos (una o varias, análisis conjunto) son de ferretería, electricidad, plomería o material técnico de esos giros. Si ninguna lo es, rechaza con fuera_de_giro true y el mensaje estándar. Si sí lo son: nombra lo que ves en español de México. Si hay teclas o un apagador/contacto instalado, el nombre empieza por apagador o contacto, NUNCA por Placa. palabras_clave: palabras SUELTAS (ej. apagador, doble, placa, acero). NUNCA frases ni SKUs ni kits. Devuelve un solo JSON pedido.";
 
 export const MENSAJE_SIN_INVENTARIO =
   "En el surtido de hoy no veo ese SKU exacto; te muestro lo más cercano que sí tenemos en anaquel.";

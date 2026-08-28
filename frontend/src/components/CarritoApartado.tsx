@@ -13,6 +13,17 @@ function dinero(valor: number): string {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(valor);
 }
 
+function textoMostrador(texto: string): string {
+  if (!texto) return texto;
+  return texto
+    .replace(/\bdoble ganga\b/gi, 'apagador doble')
+    .replace(/\buna ganga\b/gi, '1 módulo')
+    .replace(/\b1 ganga\b/gi, '1 módulo')
+    .replace(/\b(\d+)\s*gangas\b/gi, '$1 módulos')
+    .replace(/\bgangas\b/gi, 'módulos')
+    .replace(/\bganga\b/gi, 'módulo');
+}
+
 export function totalCarrito(lineas: LineaCarrito[]): number {
   return lineas.reduce((acc, linea) => acc + linea.precio * linea.cantidad, 0);
 }
@@ -123,7 +134,7 @@ export function CarritoApartado({
                       ) : null}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold leading-snug text-stone-900 line-clamp-2">{linea.nombre}</p>
+                      <p className="text-sm font-semibold leading-snug text-stone-900 line-clamp-2">{textoMostrador(linea.nombre)}</p>
                       <p className="mt-0.5 font-mono text-[10px] text-stone-400">{linea.sku}</p>
                       <p className="mt-1 text-sm font-semibold tabular-nums">{dinero(linea.precio)}</p>
                       <div className="mt-2 flex items-center justify-between gap-2">

@@ -2,6 +2,7 @@ import { AppError } from "./errors";
 import { GROQ_CHAT_URL, claveApiGroq, parseJsonObject } from "./groq";
 import { GROQ_CHAT_TIMEOUT_MS, fetchTimeout, isTimeoutError } from "./edge";
 import { compactarTextoAsesor, mexicanizarMostrador, PROMPT_ANALISIS_VISUAL, USER_PROMPT_ANALISIS_VISUAL, MENSAJE_FUERA_DE_GIRO } from "../ia/prompts";
+import { nombreMostradorCompuesto } from "./inventario-local";
 
 /**
  * Groq dio de baja llama-3.2-11b-vision-preview (2025-04-14).
@@ -221,21 +222,38 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     .map((item) => texto(item))
     .filter((item) => item && item.split(/\s+/).length <= 2);
   const clavesModelo = palabrasClave(raw.palabras_clave);
+  const mecanismo = mexicanizarMostrador(texto(raw.mecanismo));
+  const nombreMx = mexicanizarMostrador(nombre);
+  const descripcionMx = mexicanizarMostrador(descripcion);
   const palabras_clave = entidadesSueltas(
     clavesModelo.length ? [...clavesModelo, ...extras] : [nombre, ...extras]
   );
+  const nombreFinal = nombreMostradorCompuesto({
+    nombre: nombreMx,
+    material: texto(raw.material) || "No determinado",
+    medida: mexicanizarMostrador(texto(raw.medida || raw.medida_detectada) || "No visible"),
+    descripcion: descripcionMx,
+    mecanismo,
+    palabras_clave,
+  });
+  if (/^apagador\b/i.test(nombreFinal) && !palabras_clave.some((item) => /^apagador$/i.test(item))) {
+    palabras_clave.unshift("apagador");
+  }
+  if (/^contacto\b/i.test(nombreFinal) && !palabras_clave.some((item) => /^contacto$/i.test(item))) {
+    palabras_clave.unshift("contacto");
+  }
   return {
-    nombre: mexicanizarMostrador(nombre),
+    nombre: nombreFinal,
     material: texto(raw.material) || "No determinado",
     medida: mexicanizarMostrador(texto(raw.medida || raw.medida_detectada) || "No visible"),
     categoria: categoriaAbierta(raw.categoria),
     rosca: texto(raw.rosca),
-    mecanismo: mexicanizarMostrador(texto(raw.mecanismo)),
+    mecanismo,
     acabado: texto(raw.acabado),
     marca: texto(raw.marca),
-    descripcion: mexicanizarMostrador(descripcion),
+    descripcion: descripcionMx,
     pregunta,
-    observaciones: mexicanizarMostrador(descripcion),
+    observaciones: descripcionMx,
     confianza: Math.max(0, Math.min(1, confianza)),
     palabras_clave,
   };

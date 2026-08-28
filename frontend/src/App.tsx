@@ -131,7 +131,7 @@ function etiquetaConfianza(valor: number): string {
 function filasFichaTecnica(pieza: PiezaDetectada, stock: BloqueStock): { etiqueta: string; valor: string }[] {
   const filas: { etiqueta: string; valor: string }[] = [];
   const add = (etiqueta: string, valor?: string | number | null) => {
-    const texto = valor == null ? '' : String(valor).trim();
+    const texto = valor == null ? '' : textoMostrador(String(valor).trim());
     if (texto) filas.push({ etiqueta, valor: texto });
   };
   add('Categoría', pieza.categoria);
@@ -143,7 +143,7 @@ function filasFichaTecnica(pieza: PiezaDetectada, stock: BloqueStock): { etiquet
   add('Marca', pieza.marca);
   const nombreAnaquel = (stock.nombre ?? '').trim();
   if (nombreAnaquel && nombreAnaquel.toLowerCase() !== pieza.nombre.trim().toLowerCase()) {
-    add('En anaquel', nombreAnaquel);
+    add('Inventario', nombreAnaquel);
   }
   add('SKU', stock.sku);
   if (stock.precio != null) add('Precio', dinero(stock.precio, stock.moneda));
@@ -164,7 +164,7 @@ function clavesFicha(pieza: PiezaDetectada): string[] {
       .map((item) => item.toLowerCase())
   );
   return (pieza.palabras_clave ?? [])
-    .map((item) => item.trim())
+    .map((item) => textoMostrador(item.trim()))
     .filter((item) => item && item.length <= 22 && !ya.has(item.toLowerCase()) && !/^[A-Z0-9]+-[A-Z0-9._-]+$/i.test(item));
 }
 
@@ -230,6 +230,17 @@ function extraerMarcaFicha(texto: string): {
   return { texto: limpio, sku, miniaturas, tarjetas, fotoHilo };
 }
 
+function textoMostrador(texto: string): string {
+  if (!texto) return texto;
+  return texto
+    .replace(/\bdoble ganga\b/gi, 'apagador doble')
+    .replace(/\buna ganga\b/gi, '1 módulo')
+    .replace(/\b1 ganga\b/gi, '1 módulo')
+    .replace(/\b(\d+)\s*gangas\b/gi, '$1 módulos')
+    .replace(/\bgangas\b/gi, 'módulos')
+    .replace(/\bganga\b/gi, 'módulo');
+}
+
 function compactarTextoChat(texto: string): string {
   const limpio = extraerMarcaFicha(texto)
     .texto.replace(/\s*¿Qué deseas hacer con esta pieza\?\s*(?:\([^)]*\))?\.?\s*/gi, ' ')
@@ -246,7 +257,7 @@ function compactarTextoChat(texto: string): string {
     const previa = unicas[unicas.length - 1]?.replace(/\s+/g, ' ').toLowerCase();
     if (norma && norma !== previa) unicas.push(parte);
   }
-  return unicas.join('\n\n');
+  return textoMostrador(unicas.join('\n\n'));
 }
 
 function cantidadStock(stock: Pick<BloqueStock, 'stock_disponible' | 'existencia'>): number {
@@ -548,10 +559,10 @@ function CarruselEnChat({
                 <img src={foto} alt="" />
               </div>
             ) : (
-              <div className="tarjeta-chat-foto text-[10px] font-semibold text-amber-800">En anaquel</div>
+              <div className="tarjeta-chat-foto text-[10px] font-semibold text-amber-800">Sin foto</div>
             )}
             <div className="tarjeta-chat-cuerpo">
-              <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">{item.nombre}</h3>
+              <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">{textoMostrador(item.nombre)}</h3>
               <p className="mt-1 font-mono text-[10px] text-stone-400 truncate">{item.sku}</p>
               <div className="mt-1.5 flex items-center justify-between gap-2">
                 <span className={estado.clase}>{estado.texto}</span>
@@ -584,7 +595,7 @@ function etiquetaStock(stock: BloqueStock): { texto: string; clase: string } {
     return { texto: 'Faltante momentáneo', clase: 'badge-amber' };
   }
   if ((stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) && alts.length > 0) {
-    return { texto: 'En anaquel', clase: 'badge-teal' };
+    return { texto: 'Disponibles', clase: 'badge-teal' };
   }
   if (stock.motivo_indisponible === 'fuera_de_surtido' || !stock.encontrado) {
     return { texto: 'No se maneja', clase: 'badge-slate' };
@@ -1569,7 +1580,7 @@ export default function App() {
   const extrasPieza = pieza
     ? [
         pieza.rosca ? `Rosca ${pieza.rosca}` : '',
-        pieza.mecanismo ? pieza.mecanismo : '',
+        pieza.mecanismo ? textoMostrador(pieza.mecanismo) : '',
         pieza.acabado ? pieza.acabado : '',
       ].filter(Boolean)
     : [];
@@ -1583,7 +1594,7 @@ export default function App() {
   const clavesExtra = pieza ? clavesFicha(pieza) : [];
   const hiloChat = burbujasChat(
     mensajes,
-    mensajes.length === 0 && pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '',
+    mensajes.length === 0 && pieza && stock ? openerDesdeStock(textoMostrador(pieza.nombre), stock) : '',
     descripcion,
     []
   );
@@ -1889,7 +1900,7 @@ export default function App() {
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700">
                         {pieza.categoria || 'Pieza detectada'}
                       </p>
-                      <h2 className="text-lg font-bold leading-snug mt-0.5">{pieza.nombre}</h2>
+                      <h2 className="text-lg font-bold leading-snug mt-0.5">{textoMostrador(pieza.nombre)}</h2>
                     </div>
                     <div className="flex shrink-0 items-start">
                       <button
@@ -2142,7 +2153,7 @@ export default function App() {
                                 onClick={() => void aplicarSkuBusqueda(item)}
                               >
                                 <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-semibold leading-snug text-stone-900">{item.nombre}</span>
+                                  <span className="block text-sm font-semibold leading-snug text-stone-900">{textoMostrador(item.nombre)}</span>
                                   <span className="mt-0.5 block font-mono text-[11px] text-stone-400">{item.sku}</span>
                                 </span>
                                 <span className="shrink-0 text-right">

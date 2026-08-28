@@ -383,11 +383,21 @@ function blobIdentidad(pieza: IdentidadPieza | string): string {
   return [pieza.nombre, pieza.medida, pieza.descripcion, pieza.mecanismo, pieza.material, ...(pieza.palabras_clave ?? [])].join(" ");
 }
 
+function blobPrincipal(pieza: IdentidadPieza | string): string {
+  if (typeof pieza === "string") return pieza;
+  return [pieza.nombre, pieza.medida, pieza.descripcion, pieza.mecanismo, pieza.material].join(" ");
+}
+
+function clavesSueltas(pieza: IdentidadPieza | string): string {
+  if (typeof pieza === "string") return "";
+  return (pieza.palabras_clave ?? []).join(" ");
+}
+
 /** Quita «para apagador» de tapas vacías, que no son el aparato instalado. */
 function sinDestinoDePlaca(t: string): string {
   return t
     .replace(/\bpara\s+(un\s+|una\s+)?(apagador|interruptor|contacto|tomacorriente)s?\b/g, " ")
-    .replace(/\b(hueco|espacio|ventana|modulo)s?\s+(de\s+)?(apagador|interruptor|contacto)s?\b/g, " ")
+    .replace(/\b(hueco|espacio|ventana|modulo)s?\s+de\s+(apagador|interruptor|contacto)s?\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -417,16 +427,17 @@ function esContactoSinApagador(t: string): boolean {
   return /\b(contacto|tomacorriente|enchufe)\b/.test(t) && !/\b(apagador|interruptor|tecla|palanca)\b/.test(t);
 }
 
-/** Apagador/contacto instalado o kit, aunque el modelo haya titulado «Placa de…». */
-function esPiezaCompuestaOInstalada(nombre: string, blob: string): boolean {
+/** Apagador/contacto instalado o kit. No usa palabras_clave sueltas (una tapa «para apagador» no cuenta). */
+function esPiezaCompuestaOInstalada(nombre: string, principal: string, claves = ""): boolean {
   const start = textoPlano(nombre);
-  const t = sinDestinoDePlaca(textoPlano(blob));
+  const t = sinDestinoDePlaca(textoPlano(principal));
+  const k = textoPlano(claves);
   if (/\b(termomagnet|pastilla|timbre)\b/.test(t) && !/\b(apagador|contacto|tecla)\b/.test(t)) return false;
-  if (/\b(tecla|palancas?)\b/.test(t)) return true;
   if (/^(apagador|interruptor|contacto|kit|juego)\b/.test(start)) return true;
+  if (/\b(tecla|palancas?)\b/.test(t) || /\b(tecla|palancas?)\b/.test(k)) return true;
+  if (/\bcon\s+(apagador|interruptor|contacto|teclas?|palancas?|mecanismo)/.test(t)) return true;
   if (/\b(apagador|interruptor)\s+(sencillo|doble|triple|escalera)\b/.test(t)) return true;
   if (/\bcontacto\s+(duplex|sencillo|doble)\b/.test(t)) return true;
-  if (/\bcon\s+(apagador|interruptor|contacto|teclas?|palancas?|mecanismo)/.test(t)) return true;
   if (/\binstalad[oa]\b/.test(t) && /\b(apagador|interruptor|contacto)\b/.test(t)) return true;
   return false;
 }
@@ -446,12 +457,16 @@ export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
     return "breaker";
   }
   if (/\btimbre\b/.test(t) && !/\b(apagador|placa|contacto|tecla)\b/.test(t)) return "timbre";
-  if (esPiezaCompuestaOInstalada(nombre, blob)) return objetoElectricoInstalado(sinDestinoDePlaca(t));
-  if (tieneMecanismoElectrico(sinDestinoDePlaca(t)) && !/^(placa|tapa|embellecedor)\b/.test(start)) {
+  if (esPiezaCompuestaOInstalada(nombre, blobPrincipal(pieza), clavesSueltas(pieza))) {
+    return objetoElectricoInstalado(sinDestinoDePlaca(textoPlano(blobPrincipal(pieza))));
+  }
+  if (tieneMecanismoElectrico(sinDestinoDePlaca(textoPlano(blobPrincipal(pieza)))) && !/^(placa|tapa|embellecedor)\b/.test(start)) {
     return objetoElectricoInstalado(t);
   }
-  if (/^(placa|tapa|embellecedor)\b/.test(start) || /\bplaca de [1-4]\b/.test(t)) return "placa";
-  if (/^(kit|juego)\b/.test(start) && /\bplaca\b/.test(t) && !esPiezaCompuestaOInstalada(nombre, blob)) return "placa";
+  if (/^(placa|tapa|embellecedor)\b/.test(start) || /\bplaca de [1-4]\b/.test(textoPlano(blobPrincipal(pieza)))) return "placa";
+  if (/^(kit|juego)\b/.test(start) && /\bplaca\b/.test(t) && !esPiezaCompuestaOInstalada(nombre, blobPrincipal(pieza), clavesSueltas(pieza))) {
+    return "placa";
+  }
   if (/^apagador\b/.test(start)) return "apagador";
   if (/^interruptor\b/.test(start) && !/\b(termomagnet|pastilla)\b/.test(t)) return "apagador";
   if (/^(contacto|tomacorriente|enchufe)\b/.test(start)) return "contacto";
@@ -566,7 +581,11 @@ function rankearHallazgosMostrador(
   const modulosFoto = gangasEnTexto(blobFoto);
   const objetoFoto = objetoMostrador(pieza);
   return resultados
-    .map((fila) => ({ fila, ...puntuarFilaMostrador(tokens, fila.nombre, fila.sku, modulosFoto, objetoFoto) }))
+    .map((fila) => {
+      const puntos = puntuarFilaMostrador(tokens, fila.nombre, fila.sku, modulosFoto, objetoFoto);
+      const conFoto = (fila.url_imagen ?? "").trim() ? 3 : 0;
+      return { fila, ...puntos, score: puntos.score + conFoto };
+    })
     .sort((a, b) => b.score - a.score || b.hits - a.hits || b.fila.stock_disponible - a.fila.stock_disponible);
 }
 
@@ -777,7 +796,22 @@ export async function buscarInventarioLocal(
 ): Promise<ResultadoBusquedaInventario[]> {
   const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 120);
   if (!q) return [];
-  return buscarInventarioPorPalabrasClave(sql, [q], limit);
+  const objeto = objetoMostrador(query) ?? objetoMostrador(q);
+  const tokens = tokensSinAccesorioPlaca(extraerTerminosIlike([q]), objeto);
+  const claves = tokens.length > 0 ? tokens : [q];
+  let pool = await buscarInventarioPorPalabrasClave(sql, claves, limit, tokenSqlObjeto(objeto));
+  if (pool.length === 0 && objeto) {
+    pool = await buscarInventarioPorPalabrasClave(sql, claves, limit);
+  }
+  const pieza: IdentidadPieza = {
+    nombre: String(query || q).slice(0, 160),
+    material: "",
+    medida: "",
+    descripcion: String(query || q).slice(0, 200),
+    palabras_clave: tokens,
+  };
+  const ranked = rankearHallazgosMostrador(pool, tokens.length > 0 ? tokens : extraerTerminosIlike([q]), pieza);
+  return ranked.map((row) => row.fila).slice(0, Math.max(1, Math.min(40, Math.trunc(limit) || MAX_HALLAZGOS_VISION)));
 }
 
 function resultadoASustituto(item: ResultadoBusquedaInventario): {
@@ -903,11 +937,12 @@ export async function resolverStockInventarioLocal(
     return bloque;
   }
 
-  const tokens = terminosDesdePieza(pieza);
-  const obligatorio = tokenSqlObjeto(objetoMostrador(pieza));
+  const objeto = objetoMostrador(pieza);
+  const tokens = tokensSinAccesorioPlaca(terminosDesdePieza(pieza), objeto);
+  const obligatorio = tokenSqlObjeto(objeto);
   let pool = await buscarInventarioPorPalabrasClave(sql, tokens, MAX_HALLAZGOS_VISION, obligatorio);
   if (pool.length === 0 && obligatorio) {
-    pool = await buscarInventarioPorPalabrasClave(sql, tokens, MAX_HALLAZGOS_VISION);
+    pool = await buscarInventarioPorPalabrasClave(sql, tokens.length > 0 ? tokens : terminosDesdePieza(pieza), MAX_HALLAZGOS_VISION);
   }
   const { mejores, resto } = acotarHallazgosMostrador(pool, tokens, pieza);
   return stockDesdeHallazgosVision(mejores, resto);

@@ -362,6 +362,8 @@ function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
     material: String(pieza.material ?? consulta.pieza_material ?? ""),
     medida: String(pieza.medida ?? consulta.pieza_medida ?? ""),
     categoria: String(pieza.categoria ?? consulta.pieza_categoria ?? ""),
+    descripcion: String(pieza.descripcion ?? pieza.observaciones ?? ""),
+    mecanismo: String(pieza.mecanismo ?? ""),
     palabras_clave: Array.isArray(claves) ? claves.map((item) => String(item)).filter(Boolean) : [],
   };
 }
