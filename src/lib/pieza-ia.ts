@@ -3,28 +3,34 @@ import { GROQ_CHAT_URL, claveApiGroq, parseJsonObject } from "./groq";
 import { GROQ_CHAT_TIMEOUT_MS, fetchTimeout, isTimeoutError } from "./edge";
 import { compactarTextoAsesor, mexicanizarMostrador, PROMPT_ANALISIS_VISUAL, USER_PROMPT_ANALISIS_VISUAL, MENSAJE_FUERA_DE_GIRO } from "../ia/prompts";
 
-export const DEFAULT_GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+/**
+ * Groq dio de baja llama-3.2-11b-vision-preview (2025-04-14).
+ * La guía actual de visión (console.groq.com/docs/vision) usa Qwen multimodal.
+ */
+export const DEFAULT_GROQ_VISION_MODEL = "qwen/qwen3.6-27b";
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 export const MAX_FOTOS_ANALISIS = 8;
 /** Groq visión admite como máximo 5 imágenes por request (3 en qwen3.8). */
 const MAX_IMAGENES_VISION_GROQ = 5;
 
-/** Modelos Groq con entrada de imagen (docs: console.groq.com/docs/vision). */
+/** Modelos Groq con entrada de imagen. Primero los que documenta Groq hoy. */
 const MODELOS_VISION_GROQ = [
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "meta-llama/llama-4-maverick-17b-128e-instruct",
   "qwen/qwen3.6-27b",
   "qwen/qwen3.8-27b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
 ] as const;
 
+const MODELOS_VISION_RETIRADOS: Record<string, string> = {
+  "llama-3.2-11b-vision-preview": DEFAULT_GROQ_VISION_MODEL,
+  "llama-3.2-90b-vision-preview": DEFAULT_GROQ_VISION_MODEL,
+  "llava-v1.5-7b-4096-preview": DEFAULT_GROQ_VISION_MODEL,
+};
+
 const MODELO_SOLO_TEXTO_RE = /gpt-oss|whisper|llama-3\.3|llama-3\.1|mixtral|gemma/i;
-/**
- * Groq on_demand reserva entrada + max_completion_tokens contra el TPM del modelo (8000 en qwen3.6-27b).
- * 8192 pedía ~10771 y devolvía 413; 1400 cabía en TPM pero cortaba el JSON.
- * 4096 deja margen para la foto (~2500) y alcanza para cerrar el objeto.
- */
-const VISION_COMPLETION_INICIAL = 4096;
-const VISION_COMPLETION_MINIMO = 1024;
+/** Groq docs de visión usan 1024. 4096 + la foto rebasaba el TPM (8000) de qwen3.6. */
+const VISION_COMPLETION_INICIAL = 1024;
+const VISION_COMPLETION_MINIMO = 512;
 const VISION_TPM_MARGEN = 256;
 
 const ALLOWED_IMAGE_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
@@ -56,14 +62,18 @@ export function modeloGroqVision(env: Env): string {
     .trim()
     .replace(/^["']+|["']+$/g, "")
     .trim();
-  if (configured && esModeloVisionGroq(configured)) return configured;
+  if (!configured) return DEFAULT_GROQ_VISION_MODEL;
+  const reemplazo = MODELOS_VISION_RETIRADOS[configured.toLowerCase()];
+  if (reemplazo) return reemplazo;
+  if (esModeloVisionGroq(configured)) return configured;
   return DEFAULT_GROQ_VISION_MODEL;
 }
 
 function esModeloVisionGroq(id: string): boolean {
   const modelo = id.toLowerCase();
   if (!modelo || MODELO_SOLO_TEXTO_RE.test(modelo)) return false;
-  return MODELOS_VISION_GROQ.some((item) => item.toLowerCase() === modelo);
+  if (MODELOS_VISION_GROQ.some((item) => item.toLowerCase() === modelo)) return true;
+  return /qwen3\.(6|8)|llama-4-(scout|maverick)|vision/i.test(modelo);
 }
 
 function maxImagenesDelModelo(model: string): number {
@@ -321,14 +331,26 @@ function completionParaTpm(limit: number, requested: number, completionActual: n
 
 function completionInicial(cantidad: number): number {
   if (cantidad <= 1) return VISION_COMPLETION_INICIAL;
-  if (cantidad <= 3) return 2560;
-  return 1536;
+  if (cantidad <= 3) return 768;
+  return VISION_COMPLETION_MINIMO;
+}
+
+/** Payload Groq: `{ type: "image_url", image_url: { url: "data:image/jpeg;base64,..." } }`. */
+function urlImagenGroq(dataUrl: string): string {
+  const mimeRaw = mimeDeDataUrl(dataUrl);
+  const mime = mimeRaw === "image/jpg" ? "image/jpeg" : mimeRaw;
+  const comma = dataUrl.indexOf(",");
+  const b64 = (comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl).replace(/\s/g, "");
+  return `data:${mime};base64,${b64}`;
 }
 
 function partesImagen(dataUrls: string[]): Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> {
   return [
     { type: "text", text: USER_PROMPT_ANALISIS_VISUAL },
-    ...dataUrls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+    ...dataUrls.map((url) => ({
+      type: "image_url" as const,
+      image_url: { url: urlImagenGroq(url) },
+    })),
   ];
 }
 
@@ -402,7 +424,15 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
           groqError: snippet(lastFailText),
         })
       );
-      if (response.status === 404 && /model_not_found|does not exist/i.test(lastFailText) && attempt < 3) {
+      if (
+        (response.status === 404 || /model_decommissioned|model_not_found|does not exist/i.test(lastFailText)) &&
+        attempt < 3
+      ) {
+        if (/llama-4|llama-3\.2/i.test(model) && !/qwen/i.test(model)) {
+          model = DEFAULT_GROQ_VISION_MODEL;
+          extrasQwen = true;
+          continue;
+        }
         const alterno = siguienteModeloVision(model);
         if (alterno) {
           model = alterno;
