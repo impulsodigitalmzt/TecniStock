@@ -1440,7 +1440,9 @@ export default function App() {
     setError('');
     setModoCorreccion('describir');
     window.setTimeout(() => {
-      chatPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (window.matchMedia('(max-width: 1023px)').matches) {
+        chatPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
       chatInputRef.current?.focus();
       if (!consultaId) {
         setError('El chat no está disponible. Toma una foto para iniciar la consulta.');
@@ -1537,10 +1539,12 @@ export default function App() {
     []
   );
 
+  const layoutMostrador = tab === 'nueva' && hayResultado && Boolean(consultaId);
+
   return (
-    <div className="min-h-dvh bg-stone-100 text-stone-900">
-      <header className="bg-stone-950 text-white px-5 pt-8 pb-7">
-        <div className="max-w-lg mx-auto">
+    <div className={`mostrador-shell${layoutMostrador ? ' es-pc' : ''}`}>
+      <header className="bg-stone-950 text-white px-5 pt-8 pb-7 shrink-0 lg:px-6 lg:pt-5 lg:pb-4">
+        <div className={`mx-auto ${layoutMostrador ? 'max-w-7xl' : 'max-w-lg'}`}>
           <div className="flex items-center gap-3 mb-4">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30">
               <Wrench className="h-6 w-6" strokeWidth={2.2} />
@@ -1583,27 +1587,31 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 -mt-4 pb-8 space-y-3">
-        {avisoMiniatura ? (
-          <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
-            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-amber-700" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">Miniatura local no guardada</p>
-              <p className="text-sm leading-relaxed mt-1">{avisoMiniatura}</p>
-              <button
-                type="button"
-                className="mt-2 text-sm font-semibold text-amber-900 underline underline-offset-2"
-                onClick={() => setAvisoMiniatura('')}
-              >
-                Entendido
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {error ? (
-          <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
-            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            <p className="text-sm leading-relaxed">{error}</p>
+      <main className={`mostrador-main${layoutMostrador ? ' es-pc' : ''}`}>
+        {avisoMiniatura || error ? (
+          <div className="mostrador-alerta space-y-3">
+            {avisoMiniatura ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-amber-700" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">Miniatura local no guardada</p>
+                  <p className="text-sm leading-relaxed mt-1">{avisoMiniatura}</p>
+                  <button
+                    type="button"
+                    className="mt-2 text-sm font-semibold text-amber-900 underline underline-offset-2"
+                    onClick={() => setAvisoMiniatura('')}
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {error ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-red-800">
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                <p className="text-sm leading-relaxed">{error}</p>
+              </div>
+            ) : null}
           </div>
         ) : null}
         {tab === 'historial' ? (
@@ -1653,6 +1661,7 @@ export default function App() {
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void agregarArchivos(e.target.files)} />
             <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void agregarArchivos(e.target.files)} />
 
+            <div className="mostrador-analisis">
             {mostrarBandeja ? (
               <section className="card overflow-hidden">
                 {corrigiendoFoto ? (
@@ -1815,7 +1824,7 @@ export default function App() {
             )}
 
             {pieza && stock && estadoStock ? (
-              <section className="space-y-3">
+              <>
                 <article className="card h-auto p-3">
                   <div className="flex items-start gap-2">
                     {urlFotoCatalogo(stock.url_imagen) ? (
@@ -2081,9 +2090,12 @@ export default function App() {
                     </div>
                   </article>
                 ) : null}
+              </>
+            ) : null}
+            </div>
 
-                {consultaId ? (
-                  <article ref={chatPanelRef} className="card overflow-hidden flex flex-col">
+                {consultaId && pieza && stock ? (
+                  <article ref={chatPanelRef} className="mostrador-chat card overflow-hidden flex flex-col">
                     <header className="flex items-center gap-2.5 px-4 py-3 border-b border-stone-200 bg-stone-50">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500 text-white">
                         <MessageCircle className="h-4 w-4" />
@@ -2121,7 +2133,7 @@ export default function App() {
                         Describe la pieza por texto o voz. El hilo del chat se mantiene.
                       </p>
                     ) : null}
-                    <div ref={chatListaRef} className="chat-wallpaper overflow-y-auto px-3 py-3 space-y-2 max-h-[42vh]">
+                    <div ref={chatListaRef} className="chat-hilo chat-wallpaper">
                       {hiloChat.map((msg) => {
                         if (msg.rol === 'user') {
                           const foto = fotosHilo[msg.id];
@@ -2291,8 +2303,6 @@ export default function App() {
                     </form>
                   </article>
                 ) : null}
-              </section>
-            ) : null}
           </>
         )}
       </main>
