@@ -5,6 +5,7 @@ import type { PiezaDetectada } from "./pieza-ia";
 import { resolverStockInventarioLocal } from "./inventario-local";
 import { cantidadStock, type BloqueStock } from "./stock";
 import { redactarMensajeInicial } from "../ia/prompts";
+import { conTarjetas, tarjetaDesdeCatalogo } from "../lib/ficha-chat";
 import { ensureApartadosSchema, parseBorradorApartado, type BorradorApartado } from "./apartados";
 
 export const RETENCION_DIAS = 30;
@@ -121,8 +122,37 @@ function piezaEstatusDesdeStock(stock: BloqueStock): string {
   return "disponible";
 }
 
+function tarjetasGuiaInicial(stock: BloqueStock) {
+  const items = [];
+  if (stock.encontrado && stock.sku && stock.nombre) {
+    items.push(
+      tarjetaDesdeCatalogo({
+        sku: stock.sku,
+        nombre: stock.nombre,
+        url_imagen: stock.url_imagen,
+        precio: stock.precio ?? 0,
+        existencia: cantidadStock(stock),
+      })
+    );
+  }
+  for (const alt of stock.alternativas ?? []) {
+    if (alt.existencia > 0) {
+      items.push(
+        tarjetaDesdeCatalogo({
+          sku: alt.sku,
+          nombre: alt.nombre,
+          url_imagen: alt.url_imagen,
+          precio: alt.precio,
+          existencia: alt.existencia,
+        })
+      );
+    }
+  }
+  return items;
+}
+
 function mensajeGuiaInicial(pieza: PiezaDetectada, stock: BloqueStock): string {
-  return redactarMensajeInicial(pieza.nombre, stock);
+  return conTarjetas(redactarMensajeInicial(pieza.nombre, stock), tarjetasGuiaInicial(stock));
 }
 
 /** Metadatos de pieza en texto. Nunca incluye data URLs ni bytes de imagen. */

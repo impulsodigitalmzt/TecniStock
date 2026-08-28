@@ -189,6 +189,40 @@ function nombreYaTieneModulos(nombre: string): boolean {
   return /\b(\d+\s*(m[oó]dulos?|espacios?|ventanas?|gangas?)|sencillo|doble|triple)\b/i.test(nombre);
 }
 
+function blobVisionPared(partes: string[]): string {
+  return partes
+    .join(" ")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+function esComboApagadorContactoVision(blob: string): boolean {
+  const apagador = /\b(apagador|interruptor|tecla)\b/.test(blob);
+  const contacto = /\b(contacto|tomacorriente|duplex|duplez|enchufe)\b/.test(blob);
+  return apagador && contacto;
+}
+
+function clavesSinTimbreNiFantasma(claves: string[]): string[] {
+  return claves.filter(
+    (clave) => !/\b(timbre|pulsador|bot[oó]n(?:\s+pulsador)?|apagador\s+triple|triple)\b/i.test(clave)
+  );
+}
+
+function identidadComboPared(
+  modulos: number,
+  claves: string[]
+): { nombre: string; medida: string; palabras_clave: string[] } {
+  const n = modulos >= 2 ? modulos : 3;
+  return {
+    nombre: `Placa de ${n} módulos con apagadores y contacto`,
+    medida: `${n} módulos`,
+    palabras_clave: [
+      ...new Set(["apagador", "interruptor", "contacto", "dúplex", `${n} módulos`, ...clavesSinTimbreNiFantasma(claves)]),
+    ].slice(0, 12),
+  };
+}
+
 function esMecanismoAccionable(mecanismo: string, nombre: string): boolean {
   return /\b(tecla|palanca|boton|botón|apagador|conmutador|basculante|rocker|switch)\b/i.test(`${mecanismo} ${nombre}`);
 }
@@ -198,8 +232,12 @@ function depurarIdentidadPared(
   nombre: string,
   mecanismo: string,
   claves: string[],
-  modulos: number
+  modulos: number,
+  combo: boolean
 ): { nombre: string; palabras_clave: string[] } {
+  if (combo) {
+    return { nombre, palabras_clave: claves };
+  }
   const parecePlaca = /^\s*(placa|tapa|embellecedor)\b/i.test(nombre);
   const pareceInterruptor = /\b(interruptor|apagador|switch)\b/i.test(nombre) && !parecePlaca;
   let nombreFinal = nombre;
@@ -221,8 +259,17 @@ function aplicarConteoModulos(
   nombre: string,
   medida: string,
   claves: string[],
-  modulos: number
+  modulos: number,
+  combo: boolean
 ): { nombre: string; medida: string; palabras_clave: string[] } {
+  if (combo) {
+    const comboId = identidadComboPared(modulos, claves);
+    return {
+      nombre: comboId.nombre,
+      medida: comboId.medida,
+      palabras_clave: comboId.palabras_clave,
+    };
+  }
   if (modulos < 1) return { nombre, medida, palabras_clave: claves };
   const etiqueta = etiquetaMedidaModulos(modulos);
   const extra = [etiqueta, "módulos", "espacios"];
@@ -275,25 +322,40 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     texto(raw.descripcion || raw.observaciones || raw.notas || raw.pregunta)
   );
   const extras = [raw.rosca, raw.mecanismo, raw.acabado, raw.marca].map((item) => texto(item)).filter(Boolean);
+  const clavesBase = [...new Set([...palabrasClave(raw.palabras_clave), ...extras])].slice(0, 12);
+  const modulos = enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones);
+  const blobCombo = blobVisionPared([
+    nombre,
+    texto(raw.mecanismo),
+    descripcion,
+    texto(raw.medida),
+    ...clavesBase,
+  ]);
+  const combo = esComboApagadorContactoVision(blobCombo);
   const conModulos = aplicarConteoModulos(
     nombre,
     texto(raw.medida || raw.medida_detectada) || "No visible",
-    [...new Set([...palabrasClave(raw.palabras_clave), ...extras])].slice(0, 12),
-    enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones)
+    clavesBase,
+    modulos,
+    combo
   );
   const pared = depurarIdentidadPared(
     conModulos.nombre,
     texto(raw.mecanismo),
     conModulos.palabras_clave,
-    enteroModulos(raw.modulos ?? raw.gangas ?? raw.botones)
+    modulos,
+    combo
   );
+  const mecanismo = combo
+    ? "Teclas de apagador y contacto dúplex"
+    : mexicanizarMostrador(texto(raw.mecanismo));
   return {
     nombre: mexicanizarMostrador(pared.nombre),
     material: texto(raw.material) || "No determinado",
     medida: mexicanizarMostrador(conModulos.medida),
     categoria: categoriaAbierta(raw.categoria),
     rosca: texto(raw.rosca),
-    mecanismo: mexicanizarMostrador(texto(raw.mecanismo)),
+    mecanismo,
     acabado: texto(raw.acabado),
     marca: texto(raw.marca),
     descripcion: mexicanizarMostrador(descripcion),

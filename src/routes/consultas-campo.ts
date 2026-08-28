@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { AppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
 import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO, redactarMensajeFotoHilo } from "../ia/prompts";
-import { cantidadStock, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
+import { cantidadStock, esComboApagadorContacto, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import {
   conTarjetas,
   extraerMarcaFicha,
@@ -178,7 +178,7 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
   const queryVision = queryDesdePiezaVisual(pieza);
   const resultadosBusqueda = queryVision ? await buscarInventarioLocal(sql, queryVision, 8) : [];
   let stock = await resolverStockInventarioLocal(sql, pieza);
-  if (!stock.encontrado && resultadosBusqueda.length) {
+  if (!stock.encontrado && (!stock.alternativas || stock.alternativas.length === 0) && resultadosBusqueda.length) {
     stock = stockDesdeResultadosBusqueda(resultadosBusqueda);
   }
   const actualizada = await actualizarConsultaCampo(sql, consulta.id, dispositivo, { pieza, stock }, { omitirMensajeGuia: true });
@@ -232,8 +232,12 @@ function extraerImagenesFotoHilo(body: {
 }
 
 function queryDesdePiezaVisual(pieza: PiezaDetectada): string {
+  if (esComboApagadorContacto(pieza)) {
+    return "apagador interruptor contacto duplex placa";
+  }
   return [pieza.nombre, pieza.medida, pieza.categoria, ...(pieza.palabras_clave ?? [])]
     .map((item) => String(item ?? "").trim())
+    .filter((item) => !/\b(timbre|pulsador|bot[oó]n)\b/i.test(item))
     .filter(Boolean)
     .join(" ")
     .slice(0, 120);
@@ -286,7 +290,11 @@ function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
     material: String(pieza.material ?? consulta.pieza_material ?? ""),
     medida: String(pieza.medida ?? consulta.pieza_medida ?? ""),
     categoria: String(pieza.categoria ?? consulta.pieza_categoria ?? ""),
-    palabras_clave: Array.isArray(claves) ? claves.map((item) => String(item)) : [],
+    palabras_clave: [
+      ...(Array.isArray(claves) ? claves.map((item) => String(item)) : []),
+      String(pieza.mecanismo ?? ""),
+      String(pieza.descripcion ?? ""),
+    ].filter(Boolean),
   };
 }
 

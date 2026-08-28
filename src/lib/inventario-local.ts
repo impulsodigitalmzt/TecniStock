@@ -4,7 +4,10 @@ import {
   alternativasDeCatalogo,
   cantidadStock,
   consultarStock,
+  esComboApagadorContacto,
   familiaCatalogo,
+  gangasEnTexto,
+  textoIdentidadPieza,
   type BloqueStock,
   type IdentidadPieza,
   type StockItem,
@@ -468,6 +471,94 @@ export type ResultadoBusquedaInventario = {
   url_imagen: string;
 };
 
+function filaEsParedElectrica(fila: FilaInventarioLocal): boolean {
+  const t = normalizarBusqueda(fila.nombre_pieza);
+  if (/\b(timbre|termomagnet|pastilla|cable|cinta|foco|lampara|conduit|cople|clavija|calibre)\b/.test(t)) return false;
+  return /\b(apagador|interruptor|contacto|placa)\b/.test(t);
+}
+
+function tomarFila(
+  filas: FilaInventarioLocal[],
+  pred: (fila: FilaInventarioLocal) => boolean,
+  skuPreferido?: string
+): FilaInventarioLocal | null {
+  const utiles = filas.filter((fila) => fila.stock_disponible > 0 && pred(fila));
+  if (skuPreferido) {
+    const exacto = utiles.find((fila) => fila.sku.toUpperCase() === skuPreferido.toUpperCase());
+    if (exacto) return exacto;
+  }
+  return utiles[0] ?? null;
+}
+
+/** Piezas reales de anaquel para armar un juego de pared (nunca timbre ni SKUs inventados). */
+export function armarKitPared(filas: FilaInventarioLocal[], pieza: IdentidadPieza): ResultadoBusquedaInventario[] {
+  const utiles = filas.filter(filaEsParedElectrica);
+  const blob = normalizarBusqueda(
+    [
+      pieza.nombre,
+      pieza.medida,
+      pieza.categoria,
+      pieza.mecanismo,
+      pieza.descripcion,
+      ...(pieza.palabras_clave ?? []),
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  const combo = esComboApagadorContacto(pieza);
+  const quiereApagador = combo || /\b(apagador|interruptor|tecla)\b/.test(blob);
+  const quiereContacto = combo || /\b(contacto|tomacorriente|duplex)\b/.test(blob);
+  const quierePlaca = combo || /\b(placa|tapa|modulo|espacio|ventana)\b/.test(blob);
+  const modulos = gangasEnTexto(blob);
+  const kit: FilaInventarioLocal[] = [];
+  const meter = (fila: FilaInventarioLocal | null) => {
+    if (!fila || kit.some((item) => item.sku === fila.sku)) return;
+    kit.push(fila);
+  };
+
+  if (quiereApagador) {
+    if (modulos === 1 && !combo) {
+      meter(
+        tomarFila(
+          utiles,
+          (fila) => familiaCatalogo(fila.nombre_pieza) === "interruptor" && /\bsencillo\b/.test(normalizarBusqueda(fila.nombre_pieza)),
+          "INT-SENC-127"
+        )
+      );
+    } else {
+      meter(
+        tomarFila(
+          utiles,
+          (fila) => familiaCatalogo(fila.nombre_pieza) === "interruptor" && /\bdoble\b/.test(normalizarBusqueda(fila.nombre_pieza)),
+          "INT-DOB-127"
+        )
+      );
+    }
+  }
+  if (quiereContacto) {
+    meter(
+      tomarFila(
+        utiles,
+        (fila) =>
+          familiaCatalogo(fila.nombre_pieza) === "contacto" &&
+          !/\b(usb|intemperie)\b/.test(normalizarBusqueda(fila.nombre_pieza)),
+        "CONT-DUP-127"
+      )
+    );
+  }
+  if (quierePlaca || combo) {
+    const skuPlaca = modulos === 1 ? "PLAC-ACEO-01" : "PLAC-ACEO-02";
+    meter(
+      tomarFila(
+        utiles,
+        (fila) => familiaCatalogo(fila.nombre_pieza) === "placa",
+        skuPlaca
+      )
+    );
+  }
+  return kit.map(filaAResultado);
+}
+
 function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario {
   return {
     sku: fila.sku,
@@ -480,12 +571,43 @@ function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario 
   };
 }
 
+function stockDesdeKit(kit: ResultadoBusquedaInventario[], filasCatalogo: number): BloqueStock {
+  const alternativas = kit.map((item) => ({
+    ...resultadoASustituto(item),
+    razon: "Pieza para armar el juego de la foto; no hay un SKU combinado.",
+  }));
+  return {
+    encontrado: false,
+    sku: null,
+    nombre: null,
+    material: null,
+    medida: null,
+    existencia: 0,
+    precio: null,
+    moneda: "MXN",
+    estado: "sin_coincidencia",
+    requiere_sustituto: true,
+    sustituto: alternativas[0] ?? null,
+    alternativas,
+    coincidencia: 0,
+    stock_disponible: null,
+    fuente: "inventario_local",
+    consulta_ok: true,
+    filas_catalogo: filasCatalogo,
+    motivo_indisponible: "fuera_de_surtido",
+  };
+}
+
 function ajustarScoreAccesorio(query: string, fila: FilaInventarioLocal, score: number): number {
   if (score <= 0) return 0;
   const qNorm = normalizarBusqueda(query);
+  const nombre = normalizarBusqueda(fila.nombre_pieza);
+  if (/\btimbre\b/.test(nombre) && !/\btimbre\b/.test(qNorm)) return 0;
   const familia = familiaCatalogo(fila.nombre_pieza);
-  const pidePared = /\b(apagador|modulos|espacios|ventanas|gangas|placa|vias|mecanismo|tecla)\b/.test(qNorm);
-  if (pidePared && familia !== "interruptor" && familia !== "placa") return 0;
+  const pidePared = /\b(apagador|interruptor|modulos|espacios|ventanas|gangas|placa|vias|mecanismo|tecla|contacto|duplex)\b/.test(
+    qNorm
+  );
+  if (pidePared && familia && familia !== "interruptor" && familia !== "placa" && familia !== "contacto") return 0;
   const pideAparato = /\b(completo|mecanismo|interruptor|apagador)\b/.test(qNorm);
   if (!pideAparato) return score;
   if (familia === "placa") return Math.max(12, score - 28);
@@ -528,7 +650,16 @@ export async function buscarInventarioLocal(
   if (!q) return [];
   const filas = await listarFilasInventarioLocal(sql);
   const tope = Math.max(1, Math.min(24, Math.trunc(limit) || 12));
-  return filas
+  const qNorm = normalizarBusqueda(q);
+  const pidePared = /\b(apagador|interruptor|contacto|tecla|placa)\b/.test(qNorm) && !/\btimbre\b/.test(qNorm);
+  const candidatas = pidePared
+    ? filas.filter((fila) => {
+        const n = normalizarBusqueda(fila.nombre_pieza);
+        if (/\b(timbre|termomagnet|pastilla)\b/.test(n)) return false;
+        return /\b(interruptor|apagador|contacto|placa)\b/.test(n);
+      })
+    : filas;
+  return candidatas
     .map((fila) => ({ fila, score: puntuarBusqueda(q, fila) }))
     .filter((row) => row.score > 0)
     .sort((a, b) => {
@@ -639,10 +770,28 @@ export async function resolverStockInventarioLocal(
 
   const filas = await listarFilasInventarioLocal(sql);
   const items = filas.map(filaAStockItem);
+  const kit = armarKitPared(filas, pieza);
+  if (esComboApagadorContacto(pieza) && kit.length > 0) {
+    return stockDesdeKit(kit, filas.length);
+  }
+
   const stock = consultarStock(pieza, items, { estricta: true });
   stock.fuente = "inventario_local";
   stock.consulta_ok = true;
   stock.filas_catalogo = filas.length;
+  const elegidoEsTimbre = /\btimbre\b/i.test(`${stock.sku ?? ""} ${stock.nombre ?? ""}`) || /\bint[-_]?tim\b/i.test(stock.sku ?? "");
+  if (elegidoEsTimbre && !/\btimbre\b/.test(textoIdentidadPieza(pieza))) {
+    if (kit.length > 0) return stockDesdeKit(kit, filas.length);
+    stock.encontrado = false;
+    stock.sku = null;
+    stock.nombre = null;
+    stock.stock_disponible = null;
+    stock.existencia = 0;
+    stock.precio = null;
+    stock.requiere_sustituto = true;
+    stock.motivo_indisponible = "fuera_de_surtido";
+    return conAlternativas(stock, pieza, items);
+  }
   if (!stock.sku) {
     stock.stock_disponible = null;
     stock.existencia = 0;

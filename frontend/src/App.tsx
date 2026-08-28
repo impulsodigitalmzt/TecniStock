@@ -558,6 +558,12 @@ function openerDesdeStock(nombre: string, stock: BloqueStock): string {
     return `He identificado un ${pieza}. Está en inventario local pero sin existencia. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (lista) {
+    const nombres = (stock.alternativas ?? []).map((item) => item.nombre.toLowerCase()).join(' ');
+    const kit =
+      /\b(apagador|interruptor)\b/.test(nombres) && /\b(contacto|placa)\b/.test(nombres);
+    if (kit) {
+      return `Vi una placa con apagadores y contacto. No traemos ese juego armado en un solo SKU; te vendo las piezas por separado:\n${lista}\n\n¿Armamos el juego o quieres revisar alguna pieza?`;
+    }
     return `He identificado un ${pieza}. No tengo ese modelo exacto en inventario local. Sí hay alternativas de la misma categoría con existencia real:\n${lista}\n\n¿Cuál te aparto o le mostramos al cliente?`;
   }
   return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;

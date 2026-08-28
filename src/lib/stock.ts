@@ -66,6 +66,8 @@ export type IdentidadPieza = {
   medida: string;
   categoria?: string;
   palabras_clave?: string[];
+  descripcion?: string;
+  mecanismo?: string;
 };
 
 type Catalogo = {
@@ -109,6 +111,7 @@ function textoCatalogo(item: StockItem): string {
 }
 
 const FAMILIAS: { id: string; claves: string[] }[] = [
+  { id: "timbre", claves: ["timbre"] },
   { id: "breaker", claves: ["termomagnet", "pastilla", "breaker", "termomagnetico"] },
   { id: "interruptor", claves: ["interruptor", "apagador", "switch", "conmutador", "conmutar"] },
   { id: "placa", claves: ["placa", "embellecedor"] },
@@ -175,14 +178,65 @@ export function familiaCatalogo(texto: string): string | null {
   return null;
 }
 
+export function textoIdentidadPieza(consulta: IdentidadPieza): string {
+  return normalizar(
+    [
+      consulta.nombre,
+      consulta.medida,
+      consulta.categoria,
+      consulta.mecanismo,
+      consulta.descripcion,
+      ...(consulta.palabras_clave ?? []),
+    ].join(" ")
+  );
+}
+
+/** Dos apagadores + un contacto en la misma placa no es un SKU de «apagador triple» ni un timbre. */
+export function esComboApagadorContacto(consulta: IdentidadPieza): boolean {
+  const t = textoIdentidadPieza(consulta);
+  const apagador = /\b(apagador|interruptor|tecla)\b/.test(t);
+  const contacto = /\b(contacto|tomacorriente|duplex|duplez|enchufe)\b/.test(t);
+  return apagador && contacto;
+}
+
+export function pideParedElectrica(consulta: IdentidadPieza): boolean {
+  const t = textoIdentidadPieza(consulta);
+  if (/\btimbre\b/.test(t) && !/\b(apagador|interruptor|contacto|placa)\b/.test(t)) return false;
+  return /\b(apagador|interruptor|contacto|placa|tecla)\b/.test(t);
+}
+
 function mismasFamilias(consulta: IdentidadPieza, item: StockItem): boolean {
-  const familiaQuery = familiaCatalogo([consulta.nombre, consulta.medida, ...(consulta.palabras_clave ?? [])].join(" "));
   const familiaItem = familiaCatalogo([item.nombre, item.sku, item.descripcion_tecnica ?? ""].join(" "));
-  if (!familiaQuery || !familiaItem) return true;
-  return familiaQuery === familiaItem;
+  if (esComboApagadorContacto(consulta)) {
+    return familiaItem === "interruptor" || familiaItem === "contacto" || familiaItem === "placa";
+  }
+  const familiaQuery = familiaCatalogo([consulta.nombre, consulta.medida, ...(consulta.palabras_clave ?? [])].join(" "));
+  if (familiaQuery && familiaItem) return familiaQuery === familiaItem;
+  if (familiaQuery && !familiaItem) return false;
+  return true;
+}
+
+/** Visión de pared: solo apagador/interruptor/contacto/placa. Nunca timbre ni pastillas. */
+export function poolParedElectrica(consulta: IdentidadPieza, piezas: StockItem[]): StockItem[] {
+  if (!pideParedElectrica(consulta)) return piezas;
+  return piezas.filter((item) => {
+    const n = normalizar(`${item.nombre} ${item.sku} ${item.descripcion_tecnica ?? ""}`);
+    if (/\btimbre\b/.test(n) || /\bint[-_]?tim\b/.test(n)) return false;
+    if (/\b(termomagnet|pastilla|cable|cinta|foco|lampara|conduit|cople|clavija|calibre)\b/.test(n)) return false;
+    return /\b(interruptor|apagador|contacto|placa)\b/.test(n);
+  });
+}
+
+function itemFueraDeConsulta(consulta: IdentidadPieza, item: StockItem): boolean {
+  const q = textoIdentidadPieza(consulta);
+  const n = normalizar(`${item.nombre} ${item.sku} ${item.descripcion_tecnica ?? ""}`);
+  if ((/\btimbre\b/.test(n) || /\bint[-_]?tim\b/.test(n)) && !/\btimbre\b/.test(q)) return true;
+  if (familiaCatalogo(n) === "breaker" && /\b(apagador|contacto|placa|modulo|tecla)\b/.test(q)) return true;
+  return false;
 }
 
 function puntuar(consulta: IdentidadPieza, item: StockItem, incluirMaterial = true): number {
+  if (itemFueraDeConsulta(consulta, item)) return 0;
   if (!mismasFamilias(consulta, item)) return 0;
   const queryTokens = new Set(tokens(textoBusqueda(consulta, incluirMaterial)));
   const itemTokens = new Set(tokens(textoCatalogo(item)));
@@ -221,9 +275,12 @@ function puntuar(consulta: IdentidadPieza, item: StockItem, incluirMaterial = tr
 
   const gangasQuery = gangasEnTexto(textoBusqueda(consulta, false));
   const gangasItem = gangasEnTexto(textoCatalogo(item));
-  if (gangasQuery && gangasItem && gangasQuery !== gangasItem) return 0;
-  if (gangasQuery && gangasQuery >= 2 && !gangasItem && esFuncionTresVias(textoCatalogo(item))) return 0;
-  if (gangasQuery && gangasItem && gangasQuery === gangasItem) score += 0.28;
+  const combo = esComboApagadorContacto(consulta);
+  if (!combo) {
+    if (gangasQuery && gangasItem && gangasQuery !== gangasItem) return 0;
+    if (gangasQuery && gangasQuery >= 2 && !gangasItem && esFuncionTresVias(textoCatalogo(item))) return 0;
+  }
+  if (!combo && gangasQuery && gangasItem && gangasQuery === gangasItem) score += 0.28;
 
   return Math.max(0, Math.min(score, 1));
 }
@@ -296,8 +353,9 @@ function buscarAlternativas(
 ): SustitutoStock[] {
   const vistos = new Set<string>(excluirSku ? [excluirSku] : []);
   const elegidos: StockItem[] = [];
-  const poolActivo = piezas.filter(enAnaquelParaVenta);
-  const pool = poolActivo.length > 0 ? poolActivo : piezas.filter((item) => item.existencia > 0);
+  const poolFiltrado = poolParedElectrica(consulta, piezas);
+  const poolActivo = poolFiltrado.filter(enAnaquelParaVenta);
+  const pool = poolActivo.length > 0 ? poolActivo : poolFiltrado.filter((item) => item.existencia > 0);
   for (const item of preferidos) {
     if (item.existencia > 0 && !vistos.has(item.sku) && (poolActivo.length === 0 || !item.descontinuado)) {
       vistos.add(item.sku);
@@ -309,10 +367,12 @@ function buscarAlternativas(
     .filter((item) => !vistos.has(item.sku))
     .map((item) => {
       let score = puntuar(consulta, item);
+      if (score <= 0) return { item, score: 0 };
       if (categoriaAlineada(consulta, item)) score += 0.2;
       if (mismasFamilias(consulta, item) && familiaCatalogo(consulta.nombre)) score += 0.12;
       return { item, score };
     })
+    .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score);
   const deFamilia = scored.filter(
     (row) => mismasFamilias(consulta, row.item) && familiaCatalogo(consulta.nombre) && row.score >= MIN_SCORE_FAMILIA
@@ -412,9 +472,17 @@ export function consultarStock(
     return conCatalogo(bloqueVacio(), 0);
   }
 
+  const catalogo = poolParedElectrica(pieza, piezas);
+  if (esComboApagadorContacto(pieza)) {
+    const bloque = conCatalogo(bloqueVacio(), piezas.length);
+    bloque.requiere_sustituto = true;
+    bloque.motivo_indisponible = "fuera_de_surtido";
+    return bloque;
+  }
+
   let mejor: StockItem | null = null;
   let mejorScore = 0;
-  for (const item of piezas) {
+  for (const item of catalogo) {
     const score = puntuar(pieza, item, !estricta);
     if (score > mejorScore) {
       mejorScore = score;
@@ -426,7 +494,7 @@ export function consultarStock(
   if (!mejor || mejorScore < umbralExacto) {
     const bloque = conCatalogo(bloqueVacio(Number(mejorScore.toFixed(3))), piezas.length);
     const cercano = mejor && mejor.existencia > 0 ? mejor : null;
-    const alternativas = limitarAlternativas(buscarAlternativas(pieza, piezas, "", cercano ? [cercano] : []));
+    const alternativas = limitarAlternativas(buscarAlternativas(pieza, catalogo, "", cercano ? [cercano] : []));
     bloque.alternativas = alternativas;
     bloque.sustituto = alternativas[0] ?? null;
     bloque.requiere_sustituto = true;
@@ -460,10 +528,10 @@ export function consultarStock(
     );
   }
 
-  const preferido = estricta ? null : buscarSustituto(mejor, piezas);
+  const preferido = estricta ? null : buscarSustituto(mejor, catalogo);
   const alternativas = estricta
-    ? limitarAlternativas(buscarAlternativas(pieza, piezas, mejor.sku, []))
-    : limitarAlternativas(buscarAlternativas(pieza, piezas, mejor.sku, preferido ? [preferido] : []));
+    ? limitarAlternativas(buscarAlternativas(pieza, catalogo, mejor.sku, []))
+    : limitarAlternativas(buscarAlternativas(pieza, catalogo, mejor.sku, preferido ? [preferido] : []));
 
   return conCatalogo(
     {
