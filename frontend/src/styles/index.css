@@ -127,6 +127,15 @@
   .mostrador-shell {
     @apply min-h-dvh bg-stone-100 text-stone-900;
   }
+  .mostrador-col-izq {
+    @apply w-full;
+  }
+  .mostrador-col-der {
+    @apply relative mx-auto w-full max-w-lg px-4 pb-8;
+  }
+  .mostrador-header {
+    @apply shrink-0 bg-stone-950 text-white px-5 pt-8 pb-7 lg:px-6 lg:pt-5 lg:pb-4;
+  }
   .mostrador-main {
     @apply mx-auto w-full max-w-lg px-4 -mt-4 pb-8 space-y-3;
   }
@@ -341,49 +350,114 @@ body, #root {
   max-width: 100vw;
 }
 
-/* Mostrador PC: análisis a la izquierda, chat a la derecha (WhatsApp Web) */
+/* Mostrador PC: panel de control a pantalla completa (logo+análisis | chat) */
 @media (min-width: 1024px) {
   .mostrador-shell.es-pc {
     height: 100dvh;
+    width: 100vw;
+    max-width: 100%;
     overflow: hidden;
     display: flex;
+    flex-direction: row;
+    background-color: #f5f5f4;
+  }
+  html.dark .mostrador-shell.es-pc {
+    background-color: #0b141a;
+  }
+
+  .mostrador-shell.es-pc .mostrador-col-izq {
+    width: 440px;
+    flex-shrink: 0;
+    display: flex;
     flex-direction: column;
-  }
-  .mostrador-main.es-pc {
-    max-width: 80rem;
-    flex: 1 1 0%;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(0, 47%) minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 1rem;
-    padding-bottom: 1rem;
-    margin-top: -1rem;
-  }
-  .mostrador-main.es-pc > * + * {
-    margin-top: 0;
-  }
-  .mostrador-main.es-pc > .mostrador-alerta {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
-  .mostrador-main.es-pc > .mostrador-analisis {
-    grid-column: 1;
-    grid-row: 2;
+    height: 100%;
     min-height: 0;
     overflow-y: auto;
-    padding-right: 2px;
+    overscroll-behavior: contain;
+    padding: 1rem;
+    border-right: 1px solid #e7e5e4;
   }
-  .mostrador-main.es-pc > .mostrador-chat {
-    grid-column: 2;
-    grid-row: 2;
-    min-height: 0;
+  html.dark .mostrador-shell.es-pc .mostrador-col-izq {
+    background-color: #0b141a !important;
+    border-right-color: #262626;
+  }
+
+  .mostrador-shell.es-pc .mostrador-header {
+    padding: 0 0 0.75rem;
+    background-color: transparent !important;
+  }
+  html:not(.dark) .mostrador-shell.es-pc .mostrador-header {
+    color: #1c1917;
+  }
+  html:not(.dark) .mostrador-shell.es-pc .mostrador-header .text-stone-300 {
+    color: #57534e;
+  }
+  html:not(.dark) .mostrador-shell.es-pc .mostrador-header .bg-white\/10 {
+    background-color: rgba(28, 25, 23, 0.08);
+    color: #1c1917;
+  }
+  html:not(.dark) .mostrador-shell.es-pc .carrito-header {
+    color: #1c1917;
+  }
+  html:not(.dark) .mostrador-shell.es-pc .mostrador-header .text-stone-200 {
+    color: #44403c;
+  }
+
+  .mostrador-shell.es-pc .mostrador-main {
+    max-width: none;
+    margin: 0;
+    padding: 0 0 0.5rem;
+    flex: 1 1 auto;
+  }
+
+  .mostrador-shell.es-pc .mostrador-col-der {
+    flex: 1 1 0%;
+    display: flex;
+    flex-direction: column;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    max-width: none;
+    padding: 0;
+    overflow: hidden;
+    background-color: #efeae2;
   }
-  .mostrador-main.es-pc .chat-hilo {
+  html.dark .mostrador-shell.es-pc .mostrador-col-der {
+    background-color: #0b141a;
+  }
+
+  .mostrador-shell.es-pc .mostrador-chat {
+    height: 100%;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background-color: transparent !important;
+  }
+
+  .mostrador-shell.es-pc .mostrador-chat > header {
+    flex-shrink: 0;
+  }
+
+  .mostrador-shell.es-pc .chat-hilo {
     max-height: none;
     flex: 1 1 0%;
     min-height: 0;
+  }
+
+  .mostrador-shell.es-pc .composer-wa {
+    flex-shrink: 0;
+    margin: 0.65rem 1rem 1rem;
+    padding: 0.35rem 0.4rem 0.35rem 0.3rem;
+    border: 0;
+    border-radius: 1.75rem;
+    background-color: #ffffff;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.12);
+  }
+  html.dark .mostrador-shell.es-pc .composer-wa {
+    background-color: #202c33;
+    box-shadow: 0 4px 22px rgba(0, 0, 0, 0.35);
   }
 }
 
@@ -613,6 +687,21 @@ html.dark section {
 .dark .composer-wa-input {
   background-color: #2a3942;
   color: #e8edf0;
+}
+
+@media (min-width: 1024px) {
+  html.dark .mostrador-shell.es-pc .mostrador-chat.card {
+    background-color: transparent !important;
+    border-color: transparent !important;
+  }
+  html.dark .mostrador-shell.es-pc .composer-wa {
+    background-color: #202c33;
+    border-color: transparent;
+  }
+  html.dark .mostrador-shell.es-pc .mostrador-chat > header {
+    background-color: #111b21 !important;
+    border-color: #2a3942 !important;
+  }
 }
 
 .dark .voice-vu-led {

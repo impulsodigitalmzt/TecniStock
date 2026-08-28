@@ -1542,29 +1542,37 @@ export default function App() {
   const layoutMostrador = tab === 'nueva' && hayResultado && Boolean(consultaId);
 
   return (
-    <div className={`mostrador-shell${layoutMostrador ? ' es-pc' : ''}`}>
-      <header className="bg-stone-950 text-white px-5 pt-8 pb-7 shrink-0 lg:px-6 lg:pt-5 lg:pb-4">
-        <div className={`mx-auto ${layoutMostrador ? 'max-w-7xl' : 'max-w-lg'}`}>
-          <div className="flex items-center gap-3 mb-4">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30">
-              <Wrench className="h-6 w-6" strokeWidth={2.2} />
+    <div
+      className={`mostrador-shell${layoutMostrador ? ' es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]' : ''}`}
+    >
+      <aside
+        className={`mostrador-col-izq${layoutMostrador ? ' w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-y-auto' : ''}`}
+      >
+      <header className="mostrador-header">
+        <div className={`mx-auto ${layoutMostrador ? 'max-w-lg lg:mx-0 lg:max-w-none' : 'max-w-lg'}`}>
+          <div className={`flex items-center gap-3 ${layoutMostrador ? 'mb-3 lg:mb-2' : 'mb-4'}`}>
+            <span className={`flex items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30 ${layoutMostrador ? 'h-12 w-12 lg:h-10 lg:w-10' : 'h-12 w-12'}`}>
+              <Wrench className={layoutMostrador ? 'h-6 w-6 lg:h-5 lg:w-5' : 'h-6 w-6'} strokeWidth={2.2} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400">Campo</p>
-              <h1 className="text-3xl font-bold tracking-tight leading-none">TecniStock</h1>
+              <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400 ${layoutMostrador ? 'lg:hidden' : ''}`}>Campo</p>
+              <h1 className={`font-bold tracking-tight leading-none ${layoutMostrador ? 'text-3xl lg:text-xl' : 'text-3xl'}`}>TecniStock</h1>
+              {layoutMostrador ? (
+                <p className="hidden lg:block text-[11px] leading-snug text-stone-300 mt-0.5">Tu Asesor Técnico en Campo 24/7</p>
+              ) : null}
             </div>
             <BotonCarritoHeader piezas={piezasCarrito(carrito)} onClick={() => setCarritoAbierto((prev) => !prev)} />
             <button
               type="button"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 lg:h-10 lg:w-10"
               aria-label={oscuro ? 'Activar modo día' : 'Activar modo noche'}
               onClick={alternarTema}
             >
               {oscuro ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
           </div>
-          <p className="text-stone-300 text-base leading-snug">Tu Asesor Técnico en Campo 24/7</p>
-          <div className="mt-5 grid grid-cols-2 gap-2">
+          <p className={`text-stone-300 text-base leading-snug ${layoutMostrador ? 'lg:hidden' : ''}`}>Tu Asesor Técnico en Campo 24/7</p>
+          <div className={`grid grid-cols-2 gap-2 ${layoutMostrador ? 'mt-4 lg:mt-3' : 'mt-5'}`}>
             <button
               type="button"
               className={`min-h-12 rounded-xl font-semibold ${tab === 'nueva' ? 'bg-orange-500 text-white' : 'bg-white/10 text-stone-200'}`}
@@ -1587,7 +1595,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className={`mostrador-main${layoutMostrador ? ' es-pc' : ''}`}>
+      <main className="mostrador-main">
         {avisoMiniatura || error ? (
           <div className="mostrador-alerta space-y-3">
             {avisoMiniatura ? (
@@ -2093,10 +2101,15 @@ export default function App() {
               </>
             ) : null}
             </div>
+          </>
+        )}
+      </main>
+      </aside>
 
-                {consultaId && pieza && stock ? (
-                  <article ref={chatPanelRef} className="mostrador-chat card overflow-hidden flex flex-col">
-                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-stone-200 bg-stone-50">
+      {tab === 'nueva' && consultaId && pieza && stock ? (
+        <section className="mostrador-col-der lg:flex-1 lg:flex lg:flex-col lg:h-full dark:lg:bg-[#0b141a] lg:relative lg:overflow-hidden">
+                  <article ref={chatPanelRef} className="mostrador-chat card overflow-hidden flex flex-col lg:h-full lg:min-h-0">
+                    <header className="flex items-center gap-2.5 px-4 py-3 border-b border-stone-200 bg-stone-50 shrink-0">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500 text-white">
                         <MessageCircle className="h-4 w-4" />
                       </span>
@@ -2133,7 +2146,7 @@ export default function App() {
                         Describe la pieza por texto o voz. El hilo del chat se mantiene.
                       </p>
                     ) : null}
-                    <div ref={chatListaRef} className="chat-hilo chat-wallpaper">
+                    <div ref={chatListaRef} className="chat-hilo chat-wallpaper lg:flex-1 lg:min-h-0">
                       {hiloChat.map((msg) => {
                         if (msg.rol === 'user') {
                           const foto = fotosHilo[msg.id];
@@ -2201,7 +2214,7 @@ export default function App() {
                       onChange={(e) => void enviarFotoHilo(e.target.files)}
                     />
                     <form
-                      className="composer-wa"
+                      className="composer-wa shrink-0"
                       onSubmit={(event) => {
                         event.preventDefault();
                         void enviarChat();
@@ -2302,10 +2315,8 @@ export default function App() {
                       )}
                     </form>
                   </article>
-                ) : null}
-          </>
-        )}
-      </main>
+        </section>
+      ) : null}
       <CarritoApartado
           lineas={carrito}
           abierto={carritoAbierto}
