@@ -122,6 +122,52 @@ function textoDescripcion(pieza: PiezaDetectada): string {
   return compactarTextoChat(pieza.descripcion || pieza.observaciones || '');
 }
 
+function etiquetaConfianza(valor: number): string {
+  if (valor >= 0.8) return 'Clara';
+  if (valor >= 0.5) return 'Media';
+  return 'Incierta';
+}
+
+function filasFichaTecnica(pieza: PiezaDetectada, stock: BloqueStock): { etiqueta: string; valor: string }[] {
+  const filas: { etiqueta: string; valor: string }[] = [];
+  const add = (etiqueta: string, valor?: string | number | null) => {
+    const texto = valor == null ? '' : String(valor).trim();
+    if (texto) filas.push({ etiqueta, valor: texto });
+  };
+  add('Categoría', pieza.categoria);
+  add('Material', pieza.material || stock.material);
+  add('Medida', pieza.medida || stock.medida);
+  add('Mecanismo', pieza.mecanismo);
+  add('Acabado', pieza.acabado);
+  add('Rosca', pieza.rosca);
+  add('Marca', pieza.marca);
+  const nombreAnaquel = (stock.nombre ?? '').trim();
+  if (nombreAnaquel && nombreAnaquel.toLowerCase() !== pieza.nombre.trim().toLowerCase()) {
+    add('En anaquel', nombreAnaquel);
+  }
+  add('SKU', stock.sku);
+  if (stock.precio != null) add('Precio', dinero(stock.precio, stock.moneda));
+  if (stock.encontrado || stock.consulta_ok) {
+    add('Existencia', `${cantidadStock(stock)} pza`);
+  }
+  add('Ubicación', stock.ubicacion_tienda);
+  if (typeof pieza.confianza === 'number' && pieza.confianza > 0) {
+    add('Lectura de la foto', etiquetaConfianza(pieza.confianza));
+  }
+  return filas;
+}
+
+function clavesFicha(pieza: PiezaDetectada): string[] {
+  const ya = new Set(
+    [pieza.nombre, pieza.material, pieza.medida, pieza.marca, pieza.mecanismo, pieza.acabado, pieza.rosca, pieza.categoria]
+      .filter((item): item is string => Boolean(item))
+      .map((item) => item.toLowerCase())
+  );
+  return (pieza.palabras_clave ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item && item.length <= 22 && !ya.has(item.toLowerCase()) && !/^[A-Z0-9]+-[A-Z0-9._-]+$/i.test(item));
+}
+
 type TarjetaChat = {
   sku: string;
   nombre: string;
@@ -1533,6 +1579,8 @@ export default function App() {
         .slice(0, MAX_ALTERNATIVAS)
     : [];
   const mostrarCarrusel = alternativasStock.length > 0;
+  const fichaTecnica = pieza && stock ? filasFichaTecnica(pieza, stock) : [];
+  const clavesExtra = pieza ? clavesFicha(pieza) : [];
   const hiloChat = burbujasChat(
     mensajes,
     mensajes.length === 0 && pieza && stock ? openerDesdeStock(pieza.nombre, stock) : '',
@@ -1964,7 +2012,7 @@ export default function App() {
                   </div>
 
                   {descripcion ? (
-                    <p className="mt-2 text-sm leading-snug text-stone-600">{descripcion}</p>
+                    <p className="mt-2 text-sm leading-snug text-stone-600 line-clamp-2 lg:line-clamp-none">{descripcion}</p>
                   ) : null}
 
                   <div className="mt-2 flex items-center justify-between gap-3">
@@ -1995,10 +2043,33 @@ export default function App() {
                     </p>
                   ) : null}
                   {stock.encontrado && stock.sku ? (
-                    <p className="mt-1 text-[11px] font-mono text-stone-400 truncate">{stock.sku}</p>
+                    <p className="mt-1 text-[11px] font-mono text-stone-400 truncate lg:hidden">{stock.sku}</p>
                   ) : null}
                   {stock.ubicacion_tienda ? (
-                    <p className="mt-1 text-xs text-stone-600">Anaquel: {stock.ubicacion_tienda}</p>
+                    <p className="mt-1 text-xs text-stone-600 lg:hidden">Anaquel: {stock.ubicacion_tienda}</p>
+                  ) : null}
+
+                  {fichaTecnica.length > 0 ? (
+                    <div className="mt-3 hidden border-t border-stone-200 pt-3 lg:block">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700">Ficha técnica</p>
+                      <dl className="mt-2 grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+                        {fichaTecnica.map((fila) => (
+                          <div key={fila.etiqueta} className="contents">
+                            <dt className="text-[11px] font-medium uppercase tracking-wide text-stone-400 pt-0.5">{fila.etiqueta}</dt>
+                            <dd className="min-w-0 break-words font-medium leading-snug text-stone-800">{fila.valor}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      {clavesExtra.length > 0 ? (
+                        <div className="mt-2.5 flex flex-wrap gap-1.5">
+                          {clavesExtra.map((item) => (
+                            <span key={item} className="chip">
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
                   {mostrarCarrusel ? (
                     <div className="mt-2">
