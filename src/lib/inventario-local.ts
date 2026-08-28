@@ -6,6 +6,7 @@ import {
   type IdentidadPieza,
   type StockItem,
 } from "./stock";
+import { mexicanizarMostrador } from "../ia/prompts";
 
 let schemaReady = false;
 
@@ -68,7 +69,7 @@ export async function ensureInventarioLocalSchema(sql: Sql): Promise<void> {
 
 function mapFila(row: Record<string, unknown>): FilaInventarioLocal | null {
   const sku = String(row.sku ?? "").trim();
-  const nombre_pieza = String(row.nombre_pieza ?? row.nombre ?? "").trim();
+  const nombre_pieza = mexicanizarMostrador(String(row.nombre_pieza ?? row.nombre ?? "").trim());
   if (!sku || !nombre_pieza) return null;
   return {
     sku,
@@ -358,7 +359,7 @@ export type ResultadoBusquedaInventario = {
 
 const SINONIMOS_OBJETO: Record<string, string[]> = {
   placa: ["placa", "embellecedor"],
-  apagador: ["apagador"],
+  apagador: ["apagador", "interruptor"],
   contacto: ["contacto", "tomacorriente", "enchufe"],
   foco: ["foco", "lampara", "luminaria"],
   cinta: ["cinta"],
@@ -377,21 +378,80 @@ function textoPlano(texto: string): string {
     .trim();
 }
 
+function blobIdentidad(pieza: IdentidadPieza | string): string {
+  if (typeof pieza === "string") return pieza;
+  return [pieza.nombre, pieza.medida, pieza.descripcion, pieza.mecanismo, pieza.material, ...(pieza.palabras_clave ?? [])].join(" ");
+}
+
+/** Quita «para apagador» de tapas vacías, que no son el aparato instalado. */
+function sinDestinoDePlaca(t: string): string {
+  return t
+    .replace(/\bpara\s+(un\s+|una\s+)?(apagador|interruptor|contacto|tomacorriente)s?\b/g, " ")
+    .replace(/\b(hueco|espacio|ventana|modulo)s?\s+(de\s+)?(apagador|interruptor|contacto)s?\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Teclas o palancas visibles: la pieza física, no la tapa vacía. */
+function tieneMecanismoElectrico(t: string): boolean {
+  if (/\b(termomagnet|pastilla)\b/.test(t)) return false;
+  return /\b(tecla|palancas?|mecanismo)\b/.test(t) || /\b(apagador|interruptor|contacto|tomacorriente)\b/.test(t);
+}
+
+function esPlacaVacia(sku: string, nombre: string): boolean {
+  const t = textoPlano(nombre);
+  if (/^plac[-_]/i.test(sku) && !/\b(tecla|palancas?|apagador|interruptor|contacto)\b/.test(t)) return true;
+  return /^(placa|tapa|embellecedor)\b/.test(t) && !/\b(tecla|palancas?|con (apagador|interruptor|contacto))\b/.test(t);
+}
+
+function esPiezaCompleta(sku: string, nombre: string): boolean {
+  const t = textoPlano(nombre);
+  if (/^plac[-_]/i.test(sku) || esPlacaVacia(sku, nombre)) return false;
+  if (/^tmt[-_]/i.test(sku) || /\b(termomagnet|pastilla)\b/.test(t)) return false;
+  if (/\btim\b/i.test(sku) || /\btimbre\b/.test(t)) return false;
+  if (/^(int|kit|mod|cont)[-_]/i.test(sku)) return true;
+  return /\b(apagador|interruptor|contacto|tecla|palanca|kit|juego)\b/.test(t);
+}
+
+function esContactoSinApagador(t: string): boolean {
+  return /\b(contacto|tomacorriente|enchufe)\b/.test(t) && !/\b(apagador|interruptor|tecla|palanca)\b/.test(t);
+}
+
+/** Apagador/contacto instalado o kit, aunque el modelo haya titulado «Placa de…». */
+function esPiezaCompuestaOInstalada(nombre: string, blob: string): boolean {
+  const start = textoPlano(nombre);
+  const t = sinDestinoDePlaca(textoPlano(blob));
+  if (/\b(termomagnet|pastilla|timbre)\b/.test(t) && !/\b(apagador|contacto|tecla)\b/.test(t)) return false;
+  if (/\b(tecla|palancas?)\b/.test(t)) return true;
+  if (/^(apagador|interruptor|contacto|kit|juego)\b/.test(start)) return true;
+  if (/\b(apagador|interruptor)\s+(sencillo|doble|triple|escalera)\b/.test(t)) return true;
+  if (/\bcontacto\s+(duplex|sencillo|doble)\b/.test(t)) return true;
+  if (/\bcon\s+(apagador|interruptor|contacto|teclas?|palancas?|mecanismo)/.test(t)) return true;
+  if (/\binstalad[oa]\b/.test(t) && /\b(apagador|interruptor|contacto)\b/.test(t)) return true;
+  return false;
+}
+
+function objetoElectricoInstalado(t: string): "apagador" | "contacto" {
+  return esContactoSinApagador(t) ? "contacto" : "apagador";
+}
+
 /** Lo que el cliente trae en la mano: placa, apagador, foco… no todo el pasillo. */
 export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
   const nombre = typeof pieza === "string" ? pieza : pieza.nombre ?? "";
-  const blob =
-    typeof pieza === "string"
-      ? pieza
-      : [pieza.nombre, pieza.medida, pieza.descripcion, ...(pieza.palabras_clave ?? [])].join(" ");
+  const blob = blobIdentidad(pieza);
   const t = textoPlano(blob);
   const start = textoPlano(nombre);
   if (!t) return null;
-  if (/\b(termomagnet|pastilla)\b/.test(t) && !/\b(apagador|placa|contacto)\b/.test(start)) return "breaker";
-  if (/\btimbre\b/.test(t) && !/\b(apagador|placa|contacto)\b/.test(t)) return "timbre";
+  if (/\b(termomagnet|pastilla)\b/.test(t) && !/\b(apagador|placa|contacto|tecla)\b/.test(start) && !/\b(tecla|palanca)\b/.test(t)) {
+    return "breaker";
+  }
+  if (/\btimbre\b/.test(t) && !/\b(apagador|placa|contacto|tecla)\b/.test(t)) return "timbre";
+  if (esPiezaCompuestaOInstalada(nombre, blob)) return objetoElectricoInstalado(sinDestinoDePlaca(t));
+  if (tieneMecanismoElectrico(sinDestinoDePlaca(t)) && !/^(placa|tapa|embellecedor)\b/.test(start)) {
+    return objetoElectricoInstalado(t);
+  }
   if (/^(placa|tapa|embellecedor)\b/.test(start) || /\bplaca de [1-4]\b/.test(t)) return "placa";
-  if (/^(kit|juego)\b/.test(start) && /\bplaca\b/.test(t)) return "placa";
-  if (/\bplaca\b/.test(t) && (gangasEnTexto(blob) ?? 0) >= 2) return "placa";
+  if (/^(kit|juego)\b/.test(start) && /\bplaca\b/.test(t) && !esPiezaCompuestaOInstalada(nombre, blob)) return "placa";
   if (/^apagador\b/.test(start)) return "apagador";
   if (/^interruptor\b/.test(start) && !/\b(termomagnet|pastilla)\b/.test(t)) return "apagador";
   if (/^(contacto|tomacorriente|enchufe)\b/.test(start)) return "contacto";
@@ -407,18 +467,57 @@ export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
   return null;
 }
 
+/** Si el modelo tituló «Placa de…» pero hay teclas, el nombre de mostrador es el aparato. */
+export function nombreMostradorCompuesto(pieza: IdentidadPieza): string {
+  const objeto = objetoMostrador(pieza);
+  const start = textoPlano(pieza.nombre);
+  if ((objeto === "apagador" || objeto === "contacto") && /^(placa|tapa|embellecedor)\b/.test(start)) {
+    const mods = gangasEnTexto(blobIdentidad(pieza));
+    const calibre = mods === 4 ? "cuádruple" : mods === 3 ? "triple" : mods === 2 ? "doble" : mods === 1 ? "sencillo" : "";
+    const base = objeto === "contacto" ? "Contacto" : "Apagador";
+    const acero = /\bacero\b/.test(textoPlano(`${pieza.nombre} ${pieza.material ?? ""}`));
+    const extra = acero ? " en placa de acero" : " con placa";
+    return mexicanizarMostrador(`${base} ${calibre}${extra}`.replace(/\s+/g, " ").trim());
+  }
+  return mexicanizarMostrador(pieza.nombre);
+}
+
 export function tokenSqlObjeto(objeto: string | null): string | null {
   if (!objeto) return null;
   if (objeto === "breaker") return "pastilla";
   if (objeto === "valvula") return "valvula";
+  if (objeto === "apagador") return "apagador";
   if (SINONIMOS_OBJETO[objeto]?.[0]) return SINONIMOS_OBJETO[objeto][0];
   return objeto;
 }
 
-function itemEsObjeto(nombre: string, objeto: string): boolean {
+function tokensSinAccesorioPlaca(tokens: string[], objeto: string | null): string[] {
+  if (objeto !== "apagador" && objeto !== "contacto") return tokens;
+  const filtrados = tokens.filter((token) => !["placa", "tapa", "embellecedor", "marco"].includes(token));
+  return filtrados.length > 0 ? filtrados : tokens;
+}
+
+function itemEsObjeto(nombre: string, objeto: string, sku = ""): boolean {
   const t = textoPlano(nombre);
+  const codigo = sku.toLowerCase();
+  if (objeto === "apagador") {
+    if (/\b(termomagnet|pastilla)\b/.test(t) || /^tmt[-_]/i.test(sku)) return false;
+    if (/\btimbre\b/.test(t) || /tim[-_]/i.test(codigo)) return false;
+    if (esPlacaVacia(sku, nombre)) return false;
+    if (/\b(apagador|interruptor)\b/.test(t) || /^(int|kit|mod)[-_]/i.test(sku)) return true;
+    return false;
+  }
+  if (objeto === "contacto") {
+    if (esPlacaVacia(sku, nombre)) return false;
+    return /\b(contacto|tomacorriente|enchufe)\b/.test(t) || /^cont[-_]/i.test(sku);
+  }
+  if (objeto === "placa") {
+    if (esPiezaCompleta(sku, nombre) && !/^(placa|tapa|embellecedor)\b/.test(t) && !/^plac[-_]/i.test(sku)) return false;
+    if ((SINONIMOS_OBJETO.placa ?? []).some((s) => t.includes(s)) || /^plac[-_]/i.test(sku)) return true;
+    if (/\b(kit|juego)\b/.test(t) && gangasEnTexto(nombre) && !tieneMecanismoElectrico(t)) return true;
+    return false;
+  }
   if ((SINONIMOS_OBJETO[objeto] ?? [objeto]).some((s) => t.includes(s))) return true;
-  if (objeto === "placa" && /\b(kit|juego)\b/.test(t) && gangasEnTexto(nombre)) return true;
   return false;
 }
 
@@ -438,19 +537,37 @@ function puntuarFilaMostrador(
     hits += 1;
     score += 1;
   }
-  const misma = !objetoFoto || itemEsObjeto(nombre, objetoFoto);
+  const misma = !objetoFoto || itemEsObjeto(nombre, objetoFoto, sku);
   score += misma ? 8 : -8;
   const modulosItem = gangasEnTexto(nombre);
   if (modulosFoto && modulosItem) {
     const dist = Math.abs(modulosFoto - modulosItem);
     score += dist === 0 ? 6 : -(dist * 4);
   }
+  if (objetoFoto === "apagador" || objetoFoto === "contacto") {
+    if (esPlacaVacia(sku, nombre)) score -= 20;
+    else if (esPiezaCompleta(sku, nombre)) score += 12;
+  }
   if (misma && objetoFoto === "placa") {
+    if (esPiezaCompleta(sku, nombre)) score -= 10;
     if (/\bapagador\b/.test(plano) && tokens.includes("apagador")) score += 2;
     if (/\bcontacto\b/.test(plano) && tokens.includes("contacto")) score += 2;
     if (/\bacero\b/.test(plano) && tokens.some((token) => token === "acero" || token === "inoxidable")) score += 2;
   }
   return { score, misma, hits };
+}
+
+function rankearHallazgosMostrador(
+  resultados: ResultadoBusquedaInventario[],
+  tokens: string[],
+  pieza: IdentidadPieza
+) {
+  const blobFoto = blobIdentidad(pieza);
+  const modulosFoto = gangasEnTexto(blobFoto);
+  const objetoFoto = objetoMostrador(pieza);
+  return resultados
+    .map((fila) => ({ fila, ...puntuarFilaMostrador(tokens, fila.nombre, fila.sku, modulosFoto, objetoFoto) }))
+    .sort((a, b) => b.score - a.score || b.hits - a.hits || b.fila.stock_disponible - a.fila.stock_disponible);
 }
 
 /** El mostrador pone 2–3 piezas del mismo tipo; el resto espera a que el cliente pida más. */
@@ -460,12 +577,7 @@ export function acotarHallazgosMostrador(
   pieza: IdentidadPieza
 ): { mejores: ResultadoBusquedaInventario[]; resto: ResultadoBusquedaInventario[] } {
   if (resultados.length === 0) return { mejores: [], resto: [] };
-  const blobFoto = [pieza.nombre, pieza.medida, pieza.descripcion, ...(pieza.palabras_clave ?? [])].join(" ");
-  const modulosFoto = gangasEnTexto(blobFoto);
-  const objetoFoto = objetoMostrador(pieza);
-  const ranked = resultados
-    .map((fila) => ({ fila, ...puntuarFilaMostrador(tokens, fila.nombre, fila.sku, modulosFoto, objetoFoto) }))
-    .sort((a, b) => b.score - a.score || b.hits - a.hits || b.fila.stock_disponible - a.fila.stock_disponible);
+  const ranked = rankearHallazgosMostrador(resultados, tokens, pieza);
   const deFamilia = ranked.filter((row) => row.misma && row.score > 0);
   const pool = deFamilia.length > 0 ? deFamilia : ranked.filter((row) => row.score > 0).slice(0, MAX_MOSTRADOR);
   const tope = pool[0]?.score ?? 0;
@@ -556,7 +668,11 @@ export function esPreguntaSeguimientoPieza(texto: string): boolean {
   if (!t) return false;
   if (esCorreccionCliente(texto)) return false;
   if (pideMasOpciones(texto)) return false;
-  if (/\b(la cuenta|el total|cuanto (es|sale|va|debo)|el pedido|ya (lo )?habia (pedido|elegido)|tambien .{0,24}pedi)\b/.test(t)) {
+  if (
+    /\b(la cuenta|el total|cuanto (es|sale|va|debo)|el pedido|mi pedido|el carrito|ya (lo )?habia (pedido|elegido)|tambien .{0,24}pedi|cuales? (son|articulos?|piezas?|llevo)|que (articulos?|llevo|pedi)|cuantos? (articulos?|piezas?|llevo))\b/.test(
+      t
+    )
+  ) {
     return false;
   }
   if (INTENTO_BUSQUEDA_RE.test(t) && !SEGUIMIENTO_RE.test(t)) return false;

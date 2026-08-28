@@ -127,16 +127,32 @@ export function snapshotPedido(lineas: LineaCarrito[]): SnapshotPedido {
 export function textoCuentaPedido(lineas: LineaCarrito[]): string {
   const snap = snapshotPedido(lineas);
   if (snap.lineas.length === 0) {
-    return "Aún no hay piezas en el pedido. Toca Elegir en las tarjetas para agregarlas y te digo el total.";
+    return "Aún no hay piezas en el pedido. Toca Elegir en las tarjetas para agregarlas y te digo cuáles llevas y el total.";
   }
   const lista = snap.lineas
-    .map((linea, i) => `${i + 1}) ${linea.nombre} x${linea.cantidad} — ${precioMx(linea.subtotal)}`)
+    .map(
+      (linea, i) =>
+        `${i + 1}) ${linea.nombre} (${linea.sku}) — ${linea.cantidad} pza · ${precioMx(linea.subtotal)}`
+    )
     .join("\n");
-  return `Tu pedido para recoger lleva ${snap.piezas} pza:\n\n${lista}\n\nTotal: ${snap.total_obligatorio}\n\n¿Lo apartamos o agregas algo más?`;
+  const articulos = snap.lineas.length === 1 ? "1 artículo" : `${snap.lineas.length} artículos`;
+  return `Estos son los artículos de tu pedido (${articulos}, ${snap.piezas} pza):\n\n${lista}\n\nTotal: ${snap.total_obligatorio}\n\n¿Lo apartamos o agregas algo más?`;
 }
 
-/** Piden la cuenta, el total o recuerdan que ya eligieron más de una pieza. */
-export function pideResumenPedido(texto: string): boolean {
+function esSeguimientoListaPedido(t: string, ultimoAsistente: string): boolean {
+  if (
+    !/^(y )?(cuales?( son)?( los)?( articulos?|piezas?|productos?)?|los nombres|la lista|repiteme|otra vez)[\s?!]*$/.test(
+      t
+    )
+  ) {
+    return false;
+  }
+  const prev = norm(ultimoAsistente);
+  return /\b(pedido|apartado|articulos?|carrito|total|cuenta|pza|elegiste|elegidas?)\b/.test(prev);
+}
+
+/** Piden la cuenta, el total, qué llevan o recuerdan que ya eligieron piezas. */
+export function pideResumenPedido(texto: string, ultimoAsistente = ""): boolean {
   const t = norm(texto);
   if (!t) return false;
   if (
@@ -146,9 +162,21 @@ export function pideResumenPedido(texto: string): boolean {
   ) {
     return true;
   }
-  return /\b(ya (lo |las |los )?(habia |he )?(pedido|elegido|agregado)|tambien .{0,24}(pedi|pedido|elegi|elegido)|ya estan en el pedido|lo que ya (elegi|pedi|agregue)|el pedido (completo|entero)|todo lo que pedi|pero (tambien |ya )?(pedi|ordene|elegi))\b/.test(
-    t
-  );
+  if (
+    /\b(cuantos? (articulos?|piezas?|productos?)( (son|hay|llevo|tengo|pedi|elegi|aparte))?|cuantos? (tengo|llevo) (apartado|en el pedido|en el carrito)|que (articulos?|piezas?|productos?)( (son|llevo|tengo|pedi|elegi|aparte))?|cuales? (articulos?|piezas?|productos?)( (son|llevo|tengo|pedi))?|cuales? llevo|que llevo|que pedi|que elegi|lo que (llevo|pedi|elegi|voy a llevar)|en el (pedido|carrito)|mi pedido|el pedido)\b/.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(ya (lo |las |los )?(habia |he )?(pedido|elegido|agregado)|tambien .{0,24}(pedi|pedido|elegi|elegido)|ya estan en el pedido|lo que ya (elegi|pedi|agregue)|el pedido (completo|entero)|todo lo que pedi|pero (tambien |ya )?(pedi|ordene|elegi))\b/.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return esSeguimientoListaPedido(t, ultimoAsistente);
 }
 
 export function parseBorradorApartado(value: unknown): BorradorApartado | null {
@@ -577,6 +605,7 @@ function mencionaProductoEspecifico(texto: string): boolean {
 }
 
 function aplicaAFlujo(texto: string, pendiente: BorradorApartado | null, historial: MensajeHilo[]): boolean {
+  if (pideResumenPedido(texto, ultimoAsistente(historial))) return false;
   if (pideApartar(texto) || afirmaApartado(texto, ultimoAsistente(historial)) || cancelaApartado(texto)) return true;
   return pareceRespuestaDatos(texto, pendiente, historial);
 }

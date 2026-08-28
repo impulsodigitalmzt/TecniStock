@@ -24,6 +24,7 @@ import {
   snapshotPedido,
   textoCuentaPedido,
   textoPedidoCarrito,
+  ultimoAsistente,
   type LineaCarrito,
 } from "../lib/apartados";
 import {
@@ -404,11 +405,11 @@ function fusionarHallazgosConversacion(stockFoto: BloqueStock, consulta: Consult
   return stockFoto;
 }
 
-function debeBuscarInventarioPorTexto(texto: string): boolean {
+function debeBuscarInventarioPorTexto(texto: string, ultimoAsistenteTexto = ""): boolean {
   if (pideApartar(texto) || cancelaApartado(texto) || pideMostrarProducto(texto)) return false;
   if (esSeleccionProducto(texto)) return false;
   if (pideMasOpciones(texto)) return false;
-  if (pideResumenPedido(texto)) return false;
+  if (pideResumenPedido(texto, ultimoAsistenteTexto)) return false;
   if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
   if (esCorreccionCliente(texto)) return true;
   return pideBusquedaNuevaInventario(texto);
@@ -608,6 +609,7 @@ async function responderConsultaCampo(
   const pedido = snapshotPedido(lineasPedido);
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
+  const ultimoChat = ultimoAsistente(historial);
   const stockFoto = await stockDesdeInventarioLocal(sql, consulta);
   const correccionCliente = esCorreccionCliente(texto);
   const verMas = pideMasOpciones(texto);
@@ -617,14 +619,14 @@ async function responderConsultaCampo(
   const seguimiento =
     !correccionCliente &&
     !verMas &&
-    !pideResumenPedido(texto) &&
+    !pideResumenPedido(texto, ultimoChat) &&
     (esPreguntaSeguimientoPieza(texto) || esSeleccionProducto(texto)) &&
-    !debeBuscarInventarioPorTexto(texto);
+    !debeBuscarInventarioPorTexto(texto, ultimoChat);
   let stockVivo = seguimiento
     ? stockParaSeguimiento(stockFoto, consulta, texto)
     : fusionarHallazgosConversacion(stockFoto, consulta);
 
-  if (debeBuscarInventarioPorTexto(texto) && (queryBusqueda || correccionCliente)) {
+  if (debeBuscarInventarioPorTexto(texto, ultimoChat) && (queryBusqueda || correccionCliente)) {
     const queryEfectiva = queryBusqueda || queryRespaldoCorreccion(consulta);
     resultadosBusqueda = await buscarInventarioLocal(sql, queryEfectiva, 40);
     if (resultadosBusqueda.length === 0 && correccionCliente) {
@@ -682,6 +684,11 @@ async function responderConsultaCampo(
     }
   }
 
+  if (pideResumenPedido(texto, ultimoChat)) {
+    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoCuentaPedido(lineasPedido));
+    return [userMsg, assistantMsg];
+  }
+
   const apartado = await procesarFlujoApartado({
     sql,
     consulta: {
@@ -699,11 +706,6 @@ async function responderConsultaCampo(
     return [userMsg, assistantMsg];
   }
 
-  if (pideResumenPedido(texto)) {
-    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoCuentaPedido(lineasPedido));
-    return [userMsg, assistantMsg];
-  }
-
   const piezas = cantidadStock(stockParaFicha);
   let respuesta = "";
   try {
@@ -713,7 +715,7 @@ async function responderConsultaCampo(
         { role: "system", content: PROMPT_CHAT_CAMPO },
         {
           role: "user",
-          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pide la cuenta, el total o dice que ya había pedido más cosas, responde con esas líneas y copia pedido.total_obligatorio; PROHIBIDO preguntar qué más pidió si ya está en pedido. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pregunta cuántos o cuáles artículos lleva, lista CADA línea de pedido.lineas (nombre, SKU, cantidad, subtotal) y copia pedido.total_obligatorio; PROHIBIDO inventar cantidades o decir solo el número. PROHIBIDO preguntar qué más pidió si ya está en pedido. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
           correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,
@@ -777,7 +779,9 @@ async function responderConsultaCampo(
         message: error instanceof Error ? error.message : "unknown",
       })
     );
-    if (alternativas.length > 0) {
+    if (lineasPedido.length > 0 && /\b(pedido|carrito|art[ií]culos?|cu[aá]les|llevo|apartado)\b/i.test(texto)) {
+      respuesta = textoCuentaPedido(lineasPedido);
+    } else if (alternativas.length > 0) {
       respuesta = `En anaquel veo: ${alternativas.map((item) => item.nombre).join(", ")}. ¿Cuál agregamos al pedido o generamos el apartado para recoger en tienda?`;
     } else if (stockParaFicha.encontrado && stockParaFicha.nombre) {
       respuesta = `Sobre ${stockParaFicha.nombre}: hay ${piezas} pza en inventario local. ¿Lo agregamos al apartado para recoger en tienda?`;
