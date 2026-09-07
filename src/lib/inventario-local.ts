@@ -709,15 +709,15 @@ export function esCorreccionCliente(texto: string): boolean {
   return true;
 }
 
-/** Amplía la consulta cuando piden el completo / 2 vías / no la placa. */
+/** Amplía la consulta con las palabras del cliente. No inyecta una familia (apagador, contacto, etc.). */
 export function reescribirConsultaVenta(texto: string): string {
   const t = normalizarBusqueda(texto);
   let q = extraerConsultaInventario(texto);
   if (/\b(completo|mecanismo|no solo|no la placa|no es la placa|armado|el kit)\b/.test(t)) {
-    q = `${q} interruptor apagador mecanismo doble`.trim();
+    q = `${q} mecanismo`.trim();
   }
   if (/\b(dos vias|2 vias|de dos vias|tres vias|3 vias|escalera)\b/.test(t)) {
-    q = `${q} interruptor apagador doble escalera 3 vias`.trim();
+    q = `${q} escalera`.trim();
   }
   return q.replace(/\s+/g, " ").trim().slice(0, 120);
 }

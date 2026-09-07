@@ -433,12 +433,13 @@ function lineasPedidoActual(consulta: ConsultaCampo, raw: unknown): LineaCarrito
 }
 
 function queryRespaldoCorreccion(consulta: ConsultaCampo): string {
-  const nombre = [consulta.pieza_nombre, consulta.pieza_categoria].filter(Boolean).join(" ");
-  const fam = familiaCatalogo(nombre);
-  if (fam === "placa" || /\b(placa|tapa|embellecedor)\b/i.test(nombre)) {
-    return "apagador doble mecanismo 2 modulos 2 espacios";
-  }
-  return extraerConsultaInventario(nombre) || "interruptor apagador";
+  const pieza = consulta.pieza ?? {};
+  const claves = Array.isArray(pieza.palabras_clave) ? pieza.palabras_clave.map((item) => String(item)) : [];
+  const desdeFoto = [pieza.producto_venta, pieza.nombre, consulta.pieza_nombre, ...claves]
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return extraerConsultaInventario(desdeFoto) || extraerConsultaInventario(consulta.pieza_nombre) || consulta.pieza_nombre;
 }
 
 function stockParaSeguimiento(stockFoto: BloqueStock, consulta: ConsultaCampo, texto: string): BloqueStock {

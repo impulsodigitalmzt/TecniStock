@@ -1,4 +1,4 @@
-import catalogJson from "../data/mock-stock.json" with { type: "json" };
+const MONEDA = "MXN";
 
 export type CategoriaPieza = "ferreteria" | "electricidad" | "plomeria" | "otro";
 
@@ -72,15 +72,6 @@ export type IdentidadPieza = {
   mecanismo?: string;
   producto_venta?: string;
 };
-
-type Catalogo = {
-  moneda?: string;
-  piezas: StockItem[];
-};
-
-const catalogo = catalogJson as Catalogo;
-const MONEDA = catalogo.moneda || "MXN";
-const PIEZAS = catalogo.piezas ?? [];
 
 function quitarAcentos(texto: string): string {
   return texto.normalize("NFD").replace(/\p{M}/gu, "");

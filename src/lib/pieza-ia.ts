@@ -2,7 +2,6 @@ import { AppError } from "./errors";
 import { GROQ_CHAT_URL, claveApiGroq, parseJsonObject } from "./groq";
 import { GROQ_CHAT_TIMEOUT_MS, fetchTimeout, isTimeoutError } from "./edge";
 import { compactarTextoAsesor, mexicanizarMostrador, PROMPT_ANALISIS_VISUAL, USER_PROMPT_ANALISIS_VISUAL, MENSAJE_FUERA_DE_GIRO } from "../ia/prompts";
-import { esPiezaVozDatos, nombreMostradorCompuesto } from "./inventario-local";
 
 /**
  * Groq visión actual (console.groq.com/docs/vision): Qwen 3.6 / 3.8.
@@ -204,83 +203,6 @@ function esRechazoGiro(raw: Record<string, unknown>): boolean {
   );
 }
 
-const DATOS_CLAVE_RE = /^(rj45|rj11|rj12|jack|datos|ethernet|keystone|red|informatica)$/i;
-
-export function leerConexionVisible(raw: unknown): "clavija_127" | "jack_red" | "tecla_apagador" | "ninguna" | "otra" | "" {
-  const t = texto(raw)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^a-z0-9]+/g, "_");
-  if (/clavija|tomacorriente|127|contacto/.test(t)) return "clavija_127";
-  if (/jack_red|rj45|rj11|keystone|voz_y_datos|ethernet/.test(t)) return "jack_red";
-  if (/tecla|apagador|palanca/.test(t)) return "tecla_apagador";
-  if (/ningun/.test(t)) return "ninguna";
-  if (/otra/.test(t)) return "otra";
-  return "";
-}
-
-function evidenciaClavija127(textoPlano: string): boolean {
-  const t = textoPlano
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
-  return (
-    /\b(clavija|tomacorriente|127\s*v|palas?( planas)?|orificios? de (corriente|127)|cable de (corriente|alimentacion|poder)|enchufe de corriente)\b/.test(
-      t
-    ) || (/\benchufe\b/.test(t) && !/\b(red|datos|rj|ethernet|jack)\b/.test(t))
-  );
-}
-
-function leerEtiqueta(raw: unknown, etiquetas: string[]): string {
-  const t = texto(raw)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^a-z0-9]+/g, "_");
-  return etiquetas.find((item) => t === item || t.includes(item)) ?? "";
-}
-
-/** Forma del enchufe gana al nombre de catálogo: grande/grueso/palas = contacto. */
-function familiaPorObservables(pieza: {
-  conector_tamano?: string;
-  cable_grosor?: string;
-  conector_pines?: string;
-}): "contacto" | "datos" | "" {
-  const tamano = leerEtiqueta(pieza.conector_tamano, ["grande", "chico", "no_hay"]);
-  const grosor = leerEtiqueta(pieza.cable_grosor, ["grueso", "delgado", "no_hay"]);
-  const pines = leerEtiqueta(pieza.conector_pines, ["palas", "ocho", "no_visible", "no_hay"]);
-  if (pines === "palas" || tamano === "grande" || grosor === "grueso") return "contacto";
-  if (pines === "ocho" && tamano !== "grande" && grosor !== "grueso") return "datos";
-  if (tamano === "chico" && grosor === "delgado" && pines !== "palas") return "datos";
-  return "";
-}
-
-function listaModulosVistos(raw: unknown): string[] {
-  const fuente = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,/|]+/) : [];
-  const out: string[] = [];
-  for (const item of fuente) {
-    const t = texto(item)
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/\p{M}/gu, "");
-    if (/\b(apagador|interruptor|tecla|palanca)\b/.test(t)) out.push("apagador");
-    else if (/\b(contacto|tomacorriente|enchufe|clavija|127)\b/.test(t)) out.push("contacto");
-    else if (/\b(jack|rj45|datos|red|keystone)\b/.test(t)) out.push("jack_red");
-    else if (/\b(tapa|ciega|ciego|blanco|vacio)\b/.test(t)) out.push("tapa_ciega");
-    else if (t) out.push("otro");
-  }
-  return out;
-}
-
-function mencionaApagador(textoPlano: string): boolean {
-  return /\b(apagador|interruptor|tecla|palanca)\b/i.test(textoPlano);
-}
-
-function mencionaContacto(textoPlano: string): boolean {
-  return /\b(contacto|tomacorriente|enchufe|clavija|127)\b/i.test(textoPlano);
-}
-
 function sinMarcaVacia(valor: string): string {
   const t = valor.trim();
   if (!t) return "";
@@ -288,122 +210,24 @@ function sinMarcaVacia(valor: string): string {
   return t;
 }
 
-/** Si el modelo mezcla familias, gana lo enchufado: clavija 127 V no es RJ45. No borra un apagador vecino. */
-export function alinearIdentificacionElectrica(pieza: {
-  nombre: string;
-  producto_venta: string;
-  accesorios_visibles: string;
-  descripcion: string;
-  mecanismo: string;
-  palabras_clave: string[];
-  conexion_visible?: string;
-  conector_tamano?: string;
-  cable_grosor?: string;
-  conector_pines?: string;
-  modulos_vistos?: string[];
-}): {
-  nombre: string;
-  producto_venta: string;
-  descripcion: string;
-  mecanismo: string;
-  palabras_clave: string[];
-  vozDatos: boolean;
-} {
-  const conexion = leerConexionVisible(pieza.conexion_visible);
-  const familiaObs = familiaPorObservables(pieza);
-  const modulos = pieza.modulos_vistos ?? [];
-  const senales = `${pieza.accesorios_visibles} ${pieza.nombre} ${pieza.descripcion} ${pieza.mecanismo} ${pieza.producto_venta} ${modulos.join(" ")}`;
-  const hayClavija =
-    familiaObs === "contacto" ||
-    conexion === "clavija_127" ||
-    modulos.includes("contacto") ||
-    evidenciaClavija127(`${pieza.accesorios_visibles} ${pieza.descripcion}`);
-  const hayTecla =
-    conexion === "tecla_apagador" ||
-    modulos.includes("apagador") ||
-    mencionaApagador(senales);
-  const hayJack =
-    familiaObs !== "contacto" &&
-    !hayTecla &&
-    (familiaObs === "datos" || conexion === "jack_red" || modulos.includes("jack_red") || esPiezaVozDatos(senales));
+const NEGATIVO_COMPARACION_RE =
+  /\b(no\s+(hay|se\s+(ve(n)?|observan?|aprecian?)|cuenta\s+con|es)|sin|ausencia\s+de|tampoco\s+hay)\b.{0,48}\b(contactos?|tomacorrientes?|apagadores?|jacks?(?:\s+de\s+red)?|rj\s?-?\s?45|voz\s+y\s+datos|placa\s+de\s+red)\b/i;
 
-  if (hayTecla && (hayClavija || mencionaContacto(senales))) {
-    const palabras = pieza.palabras_clave.filter((item) => !DATOS_CLAVE_RE.test(item));
-    if (!palabras.some((item) => /^apagador$/i.test(item))) palabras.unshift("apagador");
-    if (!palabras.some((item) => /^contacto$/i.test(item))) palabras.unshift("contacto");
-    const nombraAmbos = mencionaApagador(pieza.nombre) && mencionaContacto(pieza.nombre);
-    const mecanismo = sinMarcaVacia(pieza.mecanismo) || "apagador y tomacorriente 127 V";
-    return {
-      nombre: nombraAmbos ? pieza.nombre : "Placa con apagador y contacto",
-      producto_venta:
-        mencionaApagador(pieza.producto_venta) && mencionaContacto(pieza.producto_venta)
-          ? pieza.producto_venta
-          : "apagador y contacto",
-      descripcion: pieza.descripcion,
-      mecanismo: /rj\s?-?\s?45|jack de red|keystone/i.test(mecanismo) ? "apagador y tomacorriente 127 V" : mecanismo,
-      palabras_clave: palabras,
-      vozDatos: false,
-    };
-  }
-
-  if (hayClavija && !hayTecla) {
-    const duplex = /\bd[uú]plex\b/i.test(senales);
-    const nombre = /^(contacto|tomacorriente|enchufe)\b/i.test(pieza.nombre)
-      ? pieza.nombre
-      : duplex
-        ? "Contacto dúplex"
-        : "Contacto";
-    const mecanismoRaw = sinMarcaVacia(pieza.mecanismo);
-    const mecanismo = /rj\s?-?\s?45|jack|voz y datos|keystone/i.test(mecanismoRaw)
-      ? "orificios 127 V"
-      : mecanismoRaw;
-    const palabras = pieza.palabras_clave.filter((item) => !DATOS_CLAVE_RE.test(item));
-    if (!palabras.some((item) => /^contacto$/i.test(item))) palabras.unshift("contacto");
-    const descripcion = /rj\s?-?\s?45|voz y datos|jack de red|keystone/i.test(pieza.descripcion)
-      ? `Contacto de 127 V${duplex ? " dúplex" : ""}. La clavija enchufada es accesorio, no el producto.`
-      : pieza.descripcion;
-    return {
-      nombre,
-      producto_venta: /^(contacto|tomacorriente)\b/i.test(pieza.producto_venta) ? pieza.producto_venta : "contacto",
-      descripcion,
-      mecanismo,
-      palabras_clave: palabras,
-      vozDatos: false,
-    };
-  }
-
-  if (hayJack && !hayTecla) {
-    const nombre = /^(contacto|apagador|enchufe|tomacorriente)\b/i.test(pieza.nombre)
-      ? pieza.producto_venta && esPiezaVozDatos(pieza.producto_venta)
-        ? pieza.producto_venta
-        : "Placa de voz y datos"
-      : pieza.nombre;
-    const palabras = pieza.palabras_clave.filter((item) => !/^(cable|ethernet|patch|latiguillo|utp)$/i.test(item));
-    return {
-      nombre,
-      producto_venta: pieza.producto_venta || nombre,
-      descripcion: pieza.descripcion,
-      mecanismo: pieza.mecanismo,
-      palabras_clave: palabras,
-      vozDatos: true,
-    };
-  }
-
-  return {
-    nombre: pieza.nombre,
-    producto_venta: pieza.producto_venta,
-    descripcion: pieza.descripcion,
-    mecanismo: pieza.mecanismo,
-    palabras_clave: pieza.palabras_clave,
-    vozDatos: false,
-  };
+/** La ficha solo dice lo que se ve. Quita frases de comparación («no hay contactos…»). */
+export function sinNegativosDeComparacion(texto: string): string {
+  if (!texto) return texto;
+  const partes = texto
+    .split(/(?<=[.!?])\s+/)
+    .map((parte) => parte.trim())
+    .filter((parte) => parte && !NEGATIVO_COMPARACION_RE.test(parte));
+  return partes.join(" ").replace(/\s{2,}/g, " ").trim();
 }
 
 function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
   if (esRechazoGiro(raw)) {
     throw new AppError(422, MENSAJE_FUERA_DE_GIRO, "FUERA_DE_GIRO");
   }
-  const nombre = texto(raw.nombre || raw.nombre_pieza || raw.pieza);
+  const nombre = mexicanizarMostrador(texto(raw.nombre || raw.nombre_pieza || raw.pieza));
   if (!nombre) {
     throw new AppError(502, "La IA no identificó el nombre de la pieza.", "PIEZA_SIN_NOMBRE");
   }
@@ -413,69 +237,34 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
       ? confianzaRaw
       : Number.parseFloat(texto(confianzaRaw)) || 0;
   const { descripcion, pregunta } = conPregunta(
-    texto(raw.descripcion || raw.observaciones || raw.notas || raw.pregunta)
+    sinNegativosDeComparacion(texto(raw.descripcion || raw.observaciones || raw.notas || raw.pregunta))
   );
   const productoVenta = mexicanizarMostrador(texto(raw.producto_venta || raw.objeto_venta || raw.busqueda));
   const accesoriosVisibles = mexicanizarMostrador(texto(raw.accesorios_visibles || raw.accesorios));
-  const clavesModelo = palabrasClave(raw.palabras_clave);
-  const mecanismo = mexicanizarMostrador(texto(raw.mecanismo));
-  const nombreMx = mexicanizarMostrador(nombre);
-  const descripcionMx = mexicanizarMostrador(descripcion);
-  const alineada = alinearIdentificacionElectrica({
-    nombre: nombreMx,
-    producto_venta: productoVenta,
-    accesorios_visibles: accesoriosVisibles,
-    descripcion: descripcionMx,
-    mecanismo,
-    palabras_clave: clavesModelo,
-    conexion_visible: texto(raw.conexion_visible || raw.conexion),
-    conector_tamano: texto(raw.conector_tamano),
-    cable_grosor: texto(raw.cable_grosor),
-    conector_pines: texto(raw.conector_pines),
-    modulos_vistos: listaModulosVistos(raw.modulos_vistos || raw.modulos_visibles),
-  });
-  const extras = [raw.rosca, alineada.mecanismo, raw.acabado, raw.marca]
+  const mecanismo = sinMarcaVacia(mexicanizarMostrador(texto(raw.mecanismo)));
+  const extras = [raw.rosca, mecanismo, raw.acabado, raw.marca]
     .map((item) => texto(item))
     .filter((item) => item && item.split(/\s+/).length <= 2);
-  const palabrasFuente = alineada.vozDatos
-    ? [...alineada.palabras_clave, alineada.producto_venta, ...extras]
-    : [...alineada.palabras_clave, alineada.producto_venta, ...extras].filter((item) => !DATOS_CLAVE_RE.test(item));
   const palabras_clave = entidadesSueltas(
-    palabrasFuente.length ? palabrasFuente : [alineada.producto_venta || alineada.nombre]
+    [...palabrasClave(raw.palabras_clave), productoVenta, ...extras].filter(Boolean)
   );
-  const nombreFinal = alineada.vozDatos
-    ? alineada.nombre
-    : nombreMostradorCompuesto({
-        nombre: alineada.nombre,
-        material: texto(raw.material) || "No determinado",
-        medida: mexicanizarMostrador(sinMarcaVacia(texto(raw.medida || raw.medida_detectada))),
-        descripcion: alineada.descripcion,
-        mecanismo: alineada.mecanismo,
-        palabras_clave,
-        producto_venta: alineada.producto_venta,
-      });
-  if (!alineada.vozDatos && /^apagador\b/i.test(nombreFinal) && !palabras_clave.some((item) => /^apagador$/i.test(item))) {
-    palabras_clave.unshift("apagador");
-  }
-  if (!alineada.vozDatos && /^contacto\b/i.test(nombreFinal) && !palabras_clave.some((item) => /^contacto$/i.test(item))) {
-    palabras_clave.unshift("contacto");
-  }
+  const descripcionMx = mexicanizarMostrador(descripcion);
   return {
-    nombre: nombreFinal,
-    producto_venta: alineada.producto_venta || nombreFinal,
+    nombre,
+    producto_venta: productoVenta || nombre,
     accesorios_visibles: accesoriosVisibles,
     material: texto(raw.material) || "No determinado",
     medida: mexicanizarMostrador(sinMarcaVacia(texto(raw.medida || raw.medida_detectada))),
     categoria: categoriaAbierta(raw.categoria),
     rosca: sinMarcaVacia(texto(raw.rosca)),
-    mecanismo: sinMarcaVacia(alineada.mecanismo),
+    mecanismo,
     acabado: sinMarcaVacia(texto(raw.acabado)),
     marca: sinMarcaVacia(texto(raw.marca)),
-    descripcion: alineada.descripcion,
+    descripcion: descripcionMx,
     pregunta,
-    observaciones: alineada.descripcion,
+    observaciones: descripcionMx,
     confianza: Math.max(0, Math.min(1, confianza)),
-    palabras_clave,
+    palabras_clave: palabras_clave.length ? palabras_clave : entidadesSueltas([productoVenta || nombre]),
   };
 }
 
