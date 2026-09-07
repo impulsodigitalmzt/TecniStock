@@ -1,3 +1,0 @@
--- This file is no longer used.
--- Official schema: db/schema.sql (Neon / PostgreSQL).
--- The Worker applies it idempotently via src/lib/expediente-schema.ts.
