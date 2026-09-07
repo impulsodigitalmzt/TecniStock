@@ -134,7 +134,7 @@
     @apply relative mx-auto w-full max-w-lg px-4 pb-8;
   }
   .mostrador-header {
-    @apply shrink-0 bg-stone-950 text-white px-5 pt-8 pb-7 lg:px-6 lg:pt-5 lg:pb-4;
+    @apply sticky top-0 z-30 shrink-0 bg-stone-950 text-white px-5 pt-8 pb-7 lg:px-6 lg:pt-5 lg:pb-4;
   }
   .mostrador-main {
     @apply mx-auto w-full max-w-lg px-4 -mt-4 pb-8 space-y-3;
@@ -372,8 +372,7 @@ body, #root {
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    overflow: hidden;
     padding: 1rem;
     border-right: 1px solid #e7e5e4;
   }
@@ -383,8 +382,15 @@ body, #root {
   }
 
   .mostrador-shell.es-pc .mostrador-header {
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 20;
     padding: 0 0 0.75rem;
-    background-color: transparent !important;
+    background-color: #f5f5f4 !important;
+  }
+  html.dark .mostrador-shell.es-pc .mostrador-header {
+    background-color: #0b141a !important;
   }
   html:not(.dark) .mostrador-shell.es-pc .mostrador-header {
     color: #1c1917;
@@ -408,6 +414,9 @@ body, #root {
     margin: 0;
     padding: 0 0 0.5rem;
     flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .mostrador-shell.es-pc .mostrador-col-der {

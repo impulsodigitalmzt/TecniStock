@@ -1608,7 +1608,7 @@ export default function App() {
 
   return (
     <div className="mostrador-shell es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]">
-      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-y-auto">
+      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-hidden lg:min-h-0">
       <header className="mostrador-header">
         <div className="mx-auto max-w-lg lg:mx-0 lg:max-w-none">
           <div className="flex items-center gap-3 mb-4 lg:mb-2">
@@ -1654,7 +1654,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mostrador-main">
+      <main className="mostrador-main lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {avisoMiniatura || error ? (
           <div className="mostrador-alerta space-y-3">
             {avisoMiniatura ? (
