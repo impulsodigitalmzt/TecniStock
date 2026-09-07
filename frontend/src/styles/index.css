@@ -139,6 +139,22 @@
   .mostrador-main {
     @apply mx-auto w-full max-w-lg px-4 -mt-4 pb-8 space-y-3;
   }
+  @media (max-width: 1023px) {
+    .mostrador-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 40;
+      padding-top: max(1.5rem, env(safe-area-inset-top));
+    }
+    .mostrador-header-suelo {
+      min-height: 13.5rem;
+    }
+    .mostrador-main {
+      margin-top: 0;
+    }
+  }
   .mostrador-analisis {
     @apply space-y-3;
   }
@@ -359,9 +375,9 @@
   }
 }
 
-/* Prevent horizontal overflow on mobile */
+/* clip no crea un contenedor de scroll, así el header fixed/sticky no se va con la página */
 body, #root {
-  overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100vw;
 }
 

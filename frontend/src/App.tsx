@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AlertCircle, Camera, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
   MessageCircle, Mic, Moon, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Sun, Tag, Trash2, Wrench, X,
@@ -755,6 +755,28 @@ export default function App() {
   const topeGrabacionRef = useRef<number | null>(null);
   const extGrabacionRef = useRef('webm');
   const omitirEnvioVozRef = useRef(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const [altoHeaderMovil, setAltoHeaderMovil] = useState(216);
+
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const medir = () => {
+      if (window.matchMedia('(min-width: 1024px)').matches) {
+        setAltoHeaderMovil(0);
+        return;
+      }
+      setAltoHeaderMovil(el.getBoundingClientRect().height);
+    };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    window.addEventListener('resize', medir);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', medir);
+    };
+  }, []);
 
   const soltarUrlsLocales = () => {
     urlsLocalesRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -1602,7 +1624,7 @@ export default function App() {
   return (
     <div className="mostrador-shell es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]">
       <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-visible lg:min-h-0">
-      <header className="mostrador-header">
+      <header ref={headerRef} className="mostrador-header">
         <div className="mx-auto max-w-lg lg:mx-0 lg:max-w-none">
           <div className="flex items-center gap-3 mb-4 lg:mb-2">
             <span className="flex h-12 w-12 lg:h-10 lg:w-10 items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30">
@@ -1667,6 +1689,7 @@ export default function App() {
           </div>
         </div>
       </header>
+      <div className="mostrador-header-suelo lg:hidden" style={{ height: altoHeaderMovil }} aria-hidden="true" />
 
       <main className="mostrador-main lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {avisoMiniatura || error ? (
