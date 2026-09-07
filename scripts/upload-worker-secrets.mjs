@@ -7,14 +7,7 @@ import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { assertDatabaseTecniStock, loadDevVars } from "./lib/tecnistock-db.mjs";
 
-const SECRET_NAMES = new Set([
-  "SECRET_KEY",
-  "GROQ_API_KEY",
-  "WHATSAPP_TOKEN",
-  "VERIFY_TOKEN",
-  "WHATSAPP_APP_SECRET",
-  "DATABASE_URL",
-]);
+const SECRET_NAMES = new Set(["GROQ_API_KEY", "DATABASE_URL"]);
 
 const root = process.cwd();
 const raw = readFileSync(resolve(root, ".dev.vars"), "utf8");

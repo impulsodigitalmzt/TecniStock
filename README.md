@@ -1,74 +1,19 @@
-# MedScribe — AI-Powered Ambient Clinical Documentation Platform
+# TecniStock
 
-> **Transform clinical conversations into polished medical notes — automatically.**
+Vendedor de mostrador 24/7 para ferretería, electricidad y plomería.
 
-MedScribe listens to doctor–patient conversations in real time, extracts clinically relevant content, filters noise and small talk, and generates structured, professional clinical notes that physicians can review, edit, approve, and export as PDF.
+1. El técnico fotografía la pieza.
+2. Groq visión describe lo que se ve.
+3. El anaquel sale solo de Neon `inventario_local`.
+4. El chat arma el pedido o el apartado con ese snapshot.
 
-## ⚕️ What MedScribe Is
-
-- An AI-powered **clinical documentation copilot**
-- A tool that **documents** what is said during clinical encounters
-- A system that places the **physician in full control** of the final output
-
-## 🚫 What MedScribe Is NOT
-
-- NOT a clinical decision-maker
-- NOT a diagnostic tool
-- NOT a treatment recommender
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│           Frontend (React/TS) — static assets           │
-│  Splash → Login → Dashboard → Encounter → Review → PDF  │
-└─────────────────┬───────────────────────────────────────┘
-                  │ same origin (Cloudflare Worker)
-┌─────────────────▼───────────────────────────────────────┐
-│         Cloudflare Worker (Hono / Edge runtime)         │
-│  Auth → Transcript → Groq note → PDF → WhatsApp webhook │
-└─────────────┬───────────────────────────┬───────────────┘
-              │                           │
-              ▼                           ▼
-        Neon (PostgreSQL)           Groq + Meta Graph
-```
-
-## Quick Start
+## Arranque
 
 ```bash
-cp .env.example .dev.vars   # fill secrets
+cp .env.example .dev.vars
 npm install
-cd frontend && npm install && cd ..
-npx wrangler types
-npm run dev                      # http://localhost:8787
+npm run build:vite --prefix frontend
+npm run dev
 ```
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the Neon schema, secrets, and the Meta webhook.
-
-## Tech Stack
-
-| Layer      | Technology                                         |
-|------------|----------------------------------------------------|
-| Frontend   | React 18, TypeScript, Tailwind CSS, Vite           |
-| Runtime    | Cloudflare Workers (Hono, `nodejs_compat`)         |
-| AI Engine  | Groq (chat + Whisper)                              |
-| Messaging  | WhatsApp Cloud API                                 |
-| Audio      | Web Speech API + Worker WebSocket                  |
-| PDF Export | pdf-lib (Edge-compatible)                          |
-| Auth       | JWT (jose) + PBKDF2 (Web Crypto)                   |
-| Database   | Neon PostgreSQL (`@neondatabase/serverless` HTTP)  |
-
-## Security
-
-- HTTPS enforced on all connections
-- JWT with 15-minute access tokens and refresh rotation
-- PBKDF2-SHA256 password hashing (Web Crypto)
-- RBAC: Physician, Nurse, Admin, System roles
-- No PHI in logs, errors, or telemetry
-- TLS 1.2+ for all data in transit
-- Encryption at rest for stored encounter data
-- Append-only immutable audit logs
-
-## License
-
-Proprietary — For internal development use only.
+Secretos de producción: `DATABASE_URL` y `GROQ_API_KEY` (`npx wrangler secret put …`).

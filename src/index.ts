@@ -1,17 +1,8 @@
 import { Hono } from "hono";
-import { authRoutes } from "./routes/auth";
 import { analizarRoutes } from "./routes/analizar";
-import { inventarioEspejoRoutes } from "./routes/inventario-espejo";
 import { inventarioLocalRoutes } from "./routes/inventario-local";
 import { consultasCampoRoutes } from "./routes/consultas-campo";
-import { consultaRoutes } from "./routes/consultas";
-import { encounterRoutes } from "./routes/encounters";
-import { pacienteRoutes } from "./routes/pacientes";
-import { templateRoutes } from "./routes/templates";
-import { whatsappRoutes } from "./routes/whatsapp";
-import { handleAudioWebSocket } from "./routes/ws";
 import { isAppError } from "./lib/errors";
-import { isNom004Error, NORMA_EXPEDIENTE } from "./lib/guardia-legal";
 import { allowedBrowserOrigin, applyCorsHeaders, applySecurityHeaders } from "./lib/edge";
 import { createSql } from "./db";
 import { ensureConsultasCampoSchema, purgarConsultasVencidas } from "./lib/consultas-campo";
@@ -51,33 +42,12 @@ api.get("/", (c) =>
 
 api.route("/api/analizar", analizarRoutes);
 api.route("/api/inventario-local", inventarioLocalRoutes);
-api.route("/api/inventario-espejo", inventarioEspejoRoutes);
 api.route("/api/consultas", consultasCampoRoutes);
-api.route("/api/v1/auth", authRoutes);
-api.route("/api/v1/encounters", encounterRoutes);
-api.route("/api/v1/templates", templateRoutes);
-api.route("/api/pacientes", pacienteRoutes);
-api.route("/api/consultas-medicas", consultaRoutes);
-api.route("/webhook/whatsapp", whatsappRoutes);
 
 api.notFound((c) => c.json({ detail: "The requested resource was not found." }, 404));
 
 api.onError((err, c) => {
   console.log(err);
-  if (isNom004Error(err)) {
-    return c.json(
-      {
-        ok: false,
-        code: err.code,
-        detail: err.message,
-        norma: NORMA_EXPEDIENTE,
-        faltantes: err.faltantes,
-        guia: err.guia,
-        nota: err.nota ?? null,
-      },
-      err.status
-    );
-  }
   if (isAppError(err)) {
     return c.json({ ok: false, detail: err.message, code: err.code }, err.status);
   }
@@ -96,20 +66,12 @@ api.onError((err, c) => {
 });
 
 function isWorkerPath(pathname: string): boolean {
-  return (
-    pathname.startsWith("/api/") ||
-    pathname.startsWith("/webhook/") ||
-    pathname === "/health" ||
-    pathname === "/health/"
-  );
+  return pathname.startsWith("/api/") || pathname === "/health" || pathname === "/health/";
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname.startsWith("/api/v1/ws/audio/")) {
-      return handleAudioWebSocket(request, env);
-    }
     const mutating = request.method !== "GET" && request.method !== "HEAD";
     if (isWorkerPath(url.pathname) || mutating) {
       return api.fetch(request, env, ctx);

@@ -1,9 +1,9 @@
 ﻿import type { Sql } from "../db.js";
-import { estadoDesdeStock } from "./productos-schema";
 import {
   gangasEnTexto,
   type BloqueStock,
   type IdentidadPieza,
+  estadoDesdeStock,
   type StockItem,
 } from "./stock";
 import { mexicanizarMostrador } from "../ia/prompts";

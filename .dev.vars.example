@@ -1,11 +1,7 @@
-# Copy to .dev.vars (gitignored) and fill real values for wrangler dev.
-SECRET_KEY=CHANGE_ME_TO_A_RANDOM_64_CHAR_STRING
+# Copia a .dev.vars (no se sube a git).
 # Neon de TecniStock (ep-silent-hat). Nunca uses MediEscribe (ep-bitter-moon).
-# No dejes una línea comentada DATABASE_URL= de otro proyecto: Wrangler puede cargarla.
 # DATABASE_URL=postgresql://USER:PASSWORD@ep-silent-hat-XXXX-pooler.REGION.aws.neon.tech/neondb?sslmode=require
 GROQ_API_KEY=YOUR_GROQ_API_KEY
 GROQ_MODEL=openai/gpt-oss-120b
 GROQ_VISION_MODEL=qwen/qwen3.6-27b
-WHATSAPP_TOKEN=YOUR_WHATSAPP_CLOUD_API_TOKEN
-VERIFY_TOKEN=token_secreto_123
-WHATSAPP_APP_SECRET=YOUR_META_APP_SECRET
+GROQ_WHISPER_MODEL=whisper-large-v3

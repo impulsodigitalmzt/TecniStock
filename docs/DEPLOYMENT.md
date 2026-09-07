@@ -1,21 +1,18 @@
 # TecniStock Deployment — Cloudflare Workers
 
 The production runtime is a single Cloudflare Worker that serves the React SPA
-(static assets) and the API / WhatsApp webhook on the same origin.
-
-The Python FastAPI backend in `backend/` is legacy and is not deployed.
+(static assets) and the TecniStock API on the same origin.
 
 ## Prerequisites
 
 - Node.js 20+
 - A Cloudflare account (`npx wrangler login`)
-- A Neon PostgreSQL database for TecniStock only (`ep-silent-hat`; schema in `db/schema.sql`; also applied by the Worker on start). Do not use the MediEscribe Neon project (`ep-bitter-moon`); the Worker rejects any other host.
+- A Neon PostgreSQL database for TecniStock only (`ep-silent-hat`). Do not use the MediEscribe Neon project (`ep-bitter-moon`); the Worker rejects any other host.
 - A Groq API key
-- WhatsApp Cloud API credentials (Meta)
 
 ## 1. Database
 
-In the Neon SQL Editor, run `db/schema.sql` (or let the Worker create tables on first request).
+The Worker creates `inventario_local` and `consultas_campo` on first request. Optional SQL: `db/migrations/`.
 
 The Worker talks to Neon over HTTP with `@neondatabase/serverless`. Do not use Node `net`/`tls` drivers.
 

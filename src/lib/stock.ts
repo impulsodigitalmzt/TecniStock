@@ -73,6 +73,12 @@ export type IdentidadPieza = {
   producto_venta?: string;
 };
 
+export function estadoDesdeStock(stock: number): "disponible" | "bajo" | "agotado" {
+  if (stock <= 0) return "agotado";
+  if (stock <= 5) return "bajo";
+  return "disponible";
+}
+
 function quitarAcentos(texto: string): string {
   return texto.normalize("NFD").replace(/\p{M}/gu, "");
 }

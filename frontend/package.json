@@ -1,6 +1,6 @@
 {
-  "name": "medscribe-frontend",
-  "version": "1.0.0",
+  "name": "tecnistock-frontend",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,18 +10,12 @@
     "dev": "vite",
     "build": "tsc && vite build --outDir ../dist/client --emptyOutDir",
     "build:vite": "vite build --outDir ../dist/client --emptyOutDir",
-    "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "axios": "^1.7.2",
-    "clsx": "^2.1.1",
-    "date-fns": "^3.6.0",
     "lucide-react": "^0.383.0",
-    "medscribe": "file:..",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.1"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

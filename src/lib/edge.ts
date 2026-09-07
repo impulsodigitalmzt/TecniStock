@@ -1,6 +1,4 @@
-import { AppError, isAppError } from "./errors";
-import { isNom004Error, NORMA_EXPEDIENTE } from "./guardia-legal";
-import { securityHeaders } from "./http";
+import { AppError } from "./errors";
 
 /** Subrequest Groq: I/O no cuenta como CPU, pero el isolate no debe colgarse. */
 export const GROQ_CHAT_TIMEOUT_MS = 28_000;
@@ -9,6 +7,18 @@ export const GROQ_REPAIR_TIMEOUT_MS = 16_000;
 export const NEON_FETCH_TIMEOUT_MS = 12_000;
 export const MAX_GROQ_JSON_CHARS = 48_000;
 export const MAX_TRANSCRIPT_CHARS = 12_000;
+
+function securityHeaders(): Record<string, string> {
+  return {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    Pragma: "no-cache",
+  };
+}
 
 export function allowedBrowserOrigin(origin: string | undefined, requestUrl: string, env: Env): string | null {
   if (!origin) return null;
@@ -56,69 +66,10 @@ export function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
-type SsePayload = Record<string, unknown>;
-
-export function sseConsultaResponse(
-  origin: string | null,
-  work: (send: (payload: SsePayload) => void) => Promise<void>
-): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const send = (payload: SsePayload) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-      };
-      try {
-        await work(send);
-      } catch (error) {
-        if (isNom004Error(error)) {
-          send({
-            type: "error",
-            ok: false,
-            code: error.code,
-            detail: error.message,
-            norma: NORMA_EXPEDIENTE,
-            faltantes: error.faltantes,
-            guia: error.guia,
-            nota: error.nota ?? null,
-          });
-        } else if (isAppError(error)) {
-          send({ type: "error", ok: false, code: error.code, detail: error.message });
-        } else if (isTimeoutError(error)) {
-          send({
-            type: "error",
-            ok: false,
-            code: "WORKER_TIMEOUT",
-            detail: "La síntesis superó el tiempo del Worker. Dicte un fragmento más corto o reintente.",
-          });
-        } else {
-          send({
-            type: "error",
-            ok: false,
-            code: "CONSULTA_IA_FAILED",
-            detail: "No se pudo procesar la consulta médica.",
-          });
-        }
-      } finally {
-        controller.close();
-      }
-    },
-  });
-
-  const headers = new Headers({
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "X-Accel-Buffering": "no",
-  });
-  applySecurityHeaders(headers);
-  applyCorsHeaders(headers, origin);
-  return new Response(stream, { status: 200, headers });
-}
-
 export function groqTimeoutError(kind: "chat" | "whisper" | "repair"): AppError {
   const detail =
     kind === "whisper"
-      ? "Whisper no respondió a tiempo. Use un audio más corto."
-      : "El modelo no terminó la nota dentro del límite del Worker. Reintente con un dictado más breve.";
+      ? "Whisper no respondió a tiempo. Usa un audio más corto."
+      : "El modelo no respondió a tiempo. Intenta de nuevo.";
   return new AppError(504, detail, "GROQ_TIMEOUT");
 }
