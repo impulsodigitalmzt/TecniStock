@@ -1890,7 +1890,7 @@ export default function App() {
                     </button>
                   </div>
                 ) : null}
-                <div className="relative bg-stone-900 min-h-[200px] flex items-center justify-center">
+                <div className={`relative bg-stone-900 ${fotos.length > 0 ? 'min-h-[200px] flex items-center justify-center' : ''}`}>
                   {fotos.length > 0 ? (
                     <img
                       src={fotos[Math.min(fotoActiva, fotos.length - 1)]?.dataUrl}
@@ -1898,9 +1898,9 @@ export default function App() {
                       className="w-full max-h-[320px] object-contain bg-stone-900"
                     />
                   ) : (
-                    <div className="flex flex-col items-center text-stone-400 px-6 py-14 text-center">
-                      <Camera className="h-14 w-14 mb-4 text-orange-400" />
-                      <p className="text-white font-semibold text-lg">
+                    <div className="flex flex-col items-center text-stone-400 px-5 pt-8 pb-4 text-center">
+                      <Camera className="h-10 w-10 mb-3 text-orange-400" />
+                      <p className="text-white font-semibold text-base">
                         {modoCorreccion === 'rehacer' ? 'Nueva toma' : modoCorreccion === 'agregar' ? 'Foto de placa o etiqueta' : 'Fotografía la pieza'}
                       </p>
                       <p className="text-sm mt-1 leading-relaxed">
@@ -1979,27 +1979,40 @@ export default function App() {
                     </p>
                   </div>
                 ) : null}
-                <div className="p-4 space-y-3">
+                <div className={fotos.length === 0 ? 'bg-stone-950 px-3 pb-3 pt-1' : 'p-4 space-y-3'}>
                   {fotos.length === 0 ? (
                     <>
-                      <button type="button" className="btn-primary w-full min-h-14 text-lg rounded-2xl" onClick={() => cameraRef.current?.click()}>
-                        <Camera className="h-5 w-5" />
-                        Tomar foto
-                      </button>
-                      <button type="button" className="btn-secondary w-full min-h-14 text-base rounded-2xl" onClick={() => galleryRef.current?.click()}>
-                        <ImagePlus className="h-5 w-5" />
-                        Elegir de galería
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-secondary w-full min-h-14 text-base rounded-2xl"
-                        onClick={() => void pegarImagenBandeja()}
-                      >
-                        <ClipboardPaste className="h-5 w-5" />
-                        Pegar imagen
-                      </button>
-                      <p className="text-center text-xs text-stone-500">
-                        Puedes agregar hasta {MAX_FOTOS_CONSULTA} imágenes. En PC también pega con Ctrl+V.
+                      <div className="foto-acciones" role="group" aria-label="Agregar foto de la pieza">
+                        <button
+                          type="button"
+                          className="foto-accion foto-accion-camara"
+                          aria-label="Tomar foto"
+                          onClick={() => cameraRef.current?.click()}
+                        >
+                          <Camera className="h-4 w-4" />
+                          Cámara
+                        </button>
+                        <button
+                          type="button"
+                          className="foto-accion foto-accion-galeria"
+                          aria-label="Elegir de galería"
+                          onClick={() => galleryRef.current?.click()}
+                        >
+                          <ImagePlus className="h-4 w-4" />
+                          Galería
+                        </button>
+                        <button
+                          type="button"
+                          className="foto-accion foto-accion-pegar"
+                          aria-label="Pegar imagen"
+                          onClick={() => void pegarImagenBandeja()}
+                        >
+                          <ClipboardPaste className="h-4 w-4" />
+                          Pegar
+                        </button>
+                      </div>
+                      <p className="mt-2 text-center text-[11px] text-stone-500">
+                        Hasta {MAX_FOTOS_CONSULTA} fotos. En PC también pega con Ctrl+V.
                       </p>
                     </>
                   ) : (
