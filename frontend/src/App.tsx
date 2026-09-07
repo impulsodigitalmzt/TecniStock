@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, Camera, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
+  AlertCircle, Camera, ClipboardPaste, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
   MessageCircle, Mic, Moon, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Sun, Tag, Trash2, Wrench, X,
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
@@ -698,9 +698,63 @@ function temaNocheInicial(): boolean {
   }
 }
 
+function esCampoDeTexto(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  if (tag === 'TEXTAREA') return true;
+  if (tag === 'INPUT') {
+    const type = (el as HTMLInputElement).type;
+    return type !== 'file' && type !== 'button' && type !== 'submit' && type !== 'checkbox' && type !== 'radio';
+  }
+  return Boolean(el.closest('textarea, input:not([type="file"]), [contenteditable="true"]'));
+}
+
+function archivosDeClipboardData(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const files: File[] = [];
+  for (const file of Array.from(data.files ?? [])) {
+    if (file.type.startsWith('image/')) files.push(file);
+  }
+  if (files.length) return files;
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  return files;
+}
+
+async function archivosDelPortapapeles(): Promise<File[]> {
+  const api = navigator.clipboard;
+  if (!api || typeof api.read !== 'function') {
+    throw new Error('Este navegador no deja leer el portapapeles con el botón. Pega la imagen con Ctrl+V o Cmd+V.');
+  }
+  const items = await api.read();
+  const files: File[] = [];
+  for (const item of items) {
+    const tipo = item.types.find((t) => t.startsWith('image/'));
+    if (!tipo) continue;
+    const blob = await item.getType(tipo);
+    const ext = tipo.includes('jpeg') ? 'jpg' : tipo.split('/')[1] || 'png';
+    files.push(new File([blob], `portapapeles.${ext}`, { type: blob.type || tipo }));
+  }
+  return files;
+}
+
+function mensajeErrorPortapapeles(err: unknown): string {
+  if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) {
+    return 'El navegador bloqueó el portapapeles. Pega la imagen con Ctrl+V o Cmd+V.';
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return 'No se pudo pegar la imagen.';
+}
+
 export default function App() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
+  const bandejaRef = useRef<HTMLElement>(null);
   const chatCameraRef = useRef<HTMLInputElement>(null);
   const chatGalleryRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -1023,6 +1077,35 @@ export default function App() {
       setPreparando(false);
       if (cameraRef.current) cameraRef.current.value = '';
       if (galleryRef.current) galleryRef.current.value = '';
+    }
+  };
+
+  const pegarImagenBandeja = async () => {
+    setMenuAgregar(false);
+    try {
+      const files = await archivosDelPortapapeles();
+      if (files.length === 0) {
+        setError('No hay una imagen en el portapapeles. Cópiala y vuelve a tocar Pegar.');
+        return;
+      }
+      await agregarArchivos(files);
+    } catch (err) {
+      setError(mensajeErrorPortapapeles(err));
+      bandejaRef.current?.focus();
+    }
+  };
+
+  const pegarImagenChat = async () => {
+    setMenuAdjuntarChat(false);
+    try {
+      const files = await archivosDelPortapapeles();
+      if (files.length === 0) {
+        setError('No hay una imagen en el portapapeles. Cópiala y vuelve a tocar Pegar.');
+        return;
+      }
+      await enviarFotoHilo(files);
+    } catch (err) {
+      setError(mensajeErrorPortapapeles(err));
     }
   };
 
@@ -1621,6 +1704,29 @@ export default function App() {
 
   const chatListo = Boolean(consultaId);
 
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const files = archivosDeClipboardData(event.clipboardData);
+      if (files.length === 0) return;
+      const target = event.target;
+      const enComposer =
+        target instanceof Node &&
+        Boolean(chatAttachRef.current?.contains(target) || chatInputRef.current?.contains(target as Node));
+      if (enComposer) {
+        if (!chatListo) return;
+        event.preventDefault();
+        void enviarFotoHilo(files);
+        return;
+      }
+      if (esCampoDeTexto(target)) return;
+      if (tab !== 'nueva' || !mostrarBandeja) return;
+      event.preventDefault();
+      void agregarArchivos(files);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [tab, mostrarBandeja, chatListo, agregarArchivos, enviarFotoHilo]);
+
   return (
     <div className="mostrador-shell es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]">
       <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-visible lg:min-h-0">
@@ -1767,7 +1873,7 @@ export default function App() {
 
             <div className="mostrador-analisis">
             {mostrarBandeja ? (
-              <section className="card overflow-hidden">
+              <section ref={bandejaRef} tabIndex={-1} className="card overflow-hidden outline-none">
                 {corrigiendoFoto ? (
                   <div className="flex items-start justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2.5">
                     <p className="text-xs leading-relaxed text-amber-950">
@@ -1855,6 +1961,14 @@ export default function App() {
                                 <ImagePlus className="h-4 w-4 text-stone-500" />
                                 Galería
                               </button>
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                                onClick={() => void pegarImagenBandeja()}
+                              >
+                                <ClipboardPaste className="h-4 w-4 text-stone-500" />
+                                Pegar imagen
+                              </button>
                             </div>
                           ) : null}
                         </div>
@@ -1876,7 +1990,17 @@ export default function App() {
                         <ImagePlus className="h-5 w-5" />
                         Elegir de galería
                       </button>
-                      <p className="text-center text-xs text-stone-500">Puedes agregar hasta {MAX_FOTOS_CONSULTA} imágenes</p>
+                      <button
+                        type="button"
+                        className="btn-secondary w-full min-h-14 text-base rounded-2xl"
+                        onClick={() => void pegarImagenBandeja()}
+                      >
+                        <ClipboardPaste className="h-5 w-5" />
+                        Pegar imagen
+                      </button>
+                      <p className="text-center text-xs text-stone-500">
+                        Puedes agregar hasta {MAX_FOTOS_CONSULTA} imágenes. En PC también pega con Ctrl+V.
+                      </p>
                     </>
                   ) : (
                     <button
@@ -2395,6 +2519,15 @@ export default function App() {
                             >
                               <ImagePlus className="h-4 w-4 shrink-0 text-stone-500" />
                               Galería
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                              disabled={!chatListo}
+                              onClick={() => void pegarImagenChat()}
+                            >
+                              <ClipboardPaste className="h-4 w-4 shrink-0 text-stone-500" />
+                              Pegar imagen
                             </button>
                           </div>
                         ) : null}

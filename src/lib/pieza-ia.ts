@@ -5,10 +5,10 @@ import { compactarTextoAsesor, mexicanizarMostrador, PROMPT_ANALISIS_VISUAL, USE
 import { esPiezaVozDatos, nombreMostradorCompuesto } from "./inventario-local";
 
 /**
- * Groq: Llama 4 Scout para fotos (Qwen 3.6 insistía en RJ45 sobre contactos).
- * Fallback: qwen3.6 / qwen3.8 / llama-4-maverick.
+ * Groq visión actual (console.groq.com/docs/vision): Qwen 3.6 / 3.8.
+ * Llama 4 Scout se retiró de Groq (2026-07-17).
  */
-export const DEFAULT_GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+export const DEFAULT_GROQ_VISION_MODEL = "qwen/qwen3.6-27b";
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 export const MAX_FOTOS_ANALISIS = 8;
 /** Groq visión admite como máximo 5 imágenes por request (3 en qwen3.8). */
@@ -16,16 +16,16 @@ const MAX_IMAGENES_VISION_GROQ = 5;
 
 /** Modelos Groq con entrada de imagen. Primero los que documenta Groq hoy. */
 const MODELOS_VISION_GROQ = [
-  "meta-llama/llama-4-scout-17b-16e-instruct",
   "qwen/qwen3.6-27b",
   "qwen/qwen3.8-27b",
-  "meta-llama/llama-4-maverick-17b-128e-instruct",
 ] as const;
 
 const MODELOS_VISION_RETIRADOS: Record<string, string> = {
   "llama-3.2-11b-vision-preview": DEFAULT_GROQ_VISION_MODEL,
   "llama-3.2-90b-vision-preview": DEFAULT_GROQ_VISION_MODEL,
   "llava-v1.5-7b-4096-preview": DEFAULT_GROQ_VISION_MODEL,
+  "meta-llama/llama-4-scout-17b-16e-instruct": DEFAULT_GROQ_VISION_MODEL,
+  "meta-llama/llama-4-maverick-17b-128e-instruct": DEFAULT_GROQ_VISION_MODEL,
 };
 
 const MODELO_SOLO_TEXTO_RE = /gpt-oss|whisper|llama-3\.3|llama-3\.1|mixtral|gemma/i;
@@ -543,14 +543,14 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
         (response.status === 404 || /model_decommissioned|model_not_found|does not exist/i.test(lastFailText)) &&
         attempt < 3
       ) {
-        if (/llama-4|llama-3\.2/i.test(model) && !/qwen/i.test(model)) {
-          model = DEFAULT_GROQ_VISION_MODEL;
-          extrasQwen = true;
+        const alterno = siguienteModeloVision(model);
+        if (alterno && alterno.toLowerCase() !== model.toLowerCase()) {
+          model = alterno;
+          extrasQwen = /qwen/i.test(model);
           continue;
         }
-        const alterno = siguienteModeloVision(model);
-        if (alterno) {
-          model = alterno;
+        if (DEFAULT_GROQ_VISION_MODEL.toLowerCase() !== model.toLowerCase()) {
+          model = DEFAULT_GROQ_VISION_MODEL;
           extrasQwen = /qwen/i.test(model);
           continue;
         }
@@ -574,7 +574,7 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
         502,
         authFail
           ? "Groq rechazó la autenticación (API key inválida o ausente)."
-          : `No se pudo analizar la imagen (${response.status} ${model}): ${snippet(lastFailText) || "error de Groq."}`,
+          : "No se pudo analizar la imagen. Intenta de nuevo o usa otra foto.",
         authFail ? "GROQ_AUTH_FAILED" : "GROQ_VISION_FAILED"
       );
     }
