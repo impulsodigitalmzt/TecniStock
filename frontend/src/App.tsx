@@ -147,16 +147,6 @@ function filasFichaTecnica(pieza: PiezaDetectada, stock: BloqueStock): { etiquet
   add('Acabado', pieza.acabado);
   add('Rosca', pieza.rosca);
   add('Marca', pieza.marca);
-  const nombreAnaquel = (stock.nombre ?? '').trim();
-  if (nombreAnaquel && nombreAnaquel.toLowerCase() !== pieza.nombre.trim().toLowerCase()) {
-    add('Inventario', nombreAnaquel);
-  }
-  add('SKU', stock.sku);
-  if (stock.precio != null) add('Precio', dinero(stock.precio, stock.moneda));
-  if (stock.encontrado || stock.consulta_ok) {
-    add('Existencia', `${cantidadStock(stock)} pza`);
-  }
-  add('Ubicación', stock.ubicacion_tienda);
   if (typeof pieza.confianza === 'number' && pieza.confianza > 0) {
     add('Lectura de la foto', etiquetaConfianza(pieza.confianza));
   }
@@ -2034,12 +2024,6 @@ export default function App() {
                     <p className="mt-2 text-sm leading-relaxed text-stone-600 whitespace-pre-wrap">{descripcion}</p>
                   ) : null}
 
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <span className={estadoStock.clase}>{estadoStock.texto}</span>
-                    {stock.encontrado ? (
-                      <span className="text-sm font-semibold tabular-nums">{dinero(stock.precio, stock.moneda)}</span>
-                    ) : null}
-                  </div>
                   {stock.motivo_indisponible === 'faltante_temporal' ? (
                     <p className="mt-1 text-xs text-amber-800">Sigue vigente: es un faltante momentáneo.</p>
                   ) : stock.motivo_indisponible === 'descontinuado' ? (
@@ -2061,13 +2045,6 @@ export default function App() {
                       </button>
                     </p>
                   ) : null}
-                  {stock.encontrado && stock.sku ? (
-                    <p className="mt-1 text-[11px] font-mono text-stone-400 break-all lg:hidden">{stock.sku}</p>
-                  ) : null}
-                  {stock.ubicacion_tienda ? (
-                    <p className="mt-1 text-xs text-stone-600 lg:hidden">Anaquel: {stock.ubicacion_tienda}</p>
-                  ) : null}
-
                   {fichaTecnica.length > 0 ? (
                     <div className="mt-3 border-t border-stone-200 pt-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700">Ficha técnica</p>
