@@ -436,8 +436,24 @@ body, #root {
     background-color: #0b141a;
   }
 
+  .mostrador-shell.es-pc .mostrador-hallazgos {
+    flex-shrink: 0;
+    padding: 0.85rem 1rem 0.9rem;
+    border-bottom: 1px solid #e7e5e4;
+    background-color: rgba(255, 255, 255, 0.78);
+  }
+  html.dark .mostrador-shell.es-pc .mostrador-hallazgos {
+    border-bottom-color: #2a3942;
+    background-color: #111b21;
+  }
+  .mostrador-shell.es-pc .mostrador-hallazgos .tarjeta-chat {
+    flex-basis: 13.25rem;
+    max-width: 15rem;
+  }
+
   .mostrador-shell.es-pc .mostrador-chat {
-    height: 100%;
+    flex: 1 1 0%;
+    height: auto;
     min-height: 0;
     border: 0;
     border-radius: 0;

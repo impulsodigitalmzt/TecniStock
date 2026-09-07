@@ -6,6 +6,7 @@ import {
 import { fetchCampo, leerJson } from './lib/campo-api';
 import {
   agregarAlCarrito,
+  aplicarPedidoServidor,
   BotonCarritoHeader,
   CarritoApartado,
   piezasCarrito,
@@ -531,25 +532,25 @@ function CarruselEnChat({
   stock,
   disabled = false,
   aplicandoSku = null,
-  skusCarrito = [],
+  cantidadesCarrito = {},
   onElegir,
 }: {
   tarjetas: TarjetaChat[];
   stock: BloqueStock;
   disabled?: boolean;
   aplicandoSku?: string | null;
-  skusCarrito?: string[];
+  cantidadesCarrito?: Record<string, number>;
   onElegir?: (item: TarjetaChat) => void;
 }) {
   if (tarjetas.length === 0) return null;
-  const elegidos = new Set((skusCarrito ?? []).map((sku) => sku.toLowerCase()));
   return (
     <div className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}>
       {tarjetas.map((item) => {
         const foto = urlFotoCatalogo(item.url);
         const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
         const eligiendo = aplicandoSku === item.sku;
-        const yaElegida = elegidos.has(item.sku.toLowerCase());
+        const cant = cantidadesCarrito[item.sku.toLowerCase()] ?? 0;
+        const yaElegida = cant > 0;
         return (
           <button
             key={item.sku}
@@ -577,7 +578,7 @@ function CarruselEnChat({
                 {eligiendo ? (
                   <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
                 ) : yaElegida ? (
-                  'En el pedido'
+                  `${cant} en el pedido`
                 ) : (
                   'Elegir'
                 )}
@@ -1161,7 +1162,7 @@ export default function App() {
     setEnviando(true);
     setError('');
     try {
-      const data = await leerJson<{ mensajes: Mensaje[] }>(
+      const data = await leerJson<{ mensajes: Mensaje[]; pedido?: { lineas: LineaCarrito[] } }>(
         await fetchCampo(`/api/consultas/${consultaId}/mensajes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1179,6 +1180,7 @@ export default function App() {
         'No se pudo enviar el mensaje.'
       );
       setMensajes((prev) => [...prev, ...(data.mensajes ?? [])]);
+      setCarrito((prev) => aplicarPedidoServidor(prev, data.pedido));
       if (desdeBorrador) setBorrador('');
       if (modoCorreccion === 'describir') setModoCorreccion(null);
     } catch (err) {
@@ -1390,11 +1392,12 @@ export default function App() {
           }))
         )
       );
-      const data = await leerJson<{ mensajes: Mensaje[] }>(
+      const data = await leerJson<{ mensajes: Mensaje[]; pedido?: { lineas: LineaCarrito[] } }>(
         await fetchCampo(`/api/consultas/${consultaId}/voz`, { method: 'POST', body: form }),
         'No se pudo transcribir el audio.'
       );
       setMensajes((prev) => [...prev, ...(data.mensajes ?? [])]);
+      setCarrito((prev) => aplicarPedidoServidor(prev, data.pedido));
       if (modoCorreccion === 'describir') setModoCorreccion(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo transcribir el audio.');
@@ -2028,7 +2031,7 @@ export default function App() {
                   </div>
 
                   {descripcion ? (
-                    <p className="mt-2 text-sm leading-snug text-stone-600 line-clamp-2 lg:line-clamp-none">{descripcion}</p>
+                    <p className="mt-2 text-sm leading-relaxed text-stone-600 whitespace-pre-wrap">{descripcion}</p>
                   ) : null}
 
                   <div className="mt-2 flex items-center justify-between gap-3">
@@ -2059,16 +2062,16 @@ export default function App() {
                     </p>
                   ) : null}
                   {stock.encontrado && stock.sku ? (
-                    <p className="mt-1 text-[11px] font-mono text-stone-400 truncate lg:hidden">{stock.sku}</p>
+                    <p className="mt-1 text-[11px] font-mono text-stone-400 break-all lg:hidden">{stock.sku}</p>
                   ) : null}
                   {stock.ubicacion_tienda ? (
                     <p className="mt-1 text-xs text-stone-600 lg:hidden">Anaquel: {stock.ubicacion_tienda}</p>
                   ) : null}
 
                   {fichaTecnica.length > 0 ? (
-                    <div className="mt-3 hidden border-t border-stone-200 pt-3 lg:block">
+                    <div className="mt-3 border-t border-stone-200 pt-3">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700">Ficha técnica</p>
-                      <dl className="mt-2 grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
+                      <dl className="mt-2 grid grid-cols-[6.5rem_minmax(0,1fr)] sm:grid-cols-[7.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-sm">
                         {fichaTecnica.map((fila) => (
                           <div key={fila.etiqueta} className="contents">
                             <dt className="text-[11px] font-medium uppercase tracking-wide text-stone-400 pt-0.5">{fila.etiqueta}</dt>
@@ -2088,7 +2091,7 @@ export default function App() {
                     </div>
                   ) : null}
                   {mostrarCarrusel ? (
-                    <div className="mt-2">
+                    <div className="mt-2 lg:hidden">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">
                         Lo más cercano · {alternativasStock.length}
                       </p>
@@ -2105,7 +2108,7 @@ export default function App() {
                         disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                         aplicandoSku={aplicandoSku}
                         onElegir={elegirProductoCarrusel}
-                        skusCarrito={carrito.map((linea) => linea.sku)}
+                        cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
                       />
                     </div>
                   ) : null}
@@ -2189,7 +2192,29 @@ export default function App() {
       </aside>
 
       <section className="mostrador-col-der lg:flex-1 lg:flex lg:flex-col lg:h-full dark:lg:bg-[#0b141a] lg:relative lg:overflow-hidden">
-                  <article ref={chatPanelRef} className="mostrador-chat card overflow-hidden flex flex-col lg:h-full lg:min-h-0">
+                  {mostrarCarrusel && stock ? (
+                    <div className="mostrador-hallazgos hidden lg:block">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+                        Lo más cercano · {alternativasStock.length}
+                      </p>
+                      <p className="mt-0.5 mb-2 text-[11px] text-stone-500">Toca Elegir si es lo que buscas</p>
+                      <CarruselEnChat
+                        tarjetas={alternativasStock.map((item) => ({
+                          sku: item.sku,
+                          nombre: item.nombre,
+                          url: item.url_imagen ?? '',
+                          precio: item.precio,
+                          existencia: item.existencia,
+                        }))}
+                        stock={stock}
+                        disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
+                        aplicandoSku={aplicandoSku}
+                        onElegir={elegirProductoCarrusel}
+                        cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
+                      />
+                    </div>
+                  ) : null}
+                  <article ref={chatPanelRef} className="mostrador-chat card overflow-hidden flex flex-col lg:flex-1 lg:min-h-0">
                     <header className="flex items-center gap-2.5 px-4 py-3 border-b border-stone-200 bg-stone-50 shrink-0">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500 text-white">
                         <MessageCircle className="h-4 w-4" />
@@ -2278,7 +2303,7 @@ export default function App() {
                                 disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                                 aplicandoSku={aplicandoSku}
                                 onElegir={elegirProductoCarrusel}
-                                skusCarrito={carrito.map((linea) => linea.sku)}
+                                cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
                               />
                             ) : null}
                           </div>

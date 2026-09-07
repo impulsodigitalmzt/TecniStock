@@ -14,7 +14,11 @@ import {
 } from "../lib/ficha-chat";
 import { dataUrlDesdeBase64, identificarPiezaConVision, type PiezaDetectada } from "../lib/pieza-ia";
 import {
+  afirmaApartado,
+  aplicarEdicionPedido,
   cancelaApartado,
+  edicionPideBusqueda,
+  extraerEdicionPedido,
   iniciarApartadoPedido,
   mensajePedirDatos,
   normalizarLineasCarrito,
@@ -26,6 +30,7 @@ import {
   textoPedidoCarrito,
   ultimoAsistente,
   type LineaCarrito,
+  type SnapshotPedido,
 } from "../lib/apartados";
 import {
   buscarInventarioLocal,
@@ -203,7 +208,7 @@ consultasCampoRoutes.post("/:id/apartado", async (c) => {
     }
     const pendiente = await iniciarApartadoPedido(sql, consulta.id, lineas);
     await agregarMensajeCampo(sql, consulta.id, "user", textoPedidoCarrito(lineas));
-    await agregarMensajeCampo(sql, consulta.id, "assistant", mensajePedirDatos(pendiente.nombre));
+    await agregarMensajeCampo(sql, consulta.id, "assistant", mensajePedirDatos(pendiente.nombre, undefined, pendiente.lineas));
     const actualizada = await obtenerConsultaCampo(sql, consulta.id, dispositivo);
     const mensajes = await listarMensajesCampo(sql, consulta.id);
     return c.json({
@@ -232,8 +237,8 @@ consultasCampoRoutes.post("/:id/mensajes", async (c) => {
     const body = await c.req.json<{ texto?: string; lineas?: unknown }>().catch(() => ({} as { texto?: string; lineas?: unknown }));
     const texto = (body.texto ?? "").trim();
     if (!texto) throw new AppError(400, "Escribe un mensaje de texto.", "MENSAJE_VACIO");
-    const mensajes = await responderConsultaCampo(c.env, sql, consulta, texto, body.lineas);
-    return c.json({ ok: true, mensajes });
+    const { mensajes, pedido } = await responderConsultaCampo(c.env, sql, consulta, texto, body.lineas);
+    return c.json({ ok: true, mensajes, pedido });
   } catch (error) {
     if (isAppError(error)) throw error;
     console.error(
@@ -314,8 +319,8 @@ consultasCampoRoutes.post("/:id/voz", async (c) => {
       lineasRaw = undefined;
     }
   }
-  const mensajes = await responderConsultaCampo(c.env, sql, consulta, whisper.text, lineasRaw);
-  return c.json({ ok: true, transcripcion: whisper.text, mensajes });
+  const { mensajes, pedido } = await responderConsultaCampo(c.env, sql, consulta, whisper.text, lineasRaw);
+  return c.json({ ok: true, transcripcion: whisper.text, mensajes, pedido });
 });
 
 function extraerImagenesFotoHilo(body: {
@@ -415,6 +420,7 @@ function debeBuscarInventarioPorTexto(texto: string, ultimoAsistenteTexto = ""):
   if (esSeleccionProducto(texto)) return false;
   if (pideMasOpciones(texto)) return false;
   if (pideResumenPedido(texto, ultimoAsistenteTexto)) return false;
+  if (extraerEdicionPedido(texto) && !edicionPideBusqueda(texto)) return false;
   if (/^(s[ií]|ok|okay|va|claro|sale|dale|de acuerdo)[\s.!?]*$/i.test(texto.trim())) return false;
   if (esCorreccionCliente(texto)) return true;
   return pideBusquedaNuevaInventario(texto);
@@ -606,12 +612,11 @@ async function responderConsultaCampo(
   consulta: ConsultaCampo,
   texto: string,
   lineasRaw?: unknown
-): Promise<MensajeCampo[]> {
-  const lineasPedido = lineasPedidoActual(consulta, lineasRaw);
+): Promise<{ mensajes: MensajeCampo[]; pedido: SnapshotPedido }> {
+  let lineasPedido = lineasPedidoActual(consulta, lineasRaw);
   if (Array.isArray(lineasRaw) || lineasPedido.length > 0) {
     await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
   }
-  const pedido = snapshotPedido(lineasPedido);
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const ultimoChat = ultimoAsistente(historial);
@@ -625,6 +630,7 @@ async function responderConsultaCampo(
     !correccionCliente &&
     !verMas &&
     !pideResumenPedido(texto, ultimoChat) &&
+    !extraerEdicionPedido(texto) &&
     (esPreguntaSeguimientoPieza(texto) || esSeleccionProducto(texto)) &&
     !debeBuscarInventarioPorTexto(texto, ultimoChat);
   let stockVivo = seguimiento
@@ -676,7 +682,25 @@ async function responderConsultaCampo(
   const alternativas = limitarAlternativas(crudas as SustitutoStock[]);
   const stockParaFicha = { ...stockVivo, alternativas, sustituto: alternativas[0] ?? (seguimiento ? null : stockVivo.sustituto ?? null) };
 
-  if (pideMostrarProducto(texto)) {
+  const edicion = extraerEdicionPedido(texto);
+  if (edicionPideBusqueda(texto) && resultadosBusqueda.length === 0 && edicion?.pista) {
+    resultadosBusqueda = await buscarInventarioLocal(sql, edicion.pista, 20);
+  }
+  const extraPedido = resultadosBusqueda.map((item) => ({
+    sku: item.sku,
+    nombre: item.nombre,
+    precio: item.precio,
+    existencia: item.stock_disponible,
+    url_imagen: item.url_imagen,
+  }));
+  const ajuste = aplicarEdicionPedido(texto, lineasPedido, stockVivo, extraPedido);
+  if (ajuste.cambio) {
+    lineasPedido = ajuste.lineas;
+    await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
+  }
+  const pedido = snapshotPedido(lineasPedido);
+
+  if (pideMostrarProducto(texto) && !ajuste.cambio && !ajuste.avisoTope) {
     const ficha = resolverFichaSolicitada(texto, historial, stockParaFicha);
     if (ficha) {
       const assistantMsg = await agregarMensajeCampo(
@@ -685,13 +709,31 @@ async function responderConsultaCampo(
         "assistant",
         conTarjetas(`Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`, [tarjetaDesdeCatalogo(ficha)])
       );
-      return [userMsg, assistantMsg];
+      return paqueteChat([userMsg, assistantMsg], lineasPedido);
     }
   }
 
-  if (pideResumenPedido(texto, ultimoChat)) {
-    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoCuentaPedido(lineasPedido));
-    return [userMsg, assistantMsg];
+  const entraApartadoAhora =
+    pideApartar(texto) || afirmaApartado(texto, ultimoChat) || cancelaApartado(texto);
+  if (pideResumenPedido(texto, ultimoChat) || ((ajuste.cambio || Boolean(ajuste.avisoTope)) && !entraApartadoAhora)) {
+    const yaCuenta = /Total a pagar|Aún no hay piezas/.test(ajuste.avisoTope);
+    const cuerpo = yaCuenta
+      ? ajuste.avisoTope.trim()
+      : `${ajuste.avisoTope}${textoCuentaPedido(lineasPedido)}`;
+    const tarjetas =
+      !ajuste.cambio && extraPedido.some((item) => item.existencia > 0)
+        ? extraPedido
+            .filter((item) => item.existencia > 0)
+            .slice(0, 4)
+            .map((item) => tarjetaDesdeCatalogo(item))
+        : [];
+    const assistantMsg = await agregarMensajeCampo(
+      sql,
+      consulta.id,
+      "assistant",
+      tarjetas.length > 0 ? conTarjetas(cuerpo, tarjetas) : cuerpo
+    );
+    return paqueteChat([userMsg, assistantMsg], lineasPedido);
   }
 
   const apartado = await procesarFlujoApartado({
@@ -705,10 +747,11 @@ async function responderConsultaCampo(
     texto,
     historial,
     stock: stockParaFicha,
+    lineasPedido,
   });
   if (apartado) {
     const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", apartado.mensaje);
-    return [userMsg, assistantMsg];
+    return paqueteChat([userMsg, assistantMsg], lineasPedido);
   }
 
   const piezas = cantidadStock(stockParaFicha);
@@ -809,7 +852,11 @@ async function responderConsultaCampo(
     stock: stockParaFicha,
   });
   const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
-  return [userMsg, assistantMsg];
+  return paqueteChat([userMsg, assistantMsg], lineasPedido);
+}
+
+function paqueteChat(mensajes: MensajeCampo[], lineas: LineaCarrito[]): { mensajes: MensajeCampo[]; pedido: SnapshotPedido } {
+  return { mensajes, pedido: snapshotPedido(lineas) };
 }
 
 function resumenConsulta(consulta: ConsultaCampo) {

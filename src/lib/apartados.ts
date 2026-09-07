@@ -2,7 +2,7 @@ import type { Sql } from "../db.js";
 import { toJsonbParam } from "../db.js";
 import { AppError } from "./errors";
 import { candidatosFicha, type FichaCatalogo } from "./ficha-chat";
-import { cantidadStock, type BloqueStock } from "./stock";
+import { cantidadStock, familiaCatalogo, type BloqueStock } from "./stock";
 
 export const HORAS_APARTADO = 24;
 
@@ -132,11 +132,450 @@ export function textoCuentaPedido(lineas: LineaCarrito[]): string {
   const lista = snap.lineas
     .map(
       (linea, i) =>
-        `${i + 1}) ${linea.nombre} (${linea.sku}) — ${linea.cantidad} pza · ${precioMx(linea.subtotal)}`
+        `${i + 1}) ${linea.nombre} (${linea.sku}) — ${linea.cantidad} pza · ${precioMx(linea.precio)} c/u · ${precioMx(linea.subtotal)}`
     )
     .join("\n");
   const articulos = snap.lineas.length === 1 ? "1 artículo" : `${snap.lineas.length} artículos`;
-  return `Estos son los artículos de tu pedido (${articulos}, ${snap.piezas} pza):\n\n${lista}\n\nTotal: ${snap.total_obligatorio}\n\n¿Lo apartamos o agregas algo más?`;
+  return `Esta es tu cuenta (${articulos}, ${snap.piezas} pza):\n\n${lista}\n\nTotal a pagar: ${snap.total_obligatorio}\n\n¿Lo apartamos, le agregamos o le quitamos algo?`;
+}
+
+export type ItemCatalogoPedido = {
+  sku: string;
+  nombre: string;
+  precio: number;
+  existencia: number;
+  url_imagen?: string;
+};
+
+export type EdicionPedido = {
+  modo: "add" | "set" | "remove" | "clear";
+  cantidad: number | null;
+  pista: string;
+};
+
+const STOP_EDICION = new Set([
+  "me",
+  "das",
+  "dame",
+  "deme",
+  "quiero",
+  "necesito",
+  "ponme",
+  "ponle",
+  "agrega",
+  "agregame",
+  "agregale",
+  "agregar",
+  "suma",
+  "sumame",
+  "anade",
+  "anademe",
+  "incluye",
+  "incluyeme",
+  "meteme",
+  "quita",
+  "quitame",
+  "quitale",
+  "quitar",
+  "saca",
+  "sacame",
+  "sacar",
+  "elimina",
+  "eliminame",
+  "baja",
+  "bajame",
+  "resta",
+  "restame",
+  "deja",
+  "dejame",
+  "dejale",
+  "vacia",
+  "vaciame",
+  "borra",
+  "borrame",
+  "menos",
+  "mas",
+  "tambien",
+  "ademas",
+  "otro",
+  "otra",
+  "otros",
+  "otras",
+  "articulo",
+  "articulos",
+  "pieza",
+  "piezas",
+  "pza",
+  "unidad",
+  "unidades",
+  "al",
+  "pedido",
+  "carrito",
+  "cuenta",
+  "de",
+  "del",
+  "los",
+  "las",
+  "el",
+  "la",
+  "un",
+  "una",
+  "unos",
+  "unas",
+  "eso",
+  "ese",
+  "esa",
+  "estos",
+  "estas",
+  "esos",
+  "esas",
+  "le",
+  "te",
+  "lo",
+  "por",
+  "favor",
+  "ya",
+  "no",
+  "si",
+  "y",
+  "a",
+  "en",
+  "con",
+  "para",
+  "son",
+  "van",
+  "ser",
+  "igual",
+  "mismo",
+  "misma",
+  "llevame",
+  "apartame",
+]);
+
+function extraerPistaProducto(texto: string): string {
+  const t = norm(texto)
+    .replace(/\b\d{1,3}\s*(horas?|hrs?|minutos?|min|dias?)\b/g, " ")
+    .replace(/\b\d{1,3}\b/g, " ")
+    .replace(/\b(pza|piezas?|unidades?|mas|menos)\b/g, " ");
+  return t
+    .split(" ")
+    .filter((tok) => tok.length >= 2 && !STOP_EDICION.has(tok))
+    .join(" ")
+    .trim();
+}
+
+function numeroCantidad(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 999) return null;
+  return n;
+}
+
+/** «me das 15», «agrega 5 contactos», «quítame 5 contactos», «también cinta». */
+export function extraerEdicionPedido(texto: string): EdicionPedido | null {
+  const t = norm(texto);
+  if (!t) return null;
+  if (extraerTelefono(texto)) return null;
+  if (/^(el |la |opcion )?([123])[\s.!?]*$/.test(t)) return null;
+  const sinTiempo = t.replace(/\b\d{1,3}\s*(horas?|hrs?|minutos?|min|dias?)\b/g, " ");
+  if (/\b(vacia(?:me)?|borra(?:me)?|limpia(?:me)?)\s+(el |la )?(pedido|carrito|cuenta)\b/.test(sinTiempo)) {
+    return { modo: "clear", cantidad: null, pista: "" };
+  }
+  const quitaNum =
+    sinTiempo.match(
+      /\b(?:quita(?:me|le)?|sacar?|saca(?:me)?|elimina(?:me)?|baja(?:me)?|resta(?:me)?|menos)\s+(\d{1,3})\b/
+    ) || sinTiempo.match(/\b(\d{1,3})\s*(?:pza|piezas?|unidades?)?\s+menos\b/);
+  if (quitaNum) {
+    const cantidad = numeroCantidad(quitaNum[1]);
+    if (cantidad) return { modo: "remove", cantidad, pista: extraerPistaProducto(sinTiempo) };
+  }
+  if (
+    /\b(?:quita(?:me|le)?|saca(?:me)?|elimina(?:me)?|ya no (?:quiero|llevo|van|van a ir)|sin los|sin las)\b/.test(
+      sinTiempo
+    )
+  ) {
+    return { modo: "remove", cantidad: null, pista: extraerPistaProducto(sinTiempo) };
+  }
+  const addMas =
+    sinTiempo.match(/\b(?:agrega(?:me|le)?|suma(?:me)?|anade(?:me)?)\s+(\d{1,3})\s*(?:pza|piezas?|unidades?)?\s+mas\b/) ||
+    sinTiempo.match(/\b(\d{1,3})\s*(?:pza|piezas?|unidades?)?\s+mas\b/);
+  if (addMas) {
+    const cantidad = numeroCantidad(addMas[1]);
+    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(sinTiempo) };
+  }
+  const addNum = sinTiempo.match(
+    /\b(?:agrega(?:me|le)?|suma(?:me)?|anade(?:me)?|tambien|ademas|incluye(?:me)?|meteme|y tambien)\s+(\d{1,3})\b/
+  );
+  if (addNum) {
+    const cantidad = numeroCantidad(addNum[1]);
+    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(sinTiempo) };
+  }
+  const yNum = sinTiempo.match(/\by(?:\s+tambien)?\s+(\d{1,3})\s+([a-z0-9][a-z0-9.\-]{2,})/);
+  if (yNum) {
+    const cantidad = numeroCantidad(yNum[1]);
+    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(yNum[2]) };
+  }
+  if (
+    /\b(?:agrega(?:me|le|r)?|suma(?:me)?|anade(?:me)?|tambien|ademas|incluye(?:me)?|meteme)\b/.test(sinTiempo) &&
+    !/\bapart/.test(sinTiempo)
+  ) {
+    return { modo: "add", cantidad: null, pista: extraerPistaProducto(sinTiempo) };
+  }
+  const set =
+    sinTiempo.match(
+      /\b(?:me das|dame|deme|quiero|necesito|ponme(?:le)?|son|van a ser|de eso|de ese|de esa|de estos|deja(?:me|le)?(?:lo|la|los|las)?(?: en)?|que sean|llevame|apartame)\s+(\d{1,3})\b/
+    ) || sinTiempo.match(/\b(\d{1,3})\s*(?:pza|piezas?|unidades?)\b/);
+  if (!set) return null;
+  const cantidad = numeroCantidad(set[1]);
+  if (!cantidad) return null;
+  if (cantidad === 127 && /\b(127|volt|v\b)/.test(sinTiempo)) return null;
+  return { modo: "set", cantidad, pista: extraerPistaProducto(sinTiempo) };
+}
+
+export function extraerCambioCantidad(texto: string): { cantidad: number; modo: "set" | "add" } | null {
+  const edicion = extraerEdicionPedido(texto);
+  if (!edicion || edicion.modo === "remove" || edicion.modo === "clear") return null;
+  return { cantidad: edicion.cantidad ?? 1, modo: edicion.modo };
+}
+
+export function edicionPideBusqueda(texto: string): boolean {
+  const edicion = extraerEdicionPedido(texto);
+  return Boolean(edicion && (edicion.modo === "add" || edicion.modo === "set") && edicion.pista);
+}
+
+function catalogoSku(stock: BloqueStock, sku: string): { existencia: number; precio: number } | null {
+  const clave = sku.trim().toLowerCase();
+  if (stock.sku && stock.sku.toLowerCase() === clave) {
+    return { existencia: cantidadStock(stock), precio: Number(stock.precio) || 0 };
+  }
+  const alts = [...(stock.alternativas ?? []), ...(stock.sustituto ? [stock.sustituto] : [])];
+  const hit = alts.find((item) => item.sku.toLowerCase() === clave);
+  if (!hit) return null;
+  return { existencia: hit.existencia, precio: Number(hit.precio) || 0 };
+}
+
+function topeExistenciaSku(stock: BloqueStock, sku: string): number {
+  const fila = catalogoSku(stock, sku);
+  if (fila && fila.existencia > 0) return fila.existencia;
+  return 999;
+}
+
+function semillaPedidoDesdeStock(stock: BloqueStock): LineaCarrito | null {
+  const exacto = productoExacto(stock);
+  if (exacto) {
+    return { sku: exacto.sku, nombre: exacto.nombre, cantidad: 1, precio: exacto.precio };
+  }
+  const alt = (stock.alternativas ?? []).find((item) => item.existencia > 0 && item.sku && item.nombre);
+  if (!alt) return null;
+  return { sku: alt.sku, nombre: alt.nombre, cantidad: 1, precio: alt.precio };
+}
+
+function scorePistaProducto(pista: string, nombre: string, sku: string): number {
+  const p = norm(pista);
+  const n = norm(nombre);
+  const s = norm(sku).replace(/\s+/g, "");
+  if (!p) return 0;
+  if (s && (p.includes(s) || s.includes(p.replace(/\s+/g, "")))) return 100;
+  const famP = familiaCatalogo(p);
+  const famN = familiaCatalogo(n);
+  const combo =
+    /\b(apagador(?:es)?|interruptor(?:es)?)\b/.test(n) && /\b(contacto(?:s)?|tomacorriente|enchufe)\b/.test(n);
+  const singular = p.endsWith("es") ? p.slice(0, -2) : p.endsWith("s") ? p.slice(0, -1) : p;
+  const menciona = n.includes(p) || (singular.length >= 4 && n.includes(singular)) || p.includes(n);
+  if (combo && (famP === "contacto" || famP === "interruptor") && !/\bkit\b/.test(p)) {
+    return menciona ? 25 : 0;
+  }
+  if (menciona) return 80 + Math.min(n.length, 20);
+  if (famP && famN && famP === famN) return 55;
+  const tokens = p.split(" ").filter((tok) => tok.length >= 3);
+  let hits = 0;
+  for (const tok of tokens) {
+    if (n.includes(tok) || s.includes(tok)) hits += 1;
+  }
+  return hits === 0 ? 0 : hits * 18;
+}
+
+function mejorLineaPorPista(pista: string, lineas: LineaCarrito[]): LineaCarrito | null {
+  if (!pista || lineas.length === 0) return null;
+  let mejor: LineaCarrito | null = null;
+  let score = 0;
+  for (const linea of lineas) {
+    const n = scorePistaProducto(pista, linea.nombre, linea.sku);
+    if (n > score) {
+      mejor = linea;
+      score = n;
+    }
+  }
+  return score >= 40 ? mejor : null;
+}
+
+function mejorCatalogoPorPista(pista: string, items: ItemCatalogoPedido[]): ItemCatalogoPedido | null {
+  const utiles = items.filter((item) => item.sku && item.nombre && item.existencia > 0);
+  if (!pista || utiles.length === 0) return null;
+  const ranked = utiles
+    .map((item) => ({ item, score: scorePistaProducto(pista, item.nombre, item.sku) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (ranked.length === 0) return null;
+  if (ranked.length === 1 || ranked[0].score >= 50 || ranked[0].score >= (ranked[1]?.score ?? 0) + 10) {
+    return ranked[0].item;
+  }
+  return null;
+}
+
+function catalogoDesdeContexto(stock: BloqueStock, extra: ItemCatalogoPedido[] = []): ItemCatalogoPedido[] {
+  const out: ItemCatalogoPedido[] = [];
+  const vistos = new Set<string>();
+  const meter = (item: ItemCatalogoPedido | null | undefined) => {
+    if (!item?.sku || !item.nombre) return;
+    const clave = item.sku.toLowerCase();
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    out.push(item);
+  };
+  if (stock.sku && stock.nombre) {
+    meter({
+      sku: stock.sku,
+      nombre: stock.nombre,
+      precio: Number(stock.precio) || 0,
+      existencia: cantidadStock(stock),
+      url_imagen: stock.url_imagen,
+    });
+  }
+  for (const item of [...(stock.alternativas ?? []), ...(stock.sustituto ? [stock.sustituto] : [])]) {
+    meter({
+      sku: item.sku,
+      nombre: item.nombre,
+      precio: Number(item.precio) || 0,
+      existencia: item.existencia,
+      url_imagen: item.url_imagen,
+    });
+  }
+  for (const item of extra) meter(item);
+  return out;
+}
+
+export function aplicarEdicionPedido(
+  texto: string,
+  lineas: LineaCarrito[],
+  stock: BloqueStock,
+  extra: ItemCatalogoPedido[] = []
+): { lineas: LineaCarrito[]; cambio: boolean; avisoTope: string } {
+  const edicion = extraerEdicionPedido(texto);
+  if (!edicion) return { lineas, cambio: false, avisoTope: "" };
+  const actuales = normalizarLineasCarrito(lineas);
+  if (edicion.modo === "clear") {
+    if (actuales.length === 0) return { lineas: actuales, cambio: false, avisoTope: "" };
+    return { lineas: [], cambio: true, avisoTope: "Dejé el pedido vacío.\n\n" };
+  }
+
+  const catalogo = catalogoDesdeContexto(stock, extra);
+  const t = norm(texto);
+  const mismo =
+    /\b(el mismo|la misma|de es[oa]s|de eso|otro igual|una mas|uno mas)\b/.test(t) ||
+    (edicion.modo === "add" && !edicion.pista && (edicion.cantidad ?? 0) > 0);
+
+  if (edicion.modo === "add" && !edicion.pista && !mismo && edicion.cantidad == null) {
+    return {
+      lineas: actuales,
+      cambio: false,
+      avisoTope: "¿Cuál agregamos al pedido? Dime el artículo (contacto, cinta, foco…) o toca Elegir en las tarjetas.\n\n",
+    };
+  }
+
+  let destinoLinea = edicion.pista ? mejorLineaPorPista(edicion.pista, actuales) : actuales[actuales.length - 1] ?? null;
+  if (!destinoLinea && mismo) destinoLinea = actuales[actuales.length - 1] ?? null;
+
+  if (edicion.modo === "remove") {
+    if (!destinoLinea) {
+      return {
+        lineas: actuales,
+        cambio: false,
+        avisoTope: edicion.pista
+          ? `En el pedido no veo ${edicion.pista}. ${actuales.length ? textoCuentaPedido(actuales) : "Aún no hay piezas en el pedido."}\n`
+          : "No hay una línea que quitar. Toca Elegir o dime qué artículo.\n\n",
+      };
+    }
+    const quitar = edicion.cantidad ?? destinoLinea.cantidad;
+    const queda = destinoLinea.cantidad - quitar;
+    if (queda <= 0) {
+      const nuevas = actuales.filter((linea) => linea.sku.toLowerCase() !== destinoLinea.sku.toLowerCase());
+      const aviso =
+        destinoLinea.cantidad < quitar
+          ? `Solo había ${destinoLinea.cantidad} pza de ${destinoLinea.nombre}; las quité todas.\n\n`
+          : `Quité ${destinoLinea.nombre} del pedido.\n\n`;
+      return { lineas: nuevas, cambio: true, avisoTope: aviso };
+    }
+    const nuevas = actuales.map((linea) =>
+      linea.sku.toLowerCase() === destinoLinea.sku.toLowerCase() ? { ...linea, cantidad: queda } : linea
+    );
+    return { lineas: nuevas, cambio: true, avisoTope: `Quité ${quitar} pza de ${destinoLinea.nombre}.\n\n` };
+  }
+
+  let semilla: LineaCarrito | null = destinoLinea;
+  if (!semilla) {
+    const delCatalogo =
+      (edicion.pista ? mejorCatalogoPorPista(edicion.pista, catalogo) : null) ??
+      (!edicion.pista ? semillaPedidoDesdeStock(stock) : null);
+    if (delCatalogo) {
+      semilla = {
+        sku: delCatalogo.sku,
+        nombre: delCatalogo.nombre,
+        cantidad: 0,
+        precio: delCatalogo.precio,
+        url_imagen: "url_imagen" in delCatalogo ? delCatalogo.url_imagen : undefined,
+      };
+    }
+  }
+  if (!semilla) {
+    return {
+      lineas: actuales,
+      cambio: false,
+      avisoTope: edicion.pista
+        ? `No encontré ${edicion.pista} en anaquel para meterlo al pedido. ¿Me das el nombre o el SKU?\n\n`
+        : "",
+    };
+  }
+
+  const enPedido = actuales.some((linea) => linea.sku.toLowerCase() === semilla.sku.toLowerCase());
+  const base = enPedido ? actuales : [...actuales, { ...semilla, cantidad: 0 }];
+  const actual = base.find((linea) => linea.sku.toLowerCase() === semilla.sku.toLowerCase()) ?? semilla;
+  const catalogoHit = catalogoSku(stock, semilla.sku) ?? catalogo.find((item) => item.sku.toLowerCase() === semilla.sku.toLowerCase());
+  const max = catalogoHit && catalogoHit.existencia > 0 ? catalogoHit.existencia : topeExistenciaSku(stock, semilla.sku);
+  const pedida =
+    edicion.modo === "add" ? actual.cantidad + (edicion.cantidad ?? 1) : Math.max(1, edicion.cantidad ?? 1);
+  const cantidad = Math.max(1, Math.min(max, pedida));
+  const avisoTope =
+    pedida > max ? `Solo hay ${max} pza en anaquel de ${semilla.nombre}. Dejé ${cantidad} en el pedido.\n\n` : "";
+  const nuevas = base
+    .map((linea) =>
+      linea.sku.toLowerCase() === semilla.sku.toLowerCase()
+        ? {
+            ...linea,
+            cantidad,
+            nombre: semilla.nombre || linea.nombre,
+            precio: linea.precio > 0 ? linea.precio : catalogoHit?.precio || linea.precio,
+            url_imagen: linea.url_imagen || semilla.url_imagen,
+          }
+        : linea
+    )
+    .filter((linea) => linea.cantidad > 0);
+  const cambio =
+    nuevas.length !== actuales.length ||
+    nuevas.some((linea) => {
+      const prev = actuales.find((item) => item.sku.toLowerCase() === linea.sku.toLowerCase());
+      return !prev || prev.cantidad !== linea.cantidad;
+    }) ||
+    avisoTope !== "";
+  return { lineas: nuevas, cambio, avisoTope };
+}
+
+export function aplicarCantidadEnPedido(
+  texto: string,
+  lineas: LineaCarrito[],
+  stock: BloqueStock
+): { lineas: LineaCarrito[]; cambio: boolean; avisoTope: string } {
+  return aplicarEdicionPedido(texto, lineas, stock);
 }
 
 function esSeguimientoListaPedido(t: string, ultimoAsistente: string): boolean {
@@ -421,12 +860,19 @@ function faltantes(borrador: BorradorApartado): string[] {
   return out;
 }
 
-export function mensajePedirDatos(nombrePieza: string, pendientes?: string[]): string {
+export function mensajePedirDatos(nombrePieza: string, pendientes?: string[], lineas: LineaCarrito[] = []): string {
   const pieza = nombrePieza.trim() || "la pieza";
+  const snap = snapshotPedido(lineas);
+  const cuenta =
+    snap.lineas.length > 0
+      ? `\n\nCuenta de lo que vamos a apartar:\n${snap.lineas
+          .map((linea) => `• ${linea.nombre} × ${linea.cantidad} = ${precioMx(linea.subtotal)}`)
+          .join("\n")}\nTotal a pagar: ${snap.total_obligatorio}`
+      : "";
   if (pendientes && pendientes.length > 0 && pendientes.length < 3) {
-    return `Para registrar el apartado de ${pieza} todavía necesito: ${pendientes.join(", ")}. El tiempo máximo de apartado es de 24 horas.`;
+    return `Para registrar el apartado de ${pieza} todavía necesito: ${pendientes.join(", ")}. El tiempo máximo de apartado es de 24 horas.${cuenta}`;
   }
-  return `Puedo apartar ${pieza}, pero no lo confirmo todavía. Para registrarlo necesito obligatoriamente:\n1) Nombre completo del cliente\n2) Teléfono\n3) ¿En cuánto tiempo pasará a recogerlo? El tiempo máximo de apartado es de 24 horas.\nCuando me pases esos datos, lo dejo apartado.`;
+  return `Puedo apartar ${pieza}, pero no lo confirmo todavía. Para registrarlo necesito obligatoriamente:\n1) Nombre completo del cliente\n2) Teléfono\n3) ¿En cuánto tiempo pasará a recogerlo? El tiempo máximo de apartado es de 24 horas.\nCuando me pases esos datos, lo dejo apartado.${cuenta}`;
 }
 
 function mensajeExcede24h(nombrePieza: string): string {
@@ -457,8 +903,15 @@ function formatoVence(iso: string): string {
 
 function mensajeConfirmado(row: ApartadoActivo): string {
   const tel = row.cliente_telefono.replace(/(\d{2})(\d{4})(\d{4})/, "$1 $2 $3");
-  const pedido = row.lineas && row.lineas.length > 1 ? etiquetaPedido(row.lineas) : row.nombre;
-  return `Listo. Dejé apartado ${pedido} a nombre de ${row.cliente_nombre}, tel. ${tel}. Pasan a recogerlo: ${row.recoger_en}. El apartado vence en 24 horas (${formatoVence(row.expires_at)}).`;
+  const pedido = row.lineas && row.lineas.length > 0 ? etiquetaPedido(row.lineas) : row.nombre;
+  const snap = snapshotPedido(row.lineas ?? []);
+  const cuenta =
+    snap.lineas.length > 0
+      ? `\n\nCuenta:\n${snap.lineas
+          .map((linea) => `• ${linea.nombre} (${linea.sku}) × ${linea.cantidad} = ${precioMx(linea.subtotal)}`)
+          .join("\n")}\nTotal a pagar: ${snap.total_obligatorio}`
+      : "";
+  return `Listo. Dejé apartado ${pedido} a nombre de ${row.cliente_nombre}, tel. ${tel}. Pasan a recogerlo: ${row.recoger_en}. El apartado vence en 24 horas (${formatoVence(row.expires_at)}).${cuenta}`;
 }
 
 export async function ensureApartadosSchema(sql: Sql): Promise<void> {
@@ -606,6 +1059,7 @@ function mencionaProductoEspecifico(texto: string): boolean {
 
 function aplicaAFlujo(texto: string, pendiente: BorradorApartado | null, historial: MensajeHilo[]): boolean {
   if (pideResumenPedido(texto, ultimoAsistente(historial))) return false;
+  if (extraerEdicionPedido(texto) && !pideApartar(texto) && !cancelaApartado(texto)) return false;
   if (pideApartar(texto) || afirmaApartado(texto, ultimoAsistente(historial)) || cancelaApartado(texto)) return true;
   return pareceRespuestaDatos(texto, pendiente, historial);
 }
@@ -616,9 +1070,11 @@ export async function procesarFlujoApartado(input: {
   texto: string;
   historial: MensajeHilo[];
   stock: BloqueStock;
+  lineasPedido?: LineaCarrito[];
 }): Promise<{ mensaje: string; pendiente: BorradorApartado | null } | null> {
   const { sql, consulta, texto, historial, stock } = input;
   let pendiente = consulta.apartado;
+  const lineasPedido = normalizarLineasCarrito(input.lineasPedido);
 
   if (!aplicaAFlujo(texto, pendiente, historial)) return null;
 
@@ -630,7 +1086,14 @@ export async function procesarFlujoApartado(input: {
 
   const datos = extraerDatosCliente(texto);
   const lineasTexto = extraerLineasDeTextoPedido(texto);
-  const carritoPendiente = Boolean(pendiente && pendiente.lineas.length > 1);
+  if (pendiente && lineasPedido.length > 0) {
+    pendiente = mergeBorrador(pendiente, {
+      sku: lineasPedido.map((linea) => linea.sku).join(",").slice(0, 200),
+      nombre: etiquetaPedido(lineasPedido),
+      lineas: lineasPedido,
+    });
+  }
+  const carritoPendiente = Boolean(pendiente && pendiente.lineas.length > 0);
   const elegido = carritoPendiente ? null : resolverProductoApartado(texto, historial, stock);
 
   if (lineasTexto.length > 1) {
@@ -640,18 +1103,35 @@ export async function procesarFlujoApartado(input: {
       lineas: lineasTexto,
     });
   } else if (elegido && !carritoPendiente) {
-    pendiente = mergeBorrador(pendiente, { sku: elegido.sku, nombre: elegido.nombre });
+    const delCarrito = lineasPedido.filter((linea) => linea.sku.toLowerCase() === elegido.sku.toLowerCase());
+    pendiente = mergeBorrador(pendiente, {
+      sku: elegido.sku,
+      nombre: elegido.nombre,
+      lineas: delCarrito.length > 0 ? delCarrito : lineasPedido.length > 0 ? lineasPedido : [{ sku: elegido.sku, nombre: elegido.nombre, cantidad: 1, precio: elegido.precio }],
+    });
   } else if (!pendiente && (pideApartar(texto) || afirmaApartado(texto, ultimoAsistente(historial)))) {
     if (mencionaProductoEspecifico(texto)) {
       await guardarPendiente(sql, consulta.id, null);
       return { mensaje: mensajeSinStock(), pendiente: null };
     }
-    const exacto = productoExacto(stock);
-    if (!exacto) {
-      await guardarPendiente(sql, consulta.id, null);
-      return { mensaje: mensajeSinStock(), pendiente: null };
+    if (lineasPedido.length > 0) {
+      pendiente = mergeBorrador(null, {
+        sku: lineasPedido.map((linea) => linea.sku).join(",").slice(0, 200),
+        nombre: etiquetaPedido(lineasPedido),
+        lineas: lineasPedido,
+      });
+    } else {
+      const exacto = productoExacto(stock);
+      if (!exacto) {
+        await guardarPendiente(sql, consulta.id, null);
+        return { mensaje: mensajeSinStock(), pendiente: null };
+      }
+      pendiente = mergeBorrador(null, {
+        sku: exacto.sku,
+        nombre: exacto.nombre || consulta.pieza_nombre,
+        lineas: [{ sku: exacto.sku, nombre: exacto.nombre || consulta.pieza_nombre, cantidad: 1, precio: exacto.precio }],
+      });
     }
-    pendiente = mergeBorrador(null, { sku: exacto.sku, nombre: exacto.nombre || consulta.pieza_nombre });
   }
 
   if (!pendiente) {
@@ -671,7 +1151,7 @@ export async function procesarFlujoApartado(input: {
 
   if (!completo(pendiente)) {
     await guardarPendiente(sql, consulta.id, pendiente);
-    return { mensaje: mensajePedirDatos(pendiente.nombre, faltantes(pendiente)), pendiente };
+    return { mensaje: mensajePedirDatos(pendiente.nombre, faltantes(pendiente), pendiente.lineas), pendiente };
   }
 
   const activo = await registrarApartado(sql, consulta, pendiente);

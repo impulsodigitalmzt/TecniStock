@@ -32,6 +32,28 @@ export function piezasCarrito(lineas: LineaCarrito[]): number {
   return lineas.reduce((acc, linea) => acc + linea.cantidad, 0);
 }
 
+export function aplicarPedidoServidor(
+  prev: LineaCarrito[],
+  pedido: { lineas?: Array<{ sku: string; nombre: string; cantidad: number; precio: number }> } | null | undefined
+): LineaCarrito[] {
+  if (!pedido || !Array.isArray(pedido.lineas)) return prev;
+  if (pedido.lineas.length === 0) return [];
+  return pedido.lineas
+    .filter((linea) => linea && linea.sku && linea.nombre)
+    .map((linea) => {
+      const clave = linea.sku.trim().toLowerCase();
+      const actual = prev.find((item) => item.sku.toLowerCase() === clave);
+      return {
+        sku: linea.sku.trim(),
+        nombre: linea.nombre.trim() || actual?.nombre || linea.sku.trim(),
+        cantidad: Math.max(1, Number(linea.cantidad) || 1),
+        precio: Number.isFinite(linea.precio) ? linea.precio : actual?.precio ?? 0,
+        url_imagen: actual?.url_imagen,
+        existencia: actual?.existencia,
+      };
+    });
+}
+
 export function agregarAlCarrito(prev: LineaCarrito[], item: LineaCarrito): LineaCarrito[] {
   const clave = item.sku.trim().toLowerCase();
   if (!clave) return prev;
