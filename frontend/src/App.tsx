@@ -2267,7 +2267,7 @@ export default function App() {
                         }
                         const tarjetas = stock ? tarjetasDeBurbuja(msg, stock, pieza ?? null) : msg.tarjetas;
                         return (
-                          <div key={msg.id} className="space-y-2">
+                          <div key={msg.id} className="hilo-turno space-y-2">
                             {msg.texto ? (
                               <div className="bubble-bot">
                                 <p className="whitespace-pre-wrap">{msg.texto}</p>
