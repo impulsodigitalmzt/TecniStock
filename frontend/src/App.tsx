@@ -1601,7 +1601,7 @@ export default function App() {
 
   return (
     <div className="mostrador-shell es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]">
-      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-hidden lg:min-h-0">
+      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-visible lg:min-h-0">
       <header className="mostrador-header">
         <div className="mx-auto max-w-lg lg:mx-0 lg:max-w-none">
           <div className="flex items-center gap-3 mb-4 lg:mb-2">
@@ -1613,7 +1613,28 @@ export default function App() {
               <h1 className="text-3xl lg:text-xl font-bold tracking-tight leading-none">TecniStock</h1>
               <p className="hidden lg:block text-[11px] leading-snug text-stone-300 mt-0.5">Tu Asesor Técnico en Campo 24/7</p>
             </div>
-            <BotonCarritoHeader piezas={piezasCarrito(carrito)} onClick={() => setCarritoAbierto((prev) => !prev)} />
+            <div className="carrito-ancla">
+              <BotonCarritoHeader piezas={piezasCarrito(carrito)} onClick={() => setCarritoAbierto((prev) => !prev)} />
+              <CarritoApartado
+                lineas={carrito}
+                abierto={carritoAbierto}
+                enviando={enviandoApartado}
+                onToggle={() => setCarritoAbierto((prev) => !prev)}
+                onCambiarCantidad={(sku, cantidad) => {
+                  setCarrito((prev) => {
+                    if (cantidad <= 0) return prev.filter((linea) => linea.sku !== sku);
+                    return prev.map((linea) => {
+                      if (linea.sku !== sku) return linea;
+                      const tope = linea.existencia ?? 999;
+                      return { ...linea, cantidad: Math.min(tope, cantidad) };
+                    });
+                  });
+                }}
+                onQuitar={(sku) => setCarrito((prev) => prev.filter((linea) => linea.sku !== sku))}
+                onVaciar={() => setCarrito([])}
+                onGenerarApartado={() => void generarApartadoCarrito()}
+              />
+            </div>
             <button
               type="button"
               className="flex h-11 w-11 lg:h-10 lg:w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
@@ -2415,25 +2436,6 @@ export default function App() {
                     </form>
                   </article>
       </section>
-      <CarritoApartado
-          lineas={carrito}
-          abierto={carritoAbierto}
-          enviando={enviandoApartado}
-          onToggle={() => setCarritoAbierto((prev) => !prev)}
-          onCambiarCantidad={(sku, cantidad) => {
-            setCarrito((prev) => {
-              if (cantidad <= 0) return prev.filter((linea) => linea.sku !== sku);
-              return prev.map((linea) => {
-                if (linea.sku !== sku) return linea;
-                const tope = linea.existencia ?? 999;
-                return { ...linea, cantidad: Math.min(tope, cantidad) };
-              });
-            });
-          }}
-          onQuitar={(sku) => setCarrito((prev) => prev.filter((linea) => linea.sku !== sku))}
-          onVaciar={() => setCarrito([])}
-          onGenerarApartado={() => void generarApartadoCarrito()}
-        />
     </div>
   );
 }

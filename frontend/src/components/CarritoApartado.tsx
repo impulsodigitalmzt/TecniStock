@@ -123,12 +123,12 @@ export function CarritoApartado({
   if (!abierto) return null;
 
   return (
-        <div className="carrito-sheet-backdrop" onClick={onToggle} role="presentation">
+    <>
+        <div className="carrito-sheet-backdrop" onClick={onToggle} role="presentation" />
           <section
             className="carrito-sheet"
             role="dialog"
             aria-label="Pedido para apartado"
-            onClick={(event) => event.stopPropagation()}
           >
             <header className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-3">
               <div>
@@ -215,6 +215,6 @@ export function CarritoApartado({
               ) : null}
             </footer>
           </section>
-        </div>
+    </>
   );
 }

@@ -256,19 +256,34 @@
   .carrito-header-badge {
     @apply absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-none text-white;
   }
+  .carrito-ancla {
+    position: relative;
+    z-index: 50;
+  }
   .carrito-sheet-backdrop {
     @apply fixed inset-0 z-40 bg-black/40;
   }
   .carrito-sheet {
-    @apply absolute inset-x-0 bottom-0 z-50 mx-auto max-w-lg overflow-hidden rounded-t-3xl bg-stone-50 shadow-2xl;
+    @apply fixed inset-x-0 bottom-0 z-50 mx-auto max-w-lg overflow-hidden rounded-t-3xl bg-stone-50 shadow-2xl;
     padding-bottom: env(safe-area-inset-bottom);
   }
   @media (min-width: 1024px) {
+    .carrito-sheet-backdrop {
+      background-color: transparent;
+    }
     .carrito-sheet {
-      inset: auto 1.5rem 1.5rem auto;
-      width: min(28rem, calc(100vw - 3rem));
-      max-height: min(82vh, 40rem);
-      border-radius: 1.25rem;
+      position: absolute;
+      inset: auto auto auto auto;
+      top: calc(100% + 0.55rem);
+      right: 0;
+      left: auto;
+      bottom: auto;
+      width: min(22.5rem, calc(100vw - 2rem));
+      max-height: min(70vh, 34rem);
+      margin: 0;
+      border-radius: 1rem;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
+      padding-bottom: 0;
     }
   }
   .mic-recording {
@@ -372,7 +387,7 @@ body, #root {
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
     padding: 1rem;
     border-right: 1px solid #e7e5e4;
   }
@@ -385,7 +400,8 @@ body, #root {
     flex-shrink: 0;
     position: sticky;
     top: 0;
-    z-index: 20;
+    z-index: 50;
+    overflow: visible;
     padding: 0 0 0.75rem;
     background-color: #f5f5f4 !important;
   }
