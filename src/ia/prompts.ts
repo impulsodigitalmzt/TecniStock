@@ -79,34 +79,33 @@ Cuando rechaces, devuelve SOLO este JSON (sin otros campos inventados):
 {"fuera_de_giro":true,"mensaje":"${MENSAJE_FUERA_DE_GIRO}"}
 El campo mensaje debe ser exactamente esa frase, carácter por carácter.
 
-PASO 0 — OBSERVA EL CONECTOR (antes de nombrar, sin catálogo):
-Si hay algo enchufado en la placa, describe su FORMA. No adivines el SKU.
-- conector_tamano: grande | chico | no_hay
-  grande = cuerpo de enchufe de corriente (se ve como una clavija, a menudo angulada). chico = conector de red (casi del ancho de un dedo meñique).
-- cable_grosor: grueso | delgado | no_hay
-  grueso = cable de alimentación (como el de un aparato). delgado = UTP de red (~5 mm).
-- conector_pines: palas | ocho | no_visible | no_hay
-  palas = palas o pines de 127 V. ocho = 8 contactos dorados de RJ45. no_visible = el cuerpo tapa los pines.
-- conexion_visible: clavija_127 | jack_red | tecla_apagador | ninguna | otra
-  REGLA: si el conector es grande o el cable es grueso o ves palas → clavija_127. jack_red SOLO si el conector es chico y ves 8 pines o la pestaña de red.
+PASO 0 — INVENTARIO VISUAL (antes de nombrar; no elijas un solo SKU):
+Recorre la pieza de arriba abajo y de izquierda a derecha. Anota CADA módulo u orificio, esté ocupado o tapado.
+- modulos_vistos: lista en ese orden. Cada ítem es uno de: apagador | contacto | jack_red | tapa_ciega | otro
+  apagador = tecla, palanca o basculante para la luz. contacto = tomacorriente 127 V (orificios o clavija puesta). jack_red = conector chico de 8 pines. tapa_ciega = tapa lisa sin aparato.
+- Si hay algo enchufado, describe SOLO ese conector (no sustituye el inventario):
+  conector_tamano: grande | chico | no_hay
+  cable_grosor: grueso | delgado | no_hay
+  conector_pines: palas | ocho | no_visible | no_hay
+  conexion_visible: clavija_127 | jack_red | tecla_apagador | ninguna | otra
+  grande/grueso/palas → clavija_127 (contacto). jack_red SOLO con 8 pines o pestaña de red.
+PROHIBIDO marcar jack_red porque «hay un cable». Un enchufe de corriente no es voz y datos.
+PROHIBIDO dejar fuera un aparato que se ve. Si hay tecla Y tomacorriente, modulos_vistos lleva los dos.
 
-PROHIBIDO escribir RJ45, jack, ethernet o «voz y datos» si el conector es grande, el cable es grueso o no viste 8 pines.
-Un enchufe negro/gris en una placa modular plateada es CONTACTO de 127 V, no una placa de red.
-
-PASO 1 — DESCRIPCIÓN LIBRE (solo el producto de giro):
-Nombra lo que viste. Libertad de redacción; el único límite es enfocarte en la pieza de ferretería, electricidad o plomería (lo que se reemplazaría), no en la pared ni en lo enchufado.
-- clavija_127 → contacto / tomacorriente. Lo enchufado va en accesorios_visibles.
-- jack_red → placa o jack de voz y datos (solo si el paso 0 lo justifica).
-- tecla_apagador → apagador.
-- ninguna → placa o tapa.
-- otra → el artículo real.
-No inventes marca, modelo, rosca ni medida si no se ven. No «encajes» la foto en un ejemplo.
+PASO 1 — DESCRIPCIÓN COMPLETA (libertad de redacción):
+El único límite: enfócate en la pieza de ferretería, electricidad o plomería, no en la pared, la mano ni el fondo.
+- nombre: el conjunto real. Si hay apagador y contacto, el nombre DEBE mencionar ambos (ej. «Placa de 2 módulos con apagador y contacto»).
+- descripcion: 3 a 6 frases técnicas. Módulo por módulo: qué hay, cómo es la tecla, si el contacto está en uso, acabado, material aparente. Lo enchufado es accesorio (accesorios_visibles), no el producto.
+- mecanismo: los aparatos que se ven (ej. «tecla de apagador y tomacorriente 127 V»). NUNCA copies «no_visible» aquí; eso es solo para pines tapados.
+- medida: «N módulos» o la medida física si se lee. No pongas no_visible.
+- marca y rosca: texto vacío "" si no se leen. No inventes ni pongas no_visible.
+No encajes la foto en un ejemplo. No te quedes con un solo aparato si hay varios.
 
 PASO 2 — QUÉ BUSCAR EN ANAQUEL:
-producto_venta y palabras_clave = el aparato de instalación, no el cable ni el fondo.
-- Contacto en uso → contacto.
-- Jack de red (solo si el paso 0 es jack_red) → placa/jack de voz y datos.
-- Teclas → apagador. Huecos vacíos → placa.
+producto_venta y palabras_clave = lo que la tienda vendería para reemplazar lo de la foto.
+- Combo apagador+contacto → palabras_clave incluye apagador Y contacto (y placa si aplica).
+- Solo contacto / solo apagador / solo jack de red / tapa vacía: según lo que haya.
+- El cable o la clavija enchufada no se buscan.
 
 LENGUAJE DE MOSTRADOR (México, en nombre, producto_venta, medida, descripcion y palabras_clave):
 - Español de ferretería y tlapalería. PROHIBIDO ganga, gangas, rocker, switch, outlet, 3-way.
@@ -114,25 +113,23 @@ LENGUAJE DE MOSTRADOR (México, en nombre, producto_venta, medida, descripcion y
 - Contacto = tomacorriente 127 V. Jack de red = voz y datos. No intercambies esos nombres.
 
 PALABRAS CLAVE (el backend busca con ellas en inventario):
-- Entidades SUELTAS del artículo VENDIBLE, no del fondo ni del accesorio enchufado.
-- Contacto: ["contacto", "duplex", "127"]. Apagador: ["apagador", "doble"]. Voz/datos solo si conexion_visible es jack_red.
+- Entidades SUELTAS del artículo VENDIBLE. Si ves apagador y contacto, incluye ambas palabras.
 - PROHIBIDO frases («apagador doble»). Separa: apagador + doble.
 - No elijas un SKU del catálogo. Sin kits inventados.
 - 4 a 10 palabras sueltas.
 
 REGLAS SI ES DEL GIRO:
-1. No inventes marca, modelo, medida, rosca ni mecanismo si no se ven o no se infieren con claridad.
-2. nombre describe la pieza real de la foto. producto_venta es lo que hay que buscar en anaquel.
+1. No inventes marca, modelo, medida, rosca ni mecanismo si no se ven. Si no se ven, deja "".
+2. nombre y descripcion cubren TODOS los aparatos visibles. Omitir uno es un error.
 3. categoria es texto libre del rubro (ferretería, electricidad, plomería o familia técnica).
 4. confianza es un número de 0 a 1.
-5. descripcion: 1 o 2 frases técnicas de lo que ves. Sin preguntas ni llamadas a la acción.
-6. pregunta: cadena vacía "".
-7. Devuelve SOLO un objeto JSON válido, sin markdown, con las llaves:
-   fuera_de_giro (false), conector_tamano, cable_grosor, conector_pines, conexion_visible, nombre, producto_venta, accesorios_visibles, material, medida, categoria, rosca, mecanismo, acabado, marca,
+5. pregunta: cadena vacía "".
+6. Devuelve SOLO un objeto JSON válido, sin markdown, con las llaves:
+   fuera_de_giro (false), modulos_vistos, conector_tamano, cable_grosor, conector_pines, conexion_visible, nombre, producto_venta, accesorios_visibles, material, medida, categoria, rosca, mecanismo, acabado, marca,
    descripcion, pregunta, confianza, palabras_clave, modulos`;
 
 export const USER_PROMPT_ANALISIS_VISUAL =
-  "Decide si estas fotos son de ferretería, electricidad o plomería. Si no, rechaza con fuera_de_giro true. Si sí: llena primero conector_tamano (grande/chico), cable_grosor (grueso/delgado) y conector_pines (palas/ocho). Un enchufe grande o cable grueso es clavija_127 (contacto). jack_red SOLO si ves 8 pines o pestaña de red. PROHIBIDO decir RJ45 si el conector es grande. Luego nombra LIBREMENTE esa pieza (ignora pared; lo enchufado es accesorio). palabras_clave SUELTAS. Un solo JSON.";
+  "Giro ferretería/electricidad/plomería o rechaza. Inventaría CADA módulo (apagador, contacto, jack, tapa) de arriba abajo: no te quedes con uno solo. Si hay tecla y tomacorriente, nómbralos los dos. Lo enchufado es accesorio. Un enchufe grande no es RJ45. descripcion completa (3 a 6 frases). palabras_clave sueltas. Un solo JSON.";
 
 export const MENSAJE_SIN_INVENTARIO =
   "En el surtido de hoy no veo ese SKU exacto; te muestro lo más cercano que sí tenemos en anaquel.";

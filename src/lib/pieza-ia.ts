@@ -256,7 +256,39 @@ function familiaPorObservables(pieza: {
   return "";
 }
 
-/** Si el modelo mezcla familias, gana lo enchufado: clavija 127 V no es RJ45. */
+function listaModulosVistos(raw: unknown): string[] {
+  const fuente = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,/|]+/) : [];
+  const out: string[] = [];
+  for (const item of fuente) {
+    const t = texto(item)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "");
+    if (/\b(apagador|interruptor|tecla|palanca)\b/.test(t)) out.push("apagador");
+    else if (/\b(contacto|tomacorriente|enchufe|clavija|127)\b/.test(t)) out.push("contacto");
+    else if (/\b(jack|rj45|datos|red|keystone)\b/.test(t)) out.push("jack_red");
+    else if (/\b(tapa|ciega|ciego|blanco|vacio)\b/.test(t)) out.push("tapa_ciega");
+    else if (t) out.push("otro");
+  }
+  return out;
+}
+
+function mencionaApagador(textoPlano: string): boolean {
+  return /\b(apagador|interruptor|tecla|palanca)\b/i.test(textoPlano);
+}
+
+function mencionaContacto(textoPlano: string): boolean {
+  return /\b(contacto|tomacorriente|enchufe|clavija|127)\b/i.test(textoPlano);
+}
+
+function sinMarcaVacia(valor: string): string {
+  const t = valor.trim();
+  if (!t) return "";
+  if (/^(no[_\s-]?visible|no determinado|n\/?a|ningun[ao]?|sin dato)$/i.test(t)) return "";
+  return t;
+}
+
+/** Si el modelo mezcla familias, gana lo enchufado: clavija 127 V no es RJ45. No borra un apagador vecino. */
 export function alinearIdentificacionElectrica(pieza: {
   nombre: string;
   producto_venta: string;
@@ -268,6 +300,7 @@ export function alinearIdentificacionElectrica(pieza: {
   conector_tamano?: string;
   cable_grosor?: string;
   conector_pines?: string;
+  modulos_vistos?: string[];
 }): {
   nombre: string;
   producto_venta: string;
@@ -278,15 +311,40 @@ export function alinearIdentificacionElectrica(pieza: {
 } {
   const conexion = leerConexionVisible(pieza.conexion_visible);
   const familiaObs = familiaPorObservables(pieza);
-  const senales = `${pieza.accesorios_visibles} ${pieza.nombre} ${pieza.descripcion} ${pieza.mecanismo} ${pieza.producto_venta}`;
+  const modulos = pieza.modulos_vistos ?? [];
+  const senales = `${pieza.accesorios_visibles} ${pieza.nombre} ${pieza.descripcion} ${pieza.mecanismo} ${pieza.producto_venta} ${modulos.join(" ")}`;
   const hayClavija =
     familiaObs === "contacto" ||
     conexion === "clavija_127" ||
+    modulos.includes("contacto") ||
     evidenciaClavija127(`${pieza.accesorios_visibles} ${pieza.descripcion}`);
+  const hayTecla =
+    conexion === "tecla_apagador" ||
+    modulos.includes("apagador") ||
+    mencionaApagador(senales);
   const hayJack =
     familiaObs !== "contacto" &&
-    (familiaObs === "datos" || conexion === "jack_red" || esPiezaVozDatos(senales));
-  const hayTecla = conexion === "tecla_apagador";
+    !hayTecla &&
+    (familiaObs === "datos" || conexion === "jack_red" || modulos.includes("jack_red") || esPiezaVozDatos(senales));
+
+  if (hayTecla && (hayClavija || mencionaContacto(senales))) {
+    const palabras = pieza.palabras_clave.filter((item) => !DATOS_CLAVE_RE.test(item));
+    if (!palabras.some((item) => /^apagador$/i.test(item))) palabras.unshift("apagador");
+    if (!palabras.some((item) => /^contacto$/i.test(item))) palabras.unshift("contacto");
+    const nombraAmbos = mencionaApagador(pieza.nombre) && mencionaContacto(pieza.nombre);
+    const mecanismo = sinMarcaVacia(pieza.mecanismo) || "apagador y tomacorriente 127 V";
+    return {
+      nombre: nombraAmbos ? pieza.nombre : "Placa con apagador y contacto",
+      producto_venta:
+        mencionaApagador(pieza.producto_venta) && mencionaContacto(pieza.producto_venta)
+          ? pieza.producto_venta
+          : "apagador y contacto",
+      descripcion: pieza.descripcion,
+      mecanismo: /rj\s?-?\s?45|jack de red|keystone/i.test(mecanismo) ? "apagador y tomacorriente 127 V" : mecanismo,
+      palabras_clave: palabras,
+      vozDatos: false,
+    };
+  }
 
   if (hayClavija && !hayTecla) {
     const duplex = /\bd[uú]plex\b/i.test(senales);
@@ -295,9 +353,10 @@ export function alinearIdentificacionElectrica(pieza: {
       : duplex
         ? "Contacto dúplex"
         : "Contacto";
-    const mecanismo = /rj\s?-?\s?45|jack|voz y datos|keystone/i.test(pieza.mecanismo)
+    const mecanismoRaw = sinMarcaVacia(pieza.mecanismo);
+    const mecanismo = /rj\s?-?\s?45|jack|voz y datos|keystone/i.test(mecanismoRaw)
       ? "orificios 127 V"
-      : pieza.mecanismo;
+      : mecanismoRaw;
     const palabras = pieza.palabras_clave.filter((item) => !DATOS_CLAVE_RE.test(item));
     if (!palabras.some((item) => /^contacto$/i.test(item))) palabras.unshift("contacto");
     const descripcion = /rj\s?-?\s?45|voz y datos|jack de red|keystone/i.test(pieza.descripcion)
@@ -373,6 +432,7 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     conector_tamano: texto(raw.conector_tamano),
     cable_grosor: texto(raw.cable_grosor),
     conector_pines: texto(raw.conector_pines),
+    modulos_vistos: listaModulosVistos(raw.modulos_vistos || raw.modulos_visibles),
   });
   const extras = [raw.rosca, alineada.mecanismo, raw.acabado, raw.marca]
     .map((item) => texto(item))
@@ -388,7 +448,7 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     : nombreMostradorCompuesto({
         nombre: alineada.nombre,
         material: texto(raw.material) || "No determinado",
-        medida: mexicanizarMostrador(texto(raw.medida || raw.medida_detectada) || "No visible"),
+        medida: mexicanizarMostrador(sinMarcaVacia(texto(raw.medida || raw.medida_detectada))),
         descripcion: alineada.descripcion,
         mecanismo: alineada.mecanismo,
         palabras_clave,
@@ -405,12 +465,12 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     producto_venta: alineada.producto_venta || nombreFinal,
     accesorios_visibles: accesoriosVisibles,
     material: texto(raw.material) || "No determinado",
-    medida: mexicanizarMostrador(texto(raw.medida || raw.medida_detectada) || "No visible"),
+    medida: mexicanizarMostrador(sinMarcaVacia(texto(raw.medida || raw.medida_detectada))),
     categoria: categoriaAbierta(raw.categoria),
-    rosca: texto(raw.rosca),
-    mecanismo: alineada.mecanismo,
-    acabado: texto(raw.acabado),
-    marca: texto(raw.marca),
+    rosca: sinMarcaVacia(texto(raw.rosca)),
+    mecanismo: sinMarcaVacia(alineada.mecanismo),
+    acabado: sinMarcaVacia(texto(raw.acabado)),
+    marca: sinMarcaVacia(texto(raw.marca)),
     descripcion: alineada.descripcion,
     pregunta,
     observaciones: alineada.descripcion,

@@ -505,6 +505,10 @@ export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
 /** Si el modelo tituló «Placa de…» pero hay teclas de apagador, el nombre de mostrador es el aparato. */
 export function nombreMostradorCompuesto(pieza: IdentidadPieza): string {
   if (esPiezaVozDatos(blobIdentidad(pieza))) return mexicanizarMostrador(pieza.nombre);
+  const blob = textoPlano(blobIdentidad(pieza));
+  if (/\b(apagador|interruptor|tecla)\b/.test(blob) && /\b(contacto|tomacorriente)\b/.test(blob)) {
+    return mexicanizarMostrador(pieza.nombre);
+  }
   const objeto = objetoMostrador(pieza);
   const start = textoPlano(pieza.nombre);
   if ((objeto === "apagador" || objeto === "contacto") && /^(placa|tapa|embellecedor)\b/.test(start)) {

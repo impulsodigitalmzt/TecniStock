@@ -83,3 +83,19 @@ caso(
   { nombre: "contacto", producto: "contacto", vozDatos: false }
 );
 
+caso(
+  "combo apagador + contacto no se reduce a Contacto",
+  {
+    nombre: "Placa de dos módulos plateada",
+    producto_venta: "placa",
+    accesorios_visibles: "clavija de 127 V en el módulo inferior",
+    descripcion: "Placa de instalación de dos módulos. Arriba hay un apagador de tecla. Abajo un tomacorriente con enchufe.",
+    mecanismo: "no_visible",
+    palabras_clave: ["placa", "doble"],
+    conexion_visible: "clavija_127",
+    modulos_vistos: ["apagador", "contacto"],
+  },
+  { nombre: "apagador", producto: "contacto", vozDatos: false }
+);
+
+
