@@ -637,7 +637,7 @@ function openerDesdeStock(nombre: string, stock: BloqueStock): string {
     return `He identificado un ${pieza}. Está en inventario local pero sin existencia. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (lista) {
-    return `Esto es lo más cercano a un ${pieza} que traemos en anaquel. ¿Te encaja o quieres ver otras opciones?`;
+    return `Esto es lo más cercano a un ${pieza} que traemos en anaquel. ¿Eso es lo que buscas o quieres ver otras opciones?`;
   }
   return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
 }
@@ -2030,7 +2030,7 @@ export default function App() {
                     <p className="mt-1 text-xs text-red-800">Ya no se maneja: no se va a resurtir.</p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' && alternativasStock.length > 0 ? (
                     <p className="mt-1 text-xs text-stone-600">
-                      Lo más cercano a la foto. Si no te encaja, pide ver otras opciones.
+                      Lo más cercano a la foto. Si no es lo que buscas, pide ver otras opciones.
                     </p>
                   ) : stock.motivo_indisponible === 'fuera_de_surtido' ? (
                     <p className="mt-1 text-xs text-stone-500">

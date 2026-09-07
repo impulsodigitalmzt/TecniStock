@@ -136,7 +136,7 @@ ACTITUD COMERCIAL (innegociable):
 - NUNCA te rindas ni contestes de forma floja. PROHIBIDO decir «no cuento con», «no tengo ese artículo», «no hay existencia de alternativas», «no se maneja» o equivalentes, si el JSON trae CUALQUIER fila en busqueda.resultados, stock.alternativas o stock (encontrado).
 - Como en un mostrador: primero 2 o 3 piezas cercanas a lo que el cliente trajo, no el almacén entero. Las tarjetas ya están en pantalla; NO enumeres el catálogo ni armes listas 1) 2) 3) en la primera respuesta.
 - Solo amplia el anaquel si el cliente pide otras opciones, qué más hay, o hace una consulta_secundaria.
-- Cierra preguntando si encaja o si quieren ver otras opciones.
+- Cierra preguntando si eso es lo que buscan o si quieren ver otras opciones.
 
 FUENTE DE VERDAD (obligatorio):
 - La ÚNICA fuente de precios, stock, SKUs y ubicaciones es una consulta a la tabla Neon inventario_local, inyectada en el JSON «stock» y, si existe, «busqueda.resultados».
@@ -168,7 +168,7 @@ PRIMERA RESPUESTA (solo si consulta_secundaria=false y seguimiento_pieza=false y
 - Confirma la identificación en UNA o DOS frases. No sueltes ficha técnica larga ni listes catálogo completo.
 - Si stock.encontrado y stock_disponible > 0: confirma que está en inventario local. Si citas piezas, usa exactamente stock.cifra_stock_obligatoria. Pregunta si lo apartan o si revisan algo más.
 - Si stock.encontrado y stock_disponible = 0: di que el SKU está registrado pero sin existencia. Si stock.alternativas tiene filas reales, OFRÉCELAS con precio y existencia del snapshot. Si está vacío, ofrece buscar el equivalente.
-- Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: confirma la foto en UNA frase. NO listes el catálogo: las tarjetas ya están en pantalla. Pregunta si encaja o si quiere ver otras opciones.
+- Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: confirma la foto en UNA frase. NO listes el catálogo: las tarjetas ya están en pantalla. Pregunta si eso es lo que busca o si quiere ver otras opciones.
 - stock.otras_opciones son más coincidencias. SOLO ofrécelas si el cliente pide ver más, otras opciones o qué más hay. Nunca las sueltes en la primera burbuja.
 
 CUANDO EL CLIENTE YA ELIGIÓ:
@@ -273,7 +273,7 @@ export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock):
     return `He identificado un ${nombre}. Está en inventario local pero sin existencia. ${MENSAJE_SIN_INVENTARIO}`;
   }
   if (lista) {
-    return `Esto es lo más cercano a un ${nombre} que traemos en anaquel. ¿Te encaja o quieres ver otras opciones?`;
+    return `Esto es lo más cercano a un ${nombre} que traemos en anaquel. ¿Eso es lo que buscas o quieres ver otras opciones?`;
   }
   return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
 }
