@@ -923,7 +923,8 @@ export default function App() {
   }, [buscadorAbierto]);
 
   useEffect(() => {
-    if (!buscadorAbierto) return;
+    const enLanding = !consultaId;
+    if (!buscadorAbierto && !enLanding) return;
     const q = queryBusqueda.trim();
     if (q.length < 1) {
       setResultadosBusqueda([]);
@@ -954,7 +955,7 @@ export default function App() {
       ac.abort();
       window.clearTimeout(t);
     };
-  }, [buscadorAbierto, queryBusqueda]);
+  }, [buscadorAbierto, queryBusqueda, consultaId]);
 
   const cargarHistorial = async () => {
     try {
@@ -1373,8 +1374,68 @@ export default function App() {
     setBuscadorAbierto(true);
   };
 
+  const iniciarConsultaTexto = async (q: string, sku = '') => {
+    const query = q.trim();
+    if (!query && !sku) return;
+    setAplicandoSku(sku || 'texto');
+    setError('');
+    try {
+      const data = await leerJson<{
+        ok: boolean;
+        consulta_id?: string;
+        expires_at?: string;
+        pieza: PiezaDetectada;
+        stock: BloqueStock;
+        mensajes?: Mensaje[];
+        detail?: string;
+      }>(
+        await fetchCampo('/api/consultas/texto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: query, sku: sku || undefined }),
+        }),
+        'No se pudo buscar esa pieza.'
+      );
+      if (!data.ok) throw new Error(data.detail || 'No se pudo buscar esa pieza.');
+      setResultado({
+        ok: true,
+        consulta_id: data.consulta_id,
+        expires_at: data.expires_at,
+        pieza: data.pieza,
+        stock: data.stock,
+      });
+      setExpiresAt(data.expires_at);
+      if (data.consulta_id) setConsultaId(data.consulta_id);
+      setMensajes(data.mensajes ?? []);
+      setBuscadorAbierto(false);
+      setQueryBusqueda('');
+      setResultadosBusqueda([]);
+      if (sku) {
+        const elegido = resultadosBusqueda.find((item) => item.sku === sku);
+        setCarrito((prev) =>
+          agregarAlCarrito(prev, {
+            sku,
+            nombre: elegido?.nombre || data.stock.nombre || data.pieza.nombre,
+            cantidad: 1,
+            precio: elegido?.precio ?? data.stock.precio ?? 0,
+            url_imagen: elegido?.url_imagen ?? data.stock.url_imagen,
+            existencia: elegido?.stock_disponible ?? data.stock.stock_disponible ?? 0,
+          })
+        );
+      }
+      void cargarHistorial();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo buscar esa pieza.');
+    } finally {
+      setAplicandoSku(null);
+    }
+  };
+
   const aplicarSkuBusqueda = async (item: ResultadoBusquedaInventario) => {
-    if (!consultaId || !resultado) return;
+    if (!consultaId || !resultado) {
+      await iniciarConsultaTexto(queryBusqueda || item.nombre, item.sku);
+      return;
+    }
     setAplicandoSku(item.sku);
     setError('');
     try {
@@ -1901,12 +1962,12 @@ export default function App() {
                     <div className="flex flex-col items-center text-stone-400 px-5 pt-8 pb-4 text-center">
                       <Camera className="h-10 w-10 mb-3 text-orange-400" />
                       <p className="text-white font-semibold text-base">
-                        {modoCorreccion === 'rehacer' ? 'Nueva toma' : modoCorreccion === 'agregar' ? 'Foto de placa o etiqueta' : 'Fotografía la pieza'}
+                        {modoCorreccion === 'rehacer' ? 'Nueva toma' : modoCorreccion === 'agregar' ? 'Otra foto de la pieza' : '¿Qué pieza buscas?'}
                       </p>
                       <p className="text-sm mt-1 leading-relaxed">
                         {corrigiendoFoto
                           ? 'La consulta y el chat no se pierden. Analiza de nuevo cuando tengas la foto.'
-                          : 'Agrega varias tomas (etiqueta, rosca, conjunto). La imagen no se sube a Neon.'}
+                          : 'Tómale foto o escríbela por nombre. Varias tomas ayudan a identificarla mejor.'}
                       </p>
                     </div>
                   )}
@@ -2014,6 +2075,65 @@ export default function App() {
                       <p className="mt-2 text-center text-[11px] text-stone-500">
                         Hasta {MAX_FOTOS_CONSULTA} fotos. En PC también pega con Ctrl+V.
                       </p>
+                      <div className="busqueda-landing">
+                        <p className="busqueda-landing-sep">o busca por nombre</p>
+                        <label className="sr-only" htmlFor="busqueda-libre-landing">
+                          Buscar pieza por nombre
+                        </label>
+                        <div className="busqueda-landing-fila">
+                          <Search className="h-4 w-4 shrink-0 text-orange-400" />
+                          <input
+                            id="busqueda-libre-landing"
+                            type="search"
+                            placeholder="Ej. contacto dúplex, cinta, foco LED"
+                            value={queryBusqueda}
+                            onChange={(e) => setQueryBusqueda(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && queryBusqueda.trim()) {
+                                e.preventDefault();
+                                void iniciarConsultaTexto(queryBusqueda.trim());
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="busqueda-landing-btn"
+                            disabled={!queryBusqueda.trim() || Boolean(aplicandoSku)}
+                            onClick={() => void iniciarConsultaTexto(queryBusqueda.trim())}
+                          >
+                            {aplicandoSku === 'texto' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
+                          </button>
+                        </div>
+                        {buscandoInventario ? (
+                          <p className="flex items-center gap-2 px-1 py-2 text-xs text-stone-400">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Buscando…
+                          </p>
+                        ) : queryBusqueda.trim() && resultadosBusqueda.length === 0 ? (
+                          <p className="px-1 py-2 text-xs text-stone-400">No encontramos esa pieza en el surtido.</p>
+                        ) : resultadosBusqueda.length > 0 ? (
+                          <ul className="mt-2 max-h-48 divide-y divide-stone-800 overflow-y-auto">
+                            {resultadosBusqueda.map((item) => (
+                              <li key={item.sku}>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-start gap-2 px-1 py-2 text-left text-stone-100 hover:bg-stone-800 disabled:opacity-50"
+                                  disabled={Boolean(aplicandoSku)}
+                                  onClick={() => void aplicarSkuBusqueda(item)}
+                                >
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-sm font-medium leading-snug">{textoMostrador(item.nombre)}</span>
+                                    <span className="mt-0.5 block font-mono text-[11px] text-stone-500">{item.sku}</span>
+                                  </span>
+                                  <span className="shrink-0 text-right text-xs tabular-nums text-stone-300">
+                                    {dinero(item.precio, 'MXN')}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
                     </>
                   ) : (
                     <button
@@ -2085,9 +2205,9 @@ export default function App() {
                       <button
                         type="button"
                         className={`btn-icon ${buscadorAbierto ? 'text-orange-600 bg-orange-50' : 'text-stone-400 hover:text-stone-700'}`}
-                        aria-label="Buscar en inventario local"
+                        aria-label="Buscar pieza"
                         aria-expanded={buscadorAbierto}
-                        disabled={analizando || transcribiendo || !consultaId}
+                        disabled={analizando || transcribiendo}
                         onClick={() => {
                           if (buscadorAbierto) {
                             setBuscadorAbierto(false);
@@ -2291,7 +2411,7 @@ export default function App() {
                         ref={buscadorInputRef}
                         type="search"
                         className="input-field min-h-11 rounded-xl py-2.5 text-sm"
-                        placeholder="Nombre o SKU, ej. interruptor doble o INT-DOB-127"
+                        placeholder="Nombre o SKU, ej. tomo corrinte o apagodor sencillo"
                         value={queryBusqueda}
                         onChange={(e) => setQueryBusqueda(e.target.value)}
                         onKeyDown={(e) => {
@@ -2299,7 +2419,7 @@ export default function App() {
                         }}
                       />
                       <p className="text-[11px] text-stone-500">
-                        Consulta directa a inventario local. Elige un resultado para forzar precio y existencia reales.
+                        Búsqueda tolerante a faltas. Elige un resultado para forzar precio y existencia reales.
                       </p>
                       {buscandoInventario ? (
                         <p className="flex items-center gap-2 py-3 text-sm text-stone-500">
@@ -2315,7 +2435,7 @@ export default function App() {
                               <button
                                 type="button"
                                 className="flex w-full items-start gap-3 px-1 py-2.5 text-left hover:bg-stone-50 disabled:opacity-50"
-                                disabled={Boolean(aplicandoSku) || !consultaId}
+                                disabled={Boolean(aplicandoSku)}
                                 onClick={() => void aplicarSkuBusqueda(item)}
                               >
                                 <span className="min-w-0 flex-1">
@@ -2380,15 +2500,18 @@ export default function App() {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold leading-tight">Asesor técnico</p>
                         <p className="text-[11px] text-stone-500">
-                          {expiresAt ? `Chat · se borra en ${diasRestantes(expiresAt)}` : 'Chat · toma una foto para iniciar'}
+                          {expiresAt ? `Chat · se borra en ${diasRestantes(expiresAt)}` : 'Chat · foto o búsqueda por texto'}
                         </p>
                       </div>
                       <button
                         type="button"
                         className={`btn-icon shrink-0 ${buscadorAbierto ? 'text-orange-600' : 'text-stone-400 hover:text-stone-700'}`}
-                        aria-label="Buscar en inventario local"
-                        disabled={!chatListo}
+                        aria-label="Buscar pieza"
                         onClick={() => {
+                          if (!chatListo) {
+                            document.getElementById('busqueda-libre-landing')?.focus();
+                            return;
+                          }
                           if (buscadorAbierto) {
                             setBuscadorAbierto(false);
                             return;
@@ -2421,7 +2544,7 @@ export default function App() {
                           </span>
                           <p className="text-sm font-semibold text-stone-700">Asesor técnico</p>
                           <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-stone-500">
-                            Fotografía la pieza. Aquí te digo qué hay en anaquel y te armo el pedido.
+                            Tómale foto o busca por nombre. Aquí te digo qué hay y te armo el pedido.
                           </p>
                         </div>
                       ) : null}

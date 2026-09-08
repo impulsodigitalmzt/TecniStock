@@ -7,8 +7,16 @@ import {
   type StockItem,
 } from "./stock";
 import { mexicanizarMostrador } from "../ia/prompts";
+import {
+  filaPerteneceAFamilia,
+  interpretarPieza,
+  interpretarTexto,
+  type FamiliaProducto,
+  type IntencionBusqueda,
+} from "./interprete-busqueda";
 
 let schemaReady = false;
+let trgmReady: boolean | null = null;
 
 export type FilaInventarioLocal = {
   sku: string;
@@ -51,7 +59,10 @@ export async function ensureInventarioLocalSchema(sql: Sql): Promise<void> {
     )
   `;
   await sql`ALTER TABLE inventario_local ADD COLUMN IF NOT EXISTS url_imagen VARCHAR(255)`;
+  await sql`ALTER TABLE inventario_local ADD COLUMN IF NOT EXISTS descripcion_tecnica TEXT`;
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS inventario_local_sku_key ON inventario_local (sku)`;
+  await sql`CREATE INDEX IF NOT EXISTS ix_inventario_local_categoria ON inventario_local (categoria)`;
+  await ensureTrgmInventario(sql);
   try {
     await sql`
       UPDATE inventario_local loc
@@ -65,6 +76,45 @@ export async function ensureInventarioLocalSchema(sql: Sql): Promise<void> {
     /* espejo puede no existir aún */
   }
   schemaReady = true;
+}
+
+const NOMBRE_TRGM = `translate(lower(nombre_pieza), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
+const DESC_TRGM = `translate(lower(coalesce(descripcion_tecnica, '')), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
+
+async function ensureTrgmInventario(sql: Sql): Promise<boolean> {
+  if (trgmReady !== null) return trgmReady;
+  try {
+    await sql.unsafe("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "pg_trgm_unavailable",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+    trgmReady = false;
+    return false;
+  }
+  try {
+    await sql.unsafe(
+      `CREATE INDEX IF NOT EXISTS ix_inventario_local_nombre_trgm ON inventario_local USING gin (${NOMBRE_TRGM} gin_trgm_ops)`
+    );
+    await sql.unsafe(
+      `CREATE INDEX IF NOT EXISTS ix_inventario_local_sku_trgm ON inventario_local USING gin (lower(sku) gin_trgm_ops)`
+    );
+    await sql.unsafe(
+      `CREATE INDEX IF NOT EXISTS ix_inventario_local_desc_trgm ON inventario_local USING gin (${DESC_TRGM} gin_trgm_ops)`
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "pg_trgm_index_skipped",
+        message: error instanceof Error ? error.message : "unknown",
+      })
+    );
+  }
+  trgmReady = true;
+  return true;
 }
 
 function mapFila(row: Record<string, unknown>): FilaInventarioLocal | null {
@@ -355,6 +405,7 @@ export type ResultadoBusquedaInventario = {
   precio: number;
   ubicacion_tienda: string;
   url_imagen: string;
+  relevancia?: number;
 };
 
 const SINONIMOS_OBJETO: Record<string, string[]> = {
@@ -549,7 +600,7 @@ function itemEsObjeto(nombre: string, objeto: string, sku = ""): boolean {
     if (/\b(termomagnet|pastilla)\b/.test(t) || /^tmt[-_]/i.test(sku)) return false;
     if (/\btimbre\b/.test(t) || /tim[-_]/i.test(codigo)) return false;
     if (esPlacaVacia(sku, nombre)) return false;
-    if (/\b(apagador|interruptor)\b/.test(t) || /^(int|kit|mod)[-_]/i.test(sku)) return true;
+    if (/\b(apagador|interruptor)\b/.test(t) || (/^(int|kit|mod)[-_]/i.test(sku) && !/\b(usb|cargador)\b/.test(t) && !/tim[-_]/i.test(codigo))) return true;
     return false;
   }
   if (objeto === "contacto") {
@@ -639,7 +690,8 @@ export function acotarHallazgosMostrador(
   if (resultados.length === 0) return { mejores: [], resto: [] };
   const ranked = rankearHallazgosMostrador(resultados, tokens, pieza);
   const deFamilia = ranked.filter((row) => row.misma && row.score > 0);
-  const pool = deFamilia.length > 0 ? deFamilia : ranked.filter((row) => row.score > 0).slice(0, MAX_MOSTRADOR);
+  if (deFamilia.length === 0) return { mejores: [], resto: [] };
+  const pool = deFamilia;
   const tope = pool[0]?.score ?? 0;
   let recortados = pool.filter((row) => row.score >= tope - 4).slice(0, MAX_MOSTRADOR);
   if (recortados.length < 2 && pool.length > recortados.length) {
@@ -779,8 +831,9 @@ export function esSeleccionProducto(texto: string): boolean {
 
 const NOMBRE_PLEGADO = `translate(lower(nombre_pieza), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
 const SKU_PLEGADO = `translate(lower(sku), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
+const DESC_PLEGADO = `translate(lower(coalesce(descripcion_tecnica, '')), 'áàäéèëíìïóòöúùüñÁÀÄÉÈËÍÌÏÓÒÖÚÙÜÑ', 'aaaeeeiiiooouuunAAAEEEIIIOOOUUUN')`;
 
-function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario {
+function filaAResultado(fila: FilaInventarioLocal, relevancia?: number): ResultadoBusquedaInventario {
   return {
     sku: fila.sku,
     nombre: fila.nombre_pieza,
@@ -789,70 +842,220 @@ function filaAResultado(fila: FilaInventarioLocal): ResultadoBusquedaInventario 
     precio: fila.precio,
     ubicacion_tienda: fila.ubicacion_tienda,
     url_imagen: fila.url_imagen,
+    relevancia,
   };
 }
 
-/** SELECT abierto: cada token con ILIKE. El recorte de mostrador va después. */
+function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
+  if (!familia) return "";
+  const n = NOMBRE_PLEGADO;
+  const s = SKU_PLEGADO;
+  switch (familia) {
+    case "contacto":
+      return ` AND (${n} ~ '(contacto|tomacorriente|enchufe)' OR ${s} LIKE 'cont%') AND ${n} !~ '(apagador|interruptor|tecla|palanca|termomagnet|pastilla|timbre)'`;
+    case "apagador":
+      return ` AND (${n} ~ '(apagador|interruptor|tecla|palanca)') AND ${n} !~ '(contacto|tomacorriente|enchufe|termomagnet|pastilla|timbre|cargador usb)'`;
+    case "datos":
+      return ` AND (${n} ~ '(rj45|rj11|keystone|datos|ethernet|jack|informatica)' OR ${s} LIKE 'plac%') AND ${n} !~ '(tomacorriente|duplex)'`;
+    case "placa":
+      return ` AND (${n} ~ '(placa|tapa|embellecedor)' OR ${s} LIKE 'plac%') AND ${n} !~ '(termomagnet|pastilla|timbre|cable|cinta)'`;
+    case "breaker":
+      return ` AND (${n} ~ '(termomagnet|pastilla|breaker|centro de carga)' OR ${s} ~ '^(tmt|cc)[-_]') AND ${n} !~ '(apagador|contacto|tomacorriente|timbre)'`;
+    case "timbre":
+      return ` AND (${n} ~ '(timbre|pulsador)' OR ${s} LIKE '%tim%')`;
+    case "foco":
+      return ` AND (${n} ~ '(foco|lampara|luminaria|bombilla|led)' OR ${s} ~ '^(foco|lamp)[-_]')`;
+    case "cable":
+      return ` AND (${n} ~ '(cable|conductor|thw|thhn)' OR ${s} LIKE 'cab%')`;
+    case "cinta":
+      return ` AND (${n} ~ '(cinta|aislar|aislante)' OR ${s} LIKE 'cin%')`;
+    case "conduit":
+      return ` AND (${n} ~ '(conduit|cople)' OR ${s} ~ '^(tubo|copl)[-_]')`;
+    case "clavija":
+      return ` AND (${n} ~ '(clavija)' OR ${s} LIKE 'clv%')`;
+    case "valvula":
+      return ` AND ${n} ~ '(valvula|llave)'`;
+    case "codo":
+      return ` AND ${n} ~ '(codo)'`;
+    case "cespol":
+      return ` AND ${n} ~ '(cespol|sifon)'`;
+    case "tornillo":
+      return ` AND ${n} ~ '(tornillo|tuerca|clavo|bisagra)'`;
+    case "taquete":
+      return ` AND ${n} ~ '(taquete)'`;
+    case "broca":
+      return ` AND ${n} ~ '(broca)'`;
+    case "tubo":
+      return ` AND ${n} ~ '(tubo|pvc|cpvc)' AND ${n} !~ '(conduit)'`;
+    default:
+      return "";
+  }
+}
+
+function sqlCandadoRubro(rubro: IntencionBusqueda["rubro"]): { sql: string; valor?: string } {
+  if (rubro) return { sql: "", valor: rubro };
+  return { sql: ` AND lower(categoria) IN ('electricidad', 'plomeria', 'ferreteria')` };
+}
+
+const MIN_RELEVANCIA_FAMILIA = 6;
+const MIN_RELEVANCIA_ABIERTA = 10;
+const MIN_COINCIDENCIA_EXACTA = 28;
+
+function relevanciaDeFila(row: Record<string, unknown>): number {
+  const n = Number(row.relevancia ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function buscarPorIntencion(
+  sql: Sql,
+  intencion: IntencionBusqueda,
+  limit = MAX_HALLAZGOS_VISION
+): Promise<ResultadoBusquedaInventario[]> {
+  if (intencion.fueraDeGiro) return [];
+  await ensureInventarioLocalSchema(sql);
+  const tope = Math.max(1, Math.min(40, Math.trunc(limit) || MAX_HALLAZGOS_VISION));
+
+  if (intencion.skuHint) {
+    const exacto = await obtenerInventarioPorSku(sql, intencion.skuHint);
+    if (exacto) return [filaAResultado(exacto, 100)];
+  }
+
+  const queryNorm = (intencion.canonico || intencion.normalizado).slice(0, 120);
+  const pares = intencion.tokensPeso
+    .filter((item) => item.token.length >= 2 && !item.token.includes("%") && !item.token.includes("_"))
+    .slice(0, 8);
+  const tokens = pares.map((item) => item.token);
+  const pesos = pares.map((item) => Math.max(1, Math.min(12, Math.trunc(item.peso) || 3)));
+  if (!queryNorm && tokens.length === 0) return [];
+  const tokensSql = tokens.length > 0 ? tokens : [queryNorm];
+  const pesosSql = pesos.length > 0 ? pesos : tokensSql.map(() => 3);
+
+  const usaTrgm = await ensureTrgmInventario(sql);
+  const params: unknown[] = [];
+  const push = (valor: unknown) => {
+    params.push(valor);
+    return params.length;
+  };
+
+  const qIdx = push(queryNorm || tokensSql[0] || "");
+  const likeIdx: number[] = [];
+  const pesoPorLike: number[] = [];
+  for (let i = 0; i < tokensSql.length; i += 1) {
+    likeIdx.push(push(`%${tokensSql[i]}%`));
+    pesoPorLike.push(pesosSql[i] ?? 3);
+  }
+  const rubro = sqlCandadoRubro(intencion.rubro);
+  let rubroSql = rubro.sql;
+  if (rubro.valor) {
+    const idx = push(rubro.valor);
+    rubroSql = ` AND lower(categoria) = $${idx}`;
+  }
+
+  const familiaSql = sqlCandadoFamilia(intencion.familia);
+  const likeClause =
+    likeIdx.length > 0
+      ? likeIdx
+          .map((idx) => `(${NOMBRE_PLEGADO} LIKE $${idx} OR ${SKU_PLEGADO} LIKE $${idx} OR ${DESC_PLEGADO} LIKE $${idx})`)
+          .join(" OR ")
+      : `${NOMBRE_PLEGADO} LIKE '%' || $${qIdx} || '%' OR ${DESC_PLEGADO} LIKE '%' || $${qIdx} || '%'`;
+  const matchSql = usaTrgm
+    ? `(
+        ${NOMBRE_PLEGADO} % $${qIdx}
+        OR ${DESC_PLEGADO} % $${qIdx}
+        OR word_similarity($${qIdx}, ${NOMBRE_PLEGADO}) > 0.22
+        OR word_similarity($${qIdx}, ${DESC_PLEGADO}) > 0.22
+        OR similarity(${NOMBRE_PLEGADO}, $${qIdx}) > 0.18
+        OR ${SKU_PLEGADO} LIKE '%' || $${qIdx} || '%'
+        OR ${likeClause}
+      )`
+    : `(${SKU_PLEGADO} LIKE '%' || $${qIdx} || '%' OR ${likeClause})`;
+
+  const scoreTokens =
+    likeIdx.length > 0
+      ? likeIdx
+          .map(
+            (idx, i) =>
+              `(CASE WHEN ${NOMBRE_PLEGADO} LIKE $${idx} OR ${SKU_PLEGADO} LIKE $${idx} THEN ${pesoPorLike[i] ?? 3} WHEN ${DESC_PLEGADO} LIKE $${idx} THEN ${Math.max(1, Math.floor((pesoPorLike[i] ?? 3) * 0.6))} ELSE 0 END)`
+          )
+          .join(" + ")
+      : "0";
+  const scoreTrgm = usaTrgm
+    ? ` + (similarity(${NOMBRE_PLEGADO}, $${qIdx}) * 45) + (word_similarity($${qIdx}, ${NOMBRE_PLEGADO}) * 35) + (word_similarity($${qIdx}, ${DESC_PLEGADO}) * 12)`
+    : "";
+  const relevanciaSql = `(
+      ${scoreTokens}
+      + CASE WHEN ${SKU_PLEGADO} = $${qIdx} THEN 80 ELSE 0 END
+      + CASE WHEN ${NOMBRE_PLEGADO} LIKE $${qIdx} || '%' THEN 18 ELSE 0 END
+      ${scoreTrgm}
+    )`;
+
+  const limitIdx = push(tope * 2);
+  const rows = await sql.query(
+    `SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen,
+            ${relevanciaSql} AS relevancia
+     FROM inventario_local
+     WHERE ${matchSql}
+       ${rubroSql}
+       ${familiaSql}
+     ORDER BY relevancia DESC, stock_disponible DESC NULLS LAST, nombre_pieza ASC
+     LIMIT $${limitIdx}`,
+    params
+  );
+
+  const minimo = intencion.familia ? MIN_RELEVANCIA_FAMILIA : MIN_RELEVANCIA_ABIERTA;
+  const filtrados = rows
+    .map((row) => {
+      const fila = mapFila(row);
+      if (!fila) return null;
+      if (intencion.familia && !filaPerteneceAFamilia(fila.nombre_pieza, fila.sku, intencion.familia)) return null;
+      if (intencion.rubro && fila.categoria && fila.categoria !== "otro" && fila.categoria !== intencion.rubro) {
+        return null;
+      }
+      const score = relevanciaDeFila(row);
+      if (score < minimo) return null;
+      return filaAResultado(fila, score);
+    })
+    .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
+
+  return filtrados.slice(0, tope);
+}
+
+/** SELECT ponderado. Ya no abre el anaquel si falta la familia: sin coincidencia = lista vacía. */
 export async function buscarInventarioPorPalabrasClave(
   sql: Sql,
   claves: string[],
   limit = MAX_HALLAZGOS_VISION,
   tokenObligatorio?: string | null
 ): Promise<ResultadoBusquedaInventario[]> {
-  const tokens = extraerTerminosIlike(claves);
-  if (tokens.length === 0) return [];
-  await ensureInventarioLocalSchema(sql);
-  const tope = Math.max(1, Math.min(40, Math.trunc(limit) || MAX_HALLAZGOS_VISION));
-  const likes = tokens.map((token) => `%${token}%`);
-  const whereOr = likes.map((_, i) => `(${NOMBRE_PLEGADO} LIKE $${i + 1} OR ${SKU_PLEGADO} LIKE $${i + 1})`).join(" OR ");
-  const params: Array<string | number> = [...likes];
-  let where = `(${whereOr})`;
-  const oblig = (tokenObligatorio ?? "").replace(/[^a-z0-9]/gi, "").toLowerCase();
-  if (oblig.length >= 3) {
-    params.push(`%${oblig}%`);
-    where = `(${where}) AND (${NOMBRE_PLEGADO} LIKE $${params.length} OR ${SKU_PLEGADO} LIKE $${params.length})`;
-  }
-  const relevancia = likes
-    .map((_, i) => `(CASE WHEN ${NOMBRE_PLEGADO} LIKE $${i + 1} OR ${SKU_PLEGADO} LIKE $${i + 1} THEN 1 ELSE 0 END)`)
-    .join(" + ");
-  const rows = await sql.query(
-    `SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
-     FROM inventario_local
-     WHERE ${where}
-     ORDER BY (${relevancia}) DESC, stock_disponible DESC NULLS LAST, nombre_pieza ASC
-     LIMIT $${params.length + 1}`,
-    [...params, tope]
-  );
-  return rows
-    .map((row) => mapFila(row))
-    .filter((item): item is FilaInventarioLocal => Boolean(item))
-    .map(filaAResultado);
+  const texto = [tokenObligatorio, ...claves].filter(Boolean).join(" ");
+  return buscarPorIntencion(sql, interpretarTexto(texto), limit);
 }
 
-/** Búsqueda directa por nombre o SKU sobre inventario_local. */
+/** Búsqueda dual: texto libre de mostrador. Acepta faltas, jerga y acentos omitidos. */
 export async function buscarInventarioLocal(
   sql: Sql,
   query: string,
   limit = MAX_HALLAZGOS_VISION
 ): Promise<ResultadoBusquedaInventario[]> {
-  const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 120);
+  const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 160);
   if (!q) return [];
-  const objeto = objetoMostrador(query) ?? objetoMostrador(q);
-  const tokens = tokensSinAccesorioPlaca(extraerTerminosIlike([q]), objeto);
-  const claves = tokens.length > 0 ? tokens : [q];
-  let pool = await buscarInventarioPorPalabrasClave(sql, claves, limit, tokenSqlObjeto(objeto));
-  if (pool.length === 0 && objeto) {
-    pool = await buscarInventarioPorPalabrasClave(sql, claves, limit);
-  }
+  const intencion = interpretarTexto(q);
+  const pool = await buscarPorIntencion(sql, intencion, Math.max(limit, MAX_HALLAZGOS_VISION));
   const pieza: IdentidadPieza = {
-    nombre: String(query || q).slice(0, 160),
+    nombre: intencion.canonico || q,
     material: "",
-    medida: "",
-    descripcion: String(query || q).slice(0, 200),
-    palabras_clave: tokens,
+    medida: intencion.modulos ? `${intencion.modulos} módulos` : "",
+    categoria: intencion.rubro ?? "",
+    descripcion: q,
+    producto_venta: intencion.canonico,
+    palabras_clave: intencion.tokens,
   };
-  const ranked = rankearHallazgosMostrador(pool, tokens.length > 0 ? tokens : extraerTerminosIlike([q]), pieza);
-  return ranked.map((row) => row.fila).slice(0, Math.max(1, Math.min(40, Math.trunc(limit) || MAX_HALLAZGOS_VISION)));
+  const ranked = rankearHallazgosMostrador(pool, intencion.tokens.length > 0 ? intencion.tokens : extraerTerminosIlike([q]), pieza);
+  const deFamilia = ranked.filter((row) => row.misma);
+  const orden = intencion.familia ? deFamilia : ranked.filter((row) => row.score > 0 || (row.fila.relevancia ?? 0) >= MIN_RELEVANCIA_ABIERTA);
+  return orden
+    .map((row) => row.fila)
+    .slice(0, Math.max(1, Math.min(40, Math.trunc(limit) || MAX_HALLAZGOS_VISION)));
 }
 
 function resultadoASustituto(item: ResultadoBusquedaInventario): {
@@ -906,6 +1109,10 @@ function bloqueVacioInventario(filasCatalogo = 0): BloqueStock {
 export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInventario[]): BloqueStock {
   const mejor = resultados[0];
   if (!mejor) return bloqueVacioInventario(0);
+  const score = mejor.relevancia ?? 0;
+  if (score > 0 && score < MIN_COINCIDENCIA_EXACTA) {
+    return stockDesdeHallazgosVision(resultados.slice(0, MAX_MOSTRADOR), resultados.slice(MAX_MOSTRADOR));
+  }
   const alternativas = resultados.slice(1, MAX_HALLAZGOS_VISION).map(resultadoASustituto);
   const piezas = mejor.stock_disponible;
   return {
@@ -921,7 +1128,7 @@ export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInvent
     requiere_sustituto: piezas <= 0,
     sustituto: alternativas[0] ?? null,
     alternativas,
-    coincidencia: 1,
+    coincidencia: score > 0 ? Number(Math.min(1, score / 80).toFixed(3)) : 1,
     ubicacion_tienda: mejor.ubicacion_tienda || undefined,
     url_imagen: mejor.url_imagen || undefined,
     stock_disponible: piezas,
@@ -978,13 +1185,14 @@ export async function resolverStockInventarioLocal(
     return bloque;
   }
 
-  const objeto = objetoMostrador(pieza);
-  const tokens = tokensSinAccesorioPlaca(terminosDesdePieza(pieza), objeto);
-  const obligatorio = tokenSqlObjeto(objeto);
-  let pool = await buscarInventarioPorPalabrasClave(sql, tokens, MAX_HALLAZGOS_VISION, obligatorio);
-  if (pool.length === 0 && obligatorio) {
-    pool = await buscarInventarioPorPalabrasClave(sql, tokens.length > 0 ? tokens : terminosDesdePieza(pieza), MAX_HALLAZGOS_VISION);
-  }
-  const { mejores, resto } = acotarHallazgosMostrador(pool, tokens, pieza);
+  const intencion = interpretarPieza(pieza);
+  const pool = await buscarPorIntencion(sql, intencion, MAX_HALLAZGOS_VISION);
+  const tokens = intencion.tokens.length > 0 ? intencion.tokens : tokensSinAccesorioPlaca(terminosDesdePieza(pieza), objetoMostrador(pieza));
+  const { mejores, resto } = acotarHallazgosMostrador(pool, tokens, {
+    ...pieza,
+    producto_venta: intencion.canonico || pieza.producto_venta,
+    palabras_clave: intencion.tokens,
+    categoria: intencion.rubro ?? pieza.categoria,
+  });
   return stockDesdeHallazgosVision(mejores, resto);
 }

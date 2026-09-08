@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { AppError } from "../lib/errors";
 import { createSql } from "../db";
 import { buscarInventarioLocal } from "../lib/inventario-local";
+import { interpretarTexto } from "../lib/interprete-busqueda";
 import { validarDispositivoId } from "../lib/consultas-campo";
 
 type AppEnv = { Bindings: Env };
@@ -16,6 +17,16 @@ inventarioLocalRoutes.get("/", async (c) => {
     return c.json({ ok: true, query: q, resultados: [] });
   }
   const sql = createSql(c.env.DATABASE_URL);
-  const resultados = await buscarInventarioLocal(sql, q, 40);
-  return c.json({ ok: true, query: q, resultados });
+  const intencion = interpretarTexto(q);
+  const resultados = intencion.fueraDeGiro ? [] : await buscarInventarioLocal(sql, q, 40);
+  return c.json({
+    ok: true,
+    query: q,
+    interpretacion: {
+      canonico: intencion.canonico,
+      rubro: intencion.rubro,
+      familia: intencion.familia,
+    },
+    resultados,
+  });
 });

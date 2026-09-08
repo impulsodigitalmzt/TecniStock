@@ -46,12 +46,14 @@ import {
   obtenerInventarioPorSku,
   type ResultadoBusquedaInventario,
 } from "../lib/inventario-local";
+import { interpretarTexto, piezaDesdeIntencion } from "../lib/interprete-busqueda";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
   agregarMensajeCampo,
   actualizarConsultaCampo,
   aplicarSkuConsultaCampo,
+  crearConsultaCampo,
   eliminarConsultaCampo,
   ensureConsultasCampoSchema,
   listarConsultasCampo,
@@ -90,6 +92,64 @@ consultasCampoRoutes.get("/", async (c) => {
     ok: true,
     retencion_dias: 30,
     consultas: consultas.map(resumenConsulta),
+  });
+});
+
+consultasCampoRoutes.post("/texto", async (c) => {
+  const sql = await sqlCampo(c.env);
+  const dispositivo = dispositivoDe(c);
+  const body = await c.req.json<{ q?: string; sku?: string }>().catch(() => ({} as { q?: string; sku?: string }));
+  const q = String(body.q ?? "").trim().slice(0, 160);
+  const sku = String(body.sku ?? "").trim();
+  if (!q && !sku) throw new AppError(400, "Escribe el nombre de la pieza o un SKU. La foto no es obligatoria.", "QUERY_REQUIRED");
+
+  const intencion = interpretarTexto(q || sku);
+  let resultados: ResultadoBusquedaInventario[] = [];
+  if (sku) {
+    const fila = await obtenerInventarioPorSku(sql, sku);
+    if (!fila) throw new AppError(404, "Ese SKU no está en inventario local.", "SKU_NO_ENCONTRADO");
+    resultados = [
+      {
+        sku: fila.sku,
+        nombre: fila.nombre_pieza,
+        categoria: fila.categoria,
+        stock_disponible: fila.stock_disponible,
+        precio: fila.precio,
+        ubicacion_tienda: fila.ubicacion_tienda,
+        url_imagen: fila.url_imagen,
+        relevancia: 100,
+      },
+    ];
+  } else {
+    resultados = await buscarInventarioLocal(sql, q, 40);
+  }
+
+  const stock = stockDesdeResultadosBusqueda(resultados);
+  if (sku && stock.encontrado) stock.forzado = true;
+  const pieza = piezaDesdeIntencion(intencion, stock.nombre || resultados[0]?.nombre || intencion.canonico || q);
+  if (resultados[0]?.categoria) pieza.categoria = resultados[0].categoria;
+  else if (intencion.rubro) pieza.categoria = intencion.rubro;
+
+  const consulta = await crearConsultaCampo(sql, {
+    dispositivoId: dispositivo,
+    pieza,
+    stock,
+    mensajeUsuario: q ? `Busco: ${q}` : `Seleccioné ${pieza.nombre}`,
+  });
+  const mensajes = await listarMensajesCampo(sql, consulta.id);
+  return c.json({
+    ok: true,
+    consulta_id: consulta.id,
+    retencion_dias: 30,
+    expires_at: consulta.expires_at,
+    pieza: piezaPublicaCampo(pieza),
+    stock,
+    mensajes,
+    interpretacion: {
+      canonico: intencion.canonico,
+      rubro: intencion.rubro,
+      familia: intencion.familia,
+    },
   });
 });
 

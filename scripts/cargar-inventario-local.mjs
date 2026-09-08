@@ -49,6 +49,7 @@ await sql.query(`
   )
 `);
 await sql.query("ALTER TABLE inventario_local ADD COLUMN IF NOT EXISTS url_imagen VARCHAR(255)");
+await sql.query("ALTER TABLE inventario_local ADD COLUMN IF NOT EXISTS descripcion_tecnica TEXT");
 await sql.query("CREATE UNIQUE INDEX IF NOT EXISTS inventario_local_sku_key ON inventario_local (sku)");
 
 const columnas = await sql.query(`
@@ -70,15 +71,16 @@ for (const pieza of piezas) {
   }
   await sql.query(
     `INSERT INTO inventario_local (
-       sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen, descripcion_tecnica
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (sku) DO UPDATE SET
        nombre_pieza = EXCLUDED.nombre_pieza,
        categoria = EXCLUDED.categoria,
        stock_disponible = EXCLUDED.stock_disponible,
        precio = EXCLUDED.precio,
        ubicacion_tienda = EXCLUDED.ubicacion_tienda,
-       url_imagen = EXCLUDED.url_imagen`,
+       url_imagen = EXCLUDED.url_imagen,
+       descripcion_tecnica = EXCLUDED.descripcion_tecnica`,
     [
       sku,
       nombre,
@@ -87,6 +89,7 @@ for (const pieza of piezas) {
       Number(pieza.precio ?? 0) || 0,
       recortar(pieza.ubicacion_tienda ?? pieza.ubicacion ?? "", 100) || null,
       recortar(pieza.url_imagen ?? pieza.imagen ?? pieza.image_url ?? "", 255) || null,
+      recortar(pieza.descripcion_tecnica ?? pieza.descripcion ?? "", 500) || null,
     ]
   );
   cargados += 1;

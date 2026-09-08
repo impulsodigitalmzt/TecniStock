@@ -95,7 +95,8 @@ IDENTIFICACIÓN OBJETIVA (lo que el cliente lee):
 - No inventes marca, modelo, medida. No encajes la foto en un ejemplo.
 
 BÚSQUEDA EN ANAQUEL (capa distinta; el backend consulta inventario_local):
-- producto_venta y palabras_clave = lo que la tienda vendería para reemplazar lo de la foto (ej. "contacto duplex", "placa jack rj45").
+- producto_venta: Define el término exacto de la categoría comercial (ej. "contacto gfci", "contacto duplex", "apagador sencillo"). Nunca cruces categorías (si es contacto, jamás pongas apagador).
+- palabras_clave: 3 a 5 palabras clave puramente técnicas y específicas del objeto detectado. PROHIBIDO incluir términos de familias contrarias (si el objeto es un contacto o clavija, está prohibido incluir "apagador", "interruptor" o "placa ciega" en las keywords).
 - No busques el cable ni la clavija enchuvada.
 - palabras_clave: 4 a 10 palabras SUELTAS (contacto, duplex, placa, aterrizado). PROHIBIDO frases compuestas y SKUs.
 

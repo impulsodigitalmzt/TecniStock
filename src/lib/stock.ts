@@ -392,12 +392,15 @@ function buscarAlternativas(
     (row) => mismasFamilias(consulta, row.item) && familiaCatalogo(consulta.nombre) && row.score >= MIN_SCORE_FAMILIA
   );
   const deCategoria = scored.filter((row) => categoriaAlineada(consulta, row.item) && row.score >= MIN_SCORE_FAMILIA);
+  const familiaQuery = familiaCatalogo(consulta.nombre);
   const cola =
     deFamilia.length > 0
       ? deFamilia
-      : deCategoria.length > 0
-        ? deCategoria
-        : scored.filter((row) => row.score >= MIN_SCORE_ALTERNATIVA);
+      : familiaQuery
+        ? []
+        : deCategoria.length > 0
+          ? deCategoria
+          : scored.filter((row) => row.score >= MIN_SCORE_ALTERNATIVA);
   for (const row of cola) {
     if (elegidos.length >= MAX_ALTERNATIVAS) break;
     vistos.add(row.item.sku);
@@ -436,8 +439,11 @@ function buscarSustituto(item: StockItem, piezas: StockItem[]): StockItem | null
   const vigentes = mismoRubro.filter((candidato) => !candidato.descontinuado);
   const poolRubro = vigentes.length > 0 ? vigentes : mismoRubro;
   if (poolRubro.length === 0) return null;
-  poolRubro.sort((a, b) => puntuar({ nombre: item.nombre, material: item.material, medida: item.medida }, b) - puntuar({ nombre: item.nombre, material: item.material, medida: item.medida }, a));
-  return poolRubro[0] ?? null;
+  const consultaSustituto: IdentidadPieza = { nombre: item.nombre, material: item.material, medida: item.medida, categoria: item.categoria };
+  poolRubro.sort((a, b) => puntuar(consultaSustituto, b) - puntuar(consultaSustituto, a));
+  const mejorSustituto = poolRubro[0];
+  if (!mejorSustituto || puntuar(consultaSustituto, mejorSustituto) <= 0) return null;
+  return mejorSustituto;
 }
 
 function bloqueVacio(coincidencia = 0): BloqueStock {
