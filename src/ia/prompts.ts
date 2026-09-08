@@ -85,28 +85,27 @@ Rechazo — SOLO este JSON:
 {"fuera_de_giro":true,"mensaje":"${MENSAJE_FUERA_DE_GIRO}"}
 
 IDENTIFICACIÓN OBJETIVA (lo que el cliente lee):
-- nombre y descripcion: lo que REALMENTE se ve en la pieza. Si hay dos aparatos en la misma placa, nómbralos los dos.
-- Ignora pared, mano, fondo, suciedad o cualquier elemento que no sea el enfoque de la pieza.
-- Cable o clavija enchufada → accesorios_visibles. No es el producto.
-- descripcion: 2 a 4 frases de lo que SÍ hay (forma, teclas, material, acabado, módulos).
-- PROHIBIDO decir lo que no hay. Nada de «no hay contactos», Si no está, no lo menciones. No compares con otras familias.
-- mecanismo: solo aparatos visibles. medida: «N módulos» o la medida si se lee. marca: "" si no se leen.
+- nombre y descripcion: céntrate ÚNICAMENTE en el componente activo principal que ocupa la pieza (ej. jack de red RJ45, contacto sencillo, apagador). 
+- Módulos ciegos o de relleno: Si hay espacios rectangulares planos sin mecanismos ni conectores, identifícalos estrictamente como **módulos ciegos o tapas ciegas**, nunca como apagadores o contactos.
+- Ignora pared, mano, fondo, suciedad o cualquier elemento ajeno.
+- Cable, clavija o patch cord enchufado → accesorios_visibles (es lo que está conectado externamente, no forma parte fija de la placa que se vende).
+- descripcion: 2 a 4 frases describiendo con precisión la forma, tipo de placa, puertos activos y módulos ciegos reales.
+- PROHIBIDO inventar funciones. Si un espacio es plano o estético, no digas que opera corriente o datos.
+- mecanismo: solo componentes funcionales visibles. medida: «N módulos» o la medida si se lee. marca: "" si no se leen.
 - No inventes marca, modelo, medida. No encajes la foto en un ejemplo.
 
 BÚSQUEDA EN ANAQUEL (capa distinta; el backend consulta inventario_local):
-- producto_venta y palabras_clave = lo que la tienda vendería para reemplazar lo de la foto.
+- producto_venta y palabras_clave = lo que la tienda vendería para reemplazar lo de la foto (ej. "placa jack rj45", "placa ciega con red").
 - No busques el cable ni la clavija enchufada.
-- palabras_clave: 4 a 10 palabras SUELTAS (apagador, doble, acero). PROHIBIDO frases («apagador doble») y SKUs.
-
+- palabras_clave: 4 a 10 palabras SUELTAS (placa, jack, red, rj45). PROHIBIDO frases compuestas y SKUs.
 
 LENGUAJE Y TERMINOLOGÍA (México):
-- Usa estrictamente español de México para ferretería, electricidad y plomería (nombres cotidianos de mostrador en México: apagador, contacto, cinta de aislar, pijas, taquetes, etc.). 
-- Prohibido usar modismos de España, anglicismos de catálogo extranjero (ganga, rocker, switch, outlet, 3-way) o tecnicismos extraños que no suenen naturales en una ferretería mexicana.
-
-
+- Usa estrictamente español de México para ferretería, electricidad y plomería (nombres cotidianos de mostrador en México: apagador, contacto, placa con jack, etc.). 
+- Prohibido usar modismos de España o anglicismos de catálogo extranjero (ganga, rocker, switch, outlet, 3-way).
 
 Si es del giro, SOLO este JSON (sin markdown):
 fuera_de_giro (false), nombre, producto_venta, accesorios_visibles, material, medida, categoria, rosca, mecanismo, acabado, marca, descripcion, pregunta (""), confianza (0 a 1), palabras_clave`;
+
 
 export const USER_PROMPT_ANALISIS_VISUAL =
   "Giro ferretería/electricidad/plomería o rechaza. Describe solo lo que SÍ se ve. Si hay dos aparatos, nómbralos los dos. Lo enchufado es accesorio. No digas lo que no hay. palabras_clave sueltas. Un solo JSON.";
