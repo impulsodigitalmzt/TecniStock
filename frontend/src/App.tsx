@@ -1667,7 +1667,7 @@ export default function App() {
       }
       chatInputRef.current?.focus();
       if (!consultaId) {
-        setError('El chat no está disponible. Toma una foto para iniciar la consulta.');
+        setError('El chat no está disponible. Toma una foto o busca por nombre para iniciar.');
         return;
       }
       void toggleGrabacion();
@@ -2673,7 +2673,7 @@ export default function App() {
                         className="composer-wa-input"
                         placeholder={
                           !chatListo
-                            ? 'Toma una foto para chatear'
+                            ? 'Toma foto o busca por nombre'
                             : grabando
                             ? 'Grabando… toca el recuadro rojo para enviar'
                             : transcribiendo
