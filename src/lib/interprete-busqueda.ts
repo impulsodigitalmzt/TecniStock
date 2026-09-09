@@ -21,6 +21,7 @@ export type FamiliaProducto =
   | "conduit"
   | "clavija"
   | "valvula"
+  | "mezcladora"
   | "tubo"
   | "codo"
   | "cespol"
@@ -58,6 +59,7 @@ const RELLENO = new Set([
   "producto", "algo", "algun", "alguna", "algunos", "con", "en", "para", "pues",
   "mostrar", "muestrame", "ensename", "verlo", "verla", "foto", "imagen", "ficha",
   "tipo", "tipos", "es", "son", "ser", "cuales", "porque", "sirve", "funciona",
+  "visible", "estandar", "clara", "claro", "moderno", "moderna", "diseno",
 ]);
 
 type EntradaLexico = {
@@ -83,7 +85,8 @@ const LEXICO: Record<string, EntradaLexico> = {
   switch: { canonico: "apagador", familia: "apagador", rubro: "electricidad", peso: 8 },
   conmutador: { canonico: "apagador", familia: "apagador", rubro: "electricidad", peso: 8 },
   tecla: { canonico: "apagador", familia: "apagador", rubro: "electricidad", peso: 6 },
-  palanca: { canonico: "apagador", familia: "apagador", rubro: "electricidad", peso: 6 },
+  // «Palanca» solo es apagador si no hay contexto de plomería (llave/grifo/monomando).
+  palanca: { canonico: "palanca", familia: "apagador", rubro: "electricidad", peso: 4 },
 
   contacto: { canonico: "contacto", familia: "contacto", rubro: "electricidad", peso: 10 },
   contactos: { canonico: "contacto", familia: "contacto", rubro: "electricidad", peso: 10 },
@@ -157,6 +160,19 @@ const LEXICO: Record<string, EntradaLexico> = {
   valvulas: { canonico: "valvula", familia: "valvula", rubro: "plomeria", peso: 10 },
   valbula: { canonico: "valvula", familia: "valvula", rubro: "plomeria", peso: 10 },
   llavedepaso: { canonico: "valvula", familia: "valvula", rubro: "plomeria", peso: 9 },
+  grifo: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  grifos: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  mezcladora: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  mezcladoras: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  monomando: { canonico: "monomando", familia: "mezcladora", rubro: "plomeria", peso: 9 },
+  monomandos: { canonico: "monomando", familia: "mezcladora", rubro: "plomeria", peso: 9 },
+  llavebano: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  llavedebano: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  llavelavabo: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  llavedelavabo: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  llavefregadero: { canonico: "mezcladora", familia: "mezcladora", rubro: "plomeria", peso: 10 },
+  lavabo: { canonico: "lavabo", familia: "mezcladora", rubro: "plomeria", peso: 6 },
+  fregadero: { canonico: "fregadero", familia: "mezcladora", rubro: "plomeria", peso: 6 },
   codo: { canonico: "codo", familia: "codo", rubro: "plomeria", peso: 10 },
   cespol: { canonico: "cespol", familia: "cespol", rubro: "plomeria", peso: 10 },
   sifon: { canonico: "cespol", familia: "cespol", rubro: "plomeria", peso: 8 },
@@ -175,18 +191,19 @@ const LEXICO: Record<string, EntradaLexico> = {
 };
 
 const FAMILIAS_OPUESTAS: Record<FamiliaProducto, FamiliaProducto[]> = {
-  apagador: ["contacto", "breaker", "timbre", "datos"],
-  contacto: ["apagador", "breaker", "timbre", "datos"],
-  placa: ["breaker", "timbre", "cable", "cinta", "foco"],
+  apagador: ["contacto", "breaker", "timbre", "datos", "mezcladora", "valvula"],
+  contacto: ["apagador", "breaker", "timbre", "datos", "mezcladora", "valvula"],
+  placa: ["breaker", "timbre", "cable", "cinta", "foco", "mezcladora"],
   datos: ["apagador", "contacto", "breaker", "timbre"],
   breaker: ["apagador", "contacto", "timbre", "placa", "datos"],
   timbre: ["apagador", "contacto", "breaker", "datos"],
   foco: ["apagador", "contacto", "breaker", "cinta"],
   cable: ["cinta", "foco", "apagador", "contacto"],
   cinta: ["cable", "foco", "apagador", "contacto"],
-  conduit: ["tubo", "valvula"],
+  conduit: ["tubo", "valvula", "mezcladora"],
   clavija: ["apagador", "breaker"],
-  valvula: ["apagador", "contacto", "breaker"],
+  valvula: ["apagador", "contacto", "breaker", "mezcladora"],
+  mezcladora: ["apagador", "contacto", "placa", "datos", "breaker", "timbre", "foco", "cable", "cinta", "conduit", "clavija", "valvula"],
   tubo: ["conduit", "apagador", "contacto"],
   codo: ["apagador", "contacto"],
   cespol: ["apagador", "contacto"],
@@ -307,6 +324,24 @@ function esRedContext(texto: string): boolean {
   return /\b(rj\s?45|rj\s?11|ethernet|keystone|voz y datos|jack de (red|datos)|informatica)\b/.test(texto);
 }
 
+function esElectricoFuerte(texto: string): boolean {
+  return /\b(apagador|interruptor|tecla|contacto|tomacorriente|enchufe|termomagnet|pastilla|breaker)\b/.test(texto);
+}
+
+function esPlomeriaContext(texto: string): boolean {
+  return (
+    esMezcladoraContext(texto) ||
+    /\b(cespol|sifon|valvula|plomer|hidraul|drenaje|tinaco|cpvc|lavabo|fregadero)\b/.test(texto)
+  );
+}
+
+function esMezcladoraContext(texto: string): boolean {
+  return (
+    /\b(grifo|mezcladora|monomando)\b/.test(texto) ||
+    (/\bllave\b/.test(texto) && /\b(bano|lavabo|fregadero|regadera)\b/.test(texto))
+  );
+}
+
 function tokenizar(texto: string): string[] {
   return plegarTexto(texto)
     .split(" ")
@@ -321,6 +356,9 @@ function atribuirFamilia(
   const plano = plegarTexto(texto);
   if (esRedContext(plano)) return { familia: "datos", rubro: "electricidad" };
   if (esBreakerContext(plano)) return { familia: "breaker", rubro: "electricidad" };
+  if (esPlomeriaContext(plano) && !esElectricoFuerte(plano)) {
+    if (esMezcladoraContext(plano)) return { familia: "mezcladora", rubro: "plomeria" };
+  }
 
   const pesos = new Map<FamiliaProducto, { peso: number; rubro: RubroGiro }>();
   for (const hit of hits) {
@@ -346,6 +384,12 @@ function atribuirFamilia(
   }
   if (mejor === "conduit" && /\b(pvc|cpvc|hidraul|agua|drenaje)\b/.test(plano)) {
     return { familia: "tubo", rubro: "plomeria" };
+  }
+  if ((mejor === "apagador" || mejor === "contacto" || mejor === "placa") && esPlomeriaContext(plano) && !esElectricoFuerte(plano)) {
+    return {
+      familia: esMezcladoraContext(plano) ? "mezcladora" : mejor === "apagador" ? null : mejor,
+      rubro: "plomeria",
+    };
   }
   if (!rubro) {
     if (/\b(electric|127|220|volt)\b/.test(plano)) rubro = "electricidad";
@@ -397,6 +441,12 @@ function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusque
       if (idx >= 0) tokensPeso.splice(idx, 1);
     }
   }
+  if (familia === "mezcladora") {
+    for (const prohibido of ["apagador", "interruptor", "tecla", "palanca", "contacto"]) {
+      const idx = tokensPeso.findIndex((item) => item.token === prohibido);
+      if (idx >= 0) tokensPeso.splice(idx, 1);
+    }
+  }
 
   const canonico =
     familia === "contacto"
@@ -444,8 +494,17 @@ export function interpretarPieza(pieza: IdentidadPieza): IntencionBusqueda {
     .join(" ");
   const intencion = ensamblarIntencion(pieza.producto_venta || pieza.nombre || fuente, fuente);
   const cat = plegarTexto(pieza.categoria ?? "");
-  if (!intencion.rubro && (cat === "electricidad" || cat === "plomeria" || cat === "ferreteria")) {
-    intencion.rubro = cat;
+  if (cat === "electricidad" || cat === "plomeria" || cat === "ferreteria") {
+    if (!intencion.rubro || intencion.rubro !== cat) {
+      intencion.rubro = cat;
+    }
+    if (
+      cat === "plomeria" &&
+      (intencion.familia === "apagador" || intencion.familia === "contacto" || intencion.familia === "placa" || intencion.familia === "datos")
+    ) {
+      intencion.familia = esMezcladoraContext(intencion.normalizado) ? "mezcladora" : null;
+      intencion.familiasExcluidas = intencion.familia ? (FAMILIAS_OPUESTAS[intencion.familia] ?? []) : ["apagador", "contacto", "placa"];
+    }
   }
   return intencion;
 }
@@ -463,6 +522,7 @@ const PATRON_FAMILIA: Record<FamiliaProducto, RegExp> = {
   conduit: /\b(conduit|cople)\b/,
   clavija: /\b(clavija)\b/,
   valvula: /\b(valvula|llave de paso)\b/,
+  mezcladora: /\b(grifo|mezcladora|monomando)\b|\bllave\b(?! de paso)/,
   tubo: /\b(tubo|pvc|cpvc)\b/,
   codo: /\b(codo)\b/,
   cespol: /\b(cespol|sifon)\b/,
@@ -489,12 +549,18 @@ export function filaPerteneceAFamilia(nombre: string, sku: string, familia: Fami
   const plano = plegarTexto(nombre);
   const codigo = sku.toLowerCase();
   if (familia === "apagador") {
+    if (esPlomeriaContext(plano) && !esElectricoFuerte(plano)) return false;
     if (/\b(termomagnet|pastilla)\b/.test(plano) || /^tmt[-_]/i.test(sku)) return false;
     if (/\btimbre\b/.test(plano) || /tim[-_]/i.test(codigo)) return false;
     if (/^(placa|tapa|embellecedor)\b/.test(plano) && !/\b(tecla|palanca|apagador|interruptor)\b/.test(plano)) return false;
     if (/\b(contacto|tomacorriente|enchufe)\b/.test(plano) && !/\b(apagador|interruptor|tecla)\b/.test(plano)) return false;
     if (/\b(usb|cargador)\b/.test(plano) && !/\b(apagador|interruptor|tecla)\b/.test(plano)) return false;
     return PATRON_FAMILIA.apagador.test(plano) || Boolean(SKU_FAMILIA.apagador?.test(sku) && !/tim[-_]/i.test(codigo) && !/\b(usb|cargador)\b/.test(plano));
+  }
+  if (familia === "mezcladora") {
+    if (/\b(apagador|interruptor|contacto|tomacorriente|tecla)\b/.test(plano)) return false;
+    if (/\b(valvula|llave de paso|esfera)\b/.test(plano) && !esMezcladoraContext(plano)) return false;
+    return PATRON_FAMILIA.mezcladora.test(plano);
   }
   if (familia === "contacto") {
     if (/^(placa|tapa|embellecedor)\b/.test(plano) && !/\b(contacto|tomacorriente)\b/.test(plano)) return false;

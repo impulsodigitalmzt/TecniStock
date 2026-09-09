@@ -57,4 +57,36 @@ describe("intérprete de búsqueda TecniStock", () => {
     assert.equal(intencion.familia, "valvula");
     assert.equal(intencion.rubro, "plomeria");
   });
+
+  it("no convierte una llave de baño en apagador por la palanca", () => {
+    const intencion = interpretarPieza({
+      nombre: "Grifo de lavabo monomando",
+      producto_venta: "Grifo de lavabo",
+      material: "Metal cromado",
+      medida: "Estándar",
+      categoria: "plomeria",
+      mecanismo: "Palanca monomando",
+      palabras_clave: ["grifo", "lavabo", "monomando", "visible", "Palanca"],
+    });
+    assert.equal(intencion.rubro, "plomeria");
+    assert.equal(intencion.familia, "mezcladora");
+    assert.ok(!intencion.tokens.includes("apagador"));
+    assert.ok(!intencion.tokens.includes("palanca"));
+    assert.ok(intencion.familiasExcluidas.includes("apagador"));
+    assert.ok(!filaPerteneceAFamilia("Apagador sencillo 127 V", "INT-SENC-127", intencion.familia));
+    assert.ok(filaPerteneceAFamilia("Mezcladora de lavabo monomando cromada", "MEZ-LAV-01", intencion.familia));
+  });
+
+  it("entiende 'llave de baño' como mezcladora, no como apagador", () => {
+    const intencion = interpretarTexto("llave de baño");
+    assert.equal(intencion.familia, "mezcladora");
+    assert.equal(intencion.rubro, "plomeria");
+    assert.ok(!filaPerteneceAFamilia("Apagador sencillo 127 V", "INT-SENC-127", intencion.familia));
+  });
+
+  it("sigue distinguiendo llave de paso (válvula) de llave de baño", () => {
+    const paso = interpretarTexto("llave de paso 1/2");
+    assert.equal(paso.familia, "valvula");
+    assert.equal(paso.rubro, "plomeria");
+  });
 });

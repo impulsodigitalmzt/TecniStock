@@ -421,6 +421,7 @@ const SINONIMOS_OBJETO: Record<string, string[]> = {
   timbre: ["timbre"],
   breaker: ["termomagnet", "pastilla"],
   valvula: ["valvula"],
+  mezcladora: ["mezcladora", "grifo", "monomando"],
 };
 
 const VOZ_DATOS_RE =
@@ -474,6 +475,9 @@ function sinDestinoDePlaca(t: string): string {
 function tieneMecanismoElectrico(t: string): boolean {
   if (/\b(termomagnet|pastilla)\b/.test(t)) return false;
   if (esPiezaVozDatos(t)) return false;
+  if (/\b(grifo|mezcladora|monomando|lavabo|fregadero|valvula|plomer)\b/.test(t) && !/\b(apagador|interruptor|tecla|contacto)\b/.test(t)) {
+    return false;
+  }
   return /\b(tecla|palancas?)\b/.test(t) || /\b(apagador|interruptor)\b/.test(t) || (/\b(contacto|tomacorriente)\b/.test(t) && /\b(duplex|127|clavija|orificios?)\b/.test(t));
 }
 
@@ -502,6 +506,9 @@ function esPiezaCompuestaOInstalada(nombre: string, principal: string, claves = 
   const t = sinDestinoDePlaca(textoPlano(principal));
   const k = textoPlano(claves);
   if (esPiezaVozDatos(`${nombre} ${principal} ${claves}`)) return false;
+  if (/\b(grifo|mezcladora|monomando|lavabo|fregadero|valvula|plomer)\b/.test(`${t} ${k}`) && !/\b(apagador|interruptor|tecla|contacto)\b/.test(`${t} ${k}`)) {
+    return false;
+  }
   if (/\b(termomagnet|pastilla|timbre)\b/.test(t) && !/\b(apagador|contacto|tecla)\b/.test(t)) return false;
   if (/^(apagador|interruptor|contacto|kit|juego)\b/.test(start) && !esPiezaVozDatos(start)) return true;
   if (/\b(tecla|palancas?)\b/.test(t) || /\b(tecla|palancas?)\b/.test(k)) return true;
@@ -524,6 +531,9 @@ export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
   const start = textoPlano(nombre);
   if (!t) return null;
   if (esPiezaVozDatos(t) || esPiezaVozDatos(start)) return "datos";
+  if (/\b(grifo|mezcladora|monomando)\b/.test(t) || (/\bllave\b/.test(t) && /\b(bano|lavabo|fregadero|regadera)\b/.test(t))) {
+    return "mezcladora";
+  }
   if (/\b(termomagnet|pastilla)\b/.test(t) && !/\b(apagador|placa|contacto|tecla)\b/.test(start) && !/\b(tecla|palanca)\b/.test(t)) {
     return "breaker";
   }
@@ -546,7 +556,7 @@ export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
   if (/^(cable|conductor|rollo)\b/.test(start)) return "cable";
   if (/^(tubo|conduit)\b/.test(start)) return "conduit";
   if (/^clavija\b/.test(start)) return "clavija";
-  if (/^(valvula|llave)\b/.test(start)) return "valvula";
+  if (/^(valvula)\b/.test(start) || (/^llave\b/.test(start) && /\b(paso|esfera)\b/.test(t))) return "valvula";
   for (const objeto of Object.keys(SINONIMOS_OBJETO)) {
     if ((SINONIMOS_OBJETO[objeto] ?? []).some((s) => t.includes(s))) return objeto;
   }
@@ -606,6 +616,10 @@ function itemEsObjeto(nombre: string, objeto: string, sku = ""): boolean {
   if (objeto === "contacto") {
     if (esPlacaVacia(sku, nombre)) return false;
     return /\b(contacto|tomacorriente|enchufe)\b/.test(t) || /^cont[-_]/i.test(sku);
+  }
+  if (objeto === "mezcladora") {
+    if (/\b(apagador|interruptor|contacto|tomacorriente)\b/.test(t)) return false;
+    return /\b(grifo|mezcladora|monomando)\b/.test(t) || (/\bllave\b/.test(t) && /\b(bano|lavabo|fregadero|regadera)\b/.test(t));
   }
   if (objeto === "datos") {
     if (/\b(cable|thw|thhn|patch|latiguillo)\b/.test(t) && !/\b(placa|jack|rj45|datos)\b/.test(t)) return false;
@@ -854,7 +868,7 @@ function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
     case "contacto":
       return ` AND (${n} ~ '(contacto|tomacorriente|enchufe)' OR ${s} LIKE 'cont%') AND ${n} !~ '(apagador|interruptor|tecla|palanca|termomagnet|pastilla|timbre)'`;
     case "apagador":
-      return ` AND (${n} ~ '(apagador|interruptor|tecla|palanca)') AND ${n} !~ '(contacto|tomacorriente|enchufe|termomagnet|pastilla|timbre|cargador usb)'`;
+      return ` AND (${n} ~ '(apagador|interruptor|tecla|palanca)') AND ${n} !~ '(contacto|tomacorriente|enchufe|termomagnet|pastilla|timbre|cargador usb|grifo|mezcladora|monomando|lavabo)'`;
     case "datos":
       return ` AND (${n} ~ '(rj45|rj11|keystone|datos|ethernet|jack|informatica)' OR ${s} LIKE 'plac%') AND ${n} !~ '(tomacorriente|duplex)'`;
     case "placa":
@@ -874,7 +888,9 @@ function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
     case "clavija":
       return ` AND (${n} ~ '(clavija)' OR ${s} LIKE 'clv%')`;
     case "valvula":
-      return ` AND ${n} ~ '(valvula|llave)'`;
+      return ` AND ${n} ~ '(valvula|llave de paso)' AND ${n} !~ '(grifo|mezcladora|monomando|apagador|interruptor)'`;
+    case "mezcladora":
+      return ` AND (${n} ~ '(grifo|mezcladora|monomando)' OR (${n} ~ 'llave' AND ${n} ~ '(bano|lavabo|fregadero|regadera)')) AND ${n} !~ '(apagador|interruptor|contacto|tomacorriente|de paso)'`;
     case "codo":
       return ` AND ${n} ~ '(codo)'`;
     case "cespol":
