@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   AlertCircle, Camera, ClipboardPaste, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
   MessageCircle, Mic, Moon, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Sun, Tag, Trash2, Wrench, X,
@@ -654,6 +654,15 @@ function etiquetaEstatusHistorial(estatus: string): string {
   return estatus;
 }
 
+type DestinoVoz = 'chat' | 'busqueda';
+
+function formatoMmSs(total: number): string {
+  const seguro = Math.max(0, Math.floor(total));
+  const m = Math.floor(seguro / 60);
+  const s = seguro % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 function formatoGrabacion(): { mime: string; ext: string } {
   const candidatos = [
     { mime: 'audio/webm;codecs=opus', ext: 'webm' },
@@ -760,6 +769,8 @@ export default function App() {
   const chatCameraRef = useRef<HTMLInputElement>(null);
   const chatGalleryRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const [cameraTick, setCameraTick] = useState(0);
+  const [chatCameraTick, setChatCameraTick] = useState(0);
   const chatAttachRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatPanelRef = useRef<HTMLElement>(null);
@@ -784,6 +795,8 @@ export default function App() {
   const [borrador, setBorrador] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [grabando, setGrabando] = useState(false);
+  const [grabandoBusqueda, setGrabandoBusqueda] = useState(false);
+  const [segundosVoz, setSegundosVoz] = useState(0);
   const [transcribiendo, setTranscribiendo] = useState(false);
   const [historial, setHistorial] = useState<ConsultaResumen[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
@@ -811,28 +824,8 @@ export default function App() {
   const topeGrabacionRef = useRef<number | null>(null);
   const extGrabacionRef = useRef('webm');
   const omitirEnvioVozRef = useRef(false);
-  const headerRef = useRef<HTMLElement>(null);
-  const [altoHeaderMovil, setAltoHeaderMovil] = useState(216);
-
-  useLayoutEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const medir = () => {
-      if (window.matchMedia('(min-width: 1024px)').matches) {
-        setAltoHeaderMovil(0);
-        return;
-      }
-      setAltoHeaderMovil(el.getBoundingClientRect().height);
-    };
-    medir();
-    const ro = new ResizeObserver(medir);
-    ro.observe(el);
-    window.addEventListener('resize', medir);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', medir);
-    };
-  }, []);
+  const destinoVozRef = useRef<DestinoVoz>('chat');
+  const pulsoBusquedaRef = useRef(false);
 
   const soltarUrlsLocales = () => {
     urlsLocalesRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -873,6 +866,7 @@ export default function App() {
     streamRef.current = null;
     chunksRef.current = [];
     setGrabando(false);
+    setGrabandoBusqueda(false);
   };
 
   useEffect(
@@ -894,6 +888,16 @@ export default function App() {
   }, [oscuro]);
 
   useEffect(() => {
+    if (!grabandoBusqueda) {
+      setSegundosVoz(0);
+      return;
+    }
+    const t0 = Date.now();
+    const id = window.setInterval(() => setSegundosVoz(Math.floor((Date.now() - t0) / 1000)), 250);
+    return () => window.clearInterval(id);
+  }, [grabandoBusqueda]);
+
+  useEffect(() => {
     const lista = chatListaRef.current;
     if (!lista) return;
     lista.scrollTop = lista.scrollHeight;
@@ -901,14 +905,22 @@ export default function App() {
 
   useEffect(() => {
     if (!menuExportar && !menuAgregar && !menuCorreccion && !menuAdjuntarChat) return;
-    const cerrar = (event: MouseEvent) => {
-      if (menuExportar && !menuExportarRef.current?.contains(event.target as Node)) setMenuExportar(false);
-      if (menuAgregar && !addMenuRef.current?.contains(event.target as Node)) setMenuAgregar(false);
-      if (menuCorreccion && !menuCorreccionRef.current?.contains(event.target as Node)) setMenuCorreccion(false);
-      if (menuAdjuntarChat && !chatAttachRef.current?.contains(event.target as Node)) setMenuAdjuntarChat(false);
+    const cerrar = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (menuExportar && !menuExportarRef.current?.contains(target)) setMenuExportar(false);
+      if (menuAgregar && !addMenuRef.current?.contains(target)) setMenuAgregar(false);
+      if (menuCorreccion && !menuCorreccionRef.current?.contains(target)) setMenuCorreccion(false);
+      if (menuAdjuntarChat && !chatAttachRef.current?.contains(target)) setMenuAdjuntarChat(false);
     };
-    document.addEventListener('mousedown', cerrar);
-    return () => document.removeEventListener('mousedown', cerrar);
+    const t = window.setTimeout(() => {
+      document.addEventListener('mousedown', cerrar);
+      document.addEventListener('touchstart', cerrar);
+    }, 0);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener('mousedown', cerrar);
+      document.removeEventListener('touchstart', cerrar);
+    };
   }, [menuExportar, menuAgregar, menuCorreccion, menuAdjuntarChat]);
 
   useEffect(() => {
@@ -1036,9 +1048,39 @@ export default function App() {
     });
   }, [consultaId, carrito]);
 
+  const abrirInputArchivo = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    input.value = '';
+    input.click();
+  };
+
+  const abrirCamaraBandeja = () => {
+    setMenuAgregar(false);
+    abrirInputArchivo(cameraRef.current);
+  };
+
+  const abrirGaleriaBandeja = () => {
+    setMenuAgregar(false);
+    abrirInputArchivo(galleryRef.current);
+  };
+
+  const abrirCamaraChat = () => {
+    abrirInputArchivo(chatCameraRef.current);
+    setMenuAdjuntarChat(false);
+  };
+
+  const abrirGaleriaChat = () => {
+    abrirInputArchivo(chatGalleryRef.current);
+    setMenuAdjuntarChat(false);
+  };
+
   const agregarArchivos = async (lista: FileList | File[] | null, reemplazar = false) => {
     const incoming = Array.from(lista ?? []).filter((file) => file && file.size > 0);
-    if (incoming.length === 0) return;
+    if (incoming.length === 0) {
+      if (cameraRef.current) cameraRef.current.value = '';
+      if (galleryRef.current) galleryRef.current.value = '';
+      return;
+    }
     setError('');
     setAvisoMiniatura('');
     setMenuAgregar(false);
@@ -1080,6 +1122,7 @@ export default function App() {
       setPreparando(false);
       if (cameraRef.current) cameraRef.current.value = '';
       if (galleryRef.current) galleryRef.current.value = '';
+      setCameraTick((n) => n + 1);
     }
   };
 
@@ -1292,6 +1335,7 @@ export default function App() {
     const file = Array.from(lista ?? []).find((item) => item && item.size > 0);
     if (chatCameraRef.current) chatCameraRef.current.value = '';
     if (chatGalleryRef.current) chatGalleryRef.current.value = '';
+    setChatCameraTick((n) => n + 1);
     setMenuAdjuntarChat(false);
     if (!file || !consultaId) return;
     setError('');
@@ -1527,6 +1571,36 @@ export default function App() {
     }
   };
 
+  const transcribirYBuscar = async (blob: Blob, ext: string) => {
+    if (blob.size < 400) {
+      setError('Mantén pulsado el micrófono, di el nombre de la pieza y suelta para buscar.');
+      return;
+    }
+    setTranscribiendo(true);
+    setError('');
+    try {
+      const form = new FormData();
+      form.append('audio', blob, `busqueda.${ext}`);
+      const data = await leerJson<{ text?: string; transcripcion?: string }>(
+        await fetchCampo('/api/consultas/transcribir', { method: 'POST', body: form }),
+        'No se pudo entender el audio.'
+      );
+      const texto = (data.text || data.transcripcion || '').trim();
+      if (!texto) {
+        setError('No se escuchó el nombre de la pieza. Intenta de nuevo.');
+        return;
+      }
+      setQueryBusqueda(texto);
+      if (!consultaId) {
+        await iniciarConsultaTexto(texto);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo entender el audio.');
+    } finally {
+      setTranscribiendo(false);
+    }
+  };
+
   const enviarAudioChat = async (blob: Blob, ext: string) => {
     if (!consultaId) return;
     if (blob.size < 400) {
@@ -1574,8 +1648,9 @@ export default function App() {
     }
   };
 
-  const iniciarGrabacion = async () => {
+  const iniciarGrabacion = async (destino: DestinoVoz = 'chat') => {
     omitirEnvioVozRef.current = false;
+    destinoVozRef.current = destino;
     setError('');
     const { mime, ext } = formatoGrabacion();
     extGrabacionRef.current = ext;
@@ -1599,30 +1674,87 @@ export default function App() {
       stream.getTracks().forEach((track) => track.stop());
       if (streamRef.current === stream) streamRef.current = null;
       recorderRef.current = null;
+      const destinoFinal = destinoVozRef.current;
       setGrabando(false);
+      setGrabandoBusqueda(false);
       if (omitirEnvioVozRef.current) return;
-      void enviarAudioChat(new Blob(partes, { type: mime }), extGrabacionRef.current);
+      const blob = new Blob(partes, { type: mime });
+      if (destinoFinal === 'busqueda') void transcribirYBuscar(blob, extGrabacionRef.current);
+      else void enviarAudioChat(blob, extGrabacionRef.current);
     };
     recorder.start(250);
-    setGrabando(true);
+    if (destino === 'busqueda') setGrabandoBusqueda(true);
+    else setGrabando(true);
     topeGrabacionRef.current = window.setTimeout(() => detenerGrabacion(), 45_000);
   };
 
   const toggleGrabacion = async () => {
-    if (transcribiendo || enviando) return;
+    if (transcribiendo || enviando || grabandoBusqueda) return;
     if (grabando) {
       detenerGrabacion();
       return;
     }
     try {
-      await iniciarGrabacion();
+      await iniciarGrabacion('chat');
     } catch {
       setError('No se pudo acceder al micrófono. Revisa los permisos del navegador.');
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       setGrabando(false);
+      setGrabandoBusqueda(false);
     }
   };
+
+  const empezarVozBusqueda = async (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (transcribiendo || enviando || grabando || grabandoBusqueda || Boolean(aplicandoSku)) return;
+    pulsoBusquedaRef.current = true;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      /* sin captura de puntero */
+    }
+    try {
+      navigator.vibrate?.(15);
+    } catch {
+      /* sin vibración */
+    }
+    try {
+      await iniciarGrabacion('busqueda');
+      if (!pulsoBusquedaRef.current) soltarMic();
+    } catch {
+      pulsoBusquedaRef.current = false;
+      setError('No se pudo acceder al micrófono. Revisa los permisos del navegador.');
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setGrabando(false);
+      setGrabandoBusqueda(false);
+    }
+  };
+
+  const terminarVozBusqueda = () => {
+    pulsoBusquedaRef.current = false;
+    detenerGrabacion();
+  };
+
+  const cancelarVozBusqueda = () => {
+    pulsoBusquedaRef.current = false;
+    soltarMic();
+  };
+
+  useEffect(() => {
+    if (!grabandoBusqueda) return;
+    const onUp = () => terminarVozBusqueda();
+    const onCancel = () => cancelarVozBusqueda();
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onCancel);
+    return () => {
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onCancel);
+    };
+  }, [grabandoBusqueda]);
 
   const cancelarCorreccion = () => {
     if (modoCorreccion === 'rehacer' || modoCorreccion === 'agregar') {
@@ -1644,7 +1776,7 @@ export default function App() {
     setModoCorreccion('rehacer');
     setFotos([]);
     setFotoActiva(0);
-    window.setTimeout(() => cameraRef.current?.click(), 80);
+    window.setTimeout(() => abrirCamaraBandeja(), 80);
   };
 
   const corregirConPlaca = () => {
@@ -1656,7 +1788,7 @@ export default function App() {
     fotosAntesCorreccionRef.current = fotos;
     setError('');
     setModoCorreccion('agregar');
-    window.setTimeout(() => cameraRef.current?.click(), 80);
+    window.setTimeout(() => abrirCamaraBandeja(), 80);
   };
 
   const corregirConTextoOVoz = () => {
@@ -1729,6 +1861,8 @@ export default function App() {
     if (galleryRef.current) galleryRef.current.value = '';
     if (chatCameraRef.current) chatCameraRef.current.value = '';
     if (chatGalleryRef.current) chatGalleryRef.current.value = '';
+    setCameraTick((n) => n + 1);
+    setChatCameraTick((n) => n + 1);
   };
 
   const irACapturaNueva = () => {
@@ -1791,9 +1925,8 @@ export default function App() {
   }, [tab, mostrarBandeja, chatListo, agregarArchivos, enviarFotoHilo]);
 
   return (
-    <div className="mostrador-shell es-pc flex flex-col lg:h-screen lg:w-screen lg:overflow-hidden lg:flex-row bg-stone-100 dark:lg:bg-[#0b141a]">
-      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-visible lg:min-h-0">
-      <header ref={headerRef} className="mostrador-header">
+    <div className="mostrador-shell es-pc bg-stone-100 dark:lg:bg-[#0b141a]">
+      <header className="mostrador-header">
         <div className="mx-auto max-w-lg lg:mx-0 lg:max-w-none">
           <div className="flex items-center gap-3 mb-4 lg:mb-2">
             <span className="flex h-12 w-12 lg:h-10 lg:w-10 items-center justify-center rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30">
@@ -1858,7 +1991,8 @@ export default function App() {
           </div>
         </div>
       </header>
-      <div className="mostrador-header-suelo lg:hidden" style={{ height: altoHeaderMovil }} aria-hidden="true" />
+      <div className="mostrador-cuerpo">
+      <aside className="mostrador-col-izq w-full lg:w-[440px] lg:flex-shrink-0 lg:flex lg:flex-col lg:border-r lg:border-stone-200 dark:lg:border-neutral-800 lg:p-4 lg:overflow-visible lg:min-h-0">
 
       <main className="mostrador-main lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {avisoMiniatura || error ? (
@@ -1931,8 +2065,24 @@ export default function App() {
           </section>
         ) : (
           <>
-            <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void agregarArchivos(e.target.files)} />
-            <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void agregarArchivos(e.target.files)} />
+            <input
+              key={`camara-${cameraTick}`}
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => void agregarArchivos(e.target.files)}
+            />
+            <input
+              key={`galeria-${cameraTick}`}
+              ref={galleryRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => void agregarArchivos(e.target.files)}
+            />
 
             <div className="mostrador-analisis">
             {mostrarBandeja ? (
@@ -1997,44 +2147,15 @@ export default function App() {
                         </div>
                       ))}
                       {fotos.length < MAX_FOTOS_CONSULTA ? (
-                        <div className="relative shrink-0" ref={addMenuRef}>
-                          <button
-                            type="button"
-                            className="flex h-16 w-16 flex-col items-center justify-center rounded-xl border-2 border-dashed border-orange-400/70 bg-stone-900 text-orange-400"
-                            aria-label="Añadir más fotos"
-                            onClick={() => setMenuAgregar((abierto) => !abierto)}
-                          >
-                            <Plus className="h-7 w-7" strokeWidth={2.4} />
-                          </button>
-                          {menuAgregar ? (
-                            <div className="absolute bottom-full left-0 z-20 mb-2 w-44 overflow-hidden rounded-xl border border-stone-200 bg-white py-1 shadow-lg">
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-                                onClick={() => cameraRef.current?.click()}
-                              >
-                                <Camera className="h-4 w-4 text-stone-500" />
-                                Cámara
-                              </button>
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-                                onClick={() => galleryRef.current?.click()}
-                              >
-                                <ImagePlus className="h-4 w-4 text-stone-500" />
-                                Galería
-                              </button>
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-                                onClick={() => void pegarImagenBandeja()}
-                              >
-                                <ClipboardPaste className="h-4 w-4 text-stone-500" />
-                                Pegar imagen
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
+                        <button
+                          type="button"
+                          className="flex h-16 w-16 flex-col items-center justify-center rounded-xl border-2 border-dashed border-orange-400/70 bg-stone-900 text-orange-400 disabled:opacity-40"
+                          aria-label="Tomar otra foto"
+                          disabled={preparando}
+                          onClick={abrirCamaraBandeja}
+                        >
+                          <Plus className="h-7 w-7" strokeWidth={2.4} />
+                        </button>
                       ) : null}
                     </div>
                     <p className="mt-1.5 text-[11px] text-stone-400">
@@ -2042,15 +2163,16 @@ export default function App() {
                     </p>
                   </div>
                 ) : null}
-                <div className={fotos.length === 0 ? 'bg-stone-950 px-3 pb-3 pt-1' : 'p-4 space-y-3'}>
-                  {fotos.length === 0 ? (
+                <div className="bg-stone-950 px-3 pb-3 pt-1 space-y-3">
+                  {fotos.length < MAX_FOTOS_CONSULTA ? (
                     <>
                       <div className="foto-acciones" role="group" aria-label="Agregar foto de la pieza">
                         <button
                           type="button"
                           className="foto-accion foto-accion-camara"
                           aria-label="Tomar foto"
-                          onClick={() => cameraRef.current?.click()}
+                          disabled={preparando}
+                          onClick={abrirCamaraBandeja}
                         >
                           <Camera className="h-4 w-4" />
                           Cámara
@@ -2059,7 +2181,8 @@ export default function App() {
                           type="button"
                           className="foto-accion foto-accion-galeria"
                           aria-label="Elegir de galería"
-                          onClick={() => galleryRef.current?.click()}
+                          disabled={preparando}
+                          onClick={abrirGaleriaBandeja}
                         >
                           <ImagePlus className="h-4 w-4" />
                           Galería
@@ -2068,6 +2191,7 @@ export default function App() {
                           type="button"
                           className="foto-accion foto-accion-pegar"
                           aria-label="Pegar imagen"
+                          disabled={preparando}
                           onClick={() => void pegarImagenBandeja()}
                         >
                           <ClipboardPaste className="h-4 w-4" />
@@ -2075,37 +2199,78 @@ export default function App() {
                         </button>
                       </div>
                       <p className="mt-2 text-center text-[11px] text-stone-500">
-                        Hasta {MAX_FOTOS_CONSULTA} fotos. En PC también pega con Ctrl+V.
+                        {fotos.length === 0
+                          ? `Hasta ${MAX_FOTOS_CONSULTA} fotos. En PC también pega con Ctrl+V.`
+                          : `Toma otra toma · ${fotos.length}/${MAX_FOTOS_CONSULTA}`}
                       </p>
+                    </>
+                  ) : (
+                    <p className="text-center text-[11px] text-stone-500">
+                      Llegaste al máximo de {MAX_FOTOS_CONSULTA} fotos.
+                    </p>
+                  )}
+                  {fotos.length === 0 ? (
+                    <>
                       <div className="busqueda-landing">
                         <p className="busqueda-landing-sep">o busca por nombre</p>
                         <label className="sr-only" htmlFor="busqueda-libre-landing">
                           Buscar pieza por nombre
                         </label>
-                        <div className="busqueda-landing-fila">
-                          <Search className="h-4 w-4 shrink-0 text-orange-400" />
-                          <input
-                            id="busqueda-libre-landing"
-                            type="search"
-                            placeholder="Ej. contacto dúplex, cinta, foco LED"
-                            value={queryBusqueda}
-                            onChange={(e) => setQueryBusqueda(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && queryBusqueda.trim()) {
-                                e.preventDefault();
-                                void iniciarConsultaTexto(queryBusqueda.trim());
-                              }
-                            }}
-                          />
+                        <div className="busqueda-landing-acciones">
+                        <div className={`busqueda-landing-fila${grabandoBusqueda ? ' esta-grabando' : ''}`}>
+                          {grabandoBusqueda ? (
+                            <>
+                              <span className="busqueda-voz-dot" aria-hidden="true" />
+                              <span className="busqueda-voz-timer">{formatoMmSs(segundosVoz)}</span>
+                              <span className="busqueda-voz-hint">Suelta para buscar</span>
+                            </>
+                          ) : (
+                            <>
+                              <Search className="h-4 w-4 shrink-0 text-orange-400" />
+                              <input
+                                id="busqueda-libre-landing"
+                                type="search"
+                                placeholder={transcribiendo ? 'Transcribiendo…' : 'Ej. contacto dúplex, cinta, foco LED'}
+                                value={queryBusqueda}
+                                disabled={transcribiendo}
+                                onChange={(e) => setQueryBusqueda(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && queryBusqueda.trim()) {
+                                    e.preventDefault();
+                                    void iniciarConsultaTexto(queryBusqueda.trim());
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="busqueda-landing-btn"
+                                disabled={!queryBusqueda.trim() || Boolean(aplicandoSku) || transcribiendo}
+                                onClick={() => void iniciarConsultaTexto(queryBusqueda.trim())}
+                              >
+                                {aplicandoSku === 'texto' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
+                              </button>
+                            </>
+                          )}
+                        </div>
                           <button
                             type="button"
-                            className="busqueda-landing-btn"
-                            disabled={!queryBusqueda.trim() || Boolean(aplicandoSku)}
-                            onClick={() => void iniciarConsultaTexto(queryBusqueda.trim())}
+                            className={`busqueda-mic${grabandoBusqueda ? ' grabando' : ''}`}
+                            disabled={(transcribiendo || grabando || Boolean(aplicandoSku)) && !grabandoBusqueda}
+                            aria-label={grabandoBusqueda ? 'Suelta para buscar' : 'Mantén pulsado para dictar la búsqueda'}
+                            aria-pressed={grabandoBusqueda}
+                            onContextMenu={(e) => e.preventDefault()}
+                            onPointerDown={(e) => void empezarVozBusqueda(e)}
+                            onPointerUp={terminarVozBusqueda}
+                            onPointerCancel={cancelarVozBusqueda}
                           >
-                            {aplicandoSku === 'texto' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
+                            {transcribiendo && !grabandoBusqueda ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <Mic className="h-5 w-5" />
+                            )}
                           </button>
                         </div>
+                        <p className="busqueda-voz-ayuda">Mantén pulsado el micrófono, habla y suelta para buscar.</p>
                         {buscandoInventario ? (
                           <p className="flex items-center gap-2 px-1 py-2 text-xs text-stone-400">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2421,17 +2586,45 @@ export default function App() {
                       </button>
                     </header>
                     <div className="p-3 space-y-2">
-                      <input
-                        ref={buscadorInputRef}
-                        type="search"
-                        className="input-field min-h-11 rounded-xl py-2.5 text-sm"
-                        placeholder="Nombre o SKU, ej. tomo corrinte o apagodor sencillo"
-                        value={queryBusqueda}
-                        onChange={(e) => setQueryBusqueda(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') setBuscadorAbierto(false);
-                        }}
-                      />
+                      <div className="busqueda-overlay-fila">
+                        {grabandoBusqueda ? (
+                          <div className="busqueda-overlay-grabando" aria-live="polite">
+                            <span className="busqueda-voz-dot" aria-hidden="true" />
+                            <span className="busqueda-voz-timer">{formatoMmSs(segundosVoz)}</span>
+                            <span className="busqueda-voz-hint">Suelta para buscar</span>
+                          </div>
+                        ) : (
+                          <input
+                            ref={buscadorInputRef}
+                            type="search"
+                            className="input-field min-h-11 rounded-xl py-2.5 text-base"
+                            placeholder={transcribiendo ? 'Transcribiendo…' : 'Nombre o SKU, ej. tomo corrinte o apagodor sencillo'}
+                            value={queryBusqueda}
+                            disabled={transcribiendo}
+                            onChange={(e) => setQueryBusqueda(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setBuscadorAbierto(false);
+                            }}
+                          />
+                        )}
+                        <button
+                          type="button"
+                          className={`busqueda-mic${grabandoBusqueda ? ' grabando' : ''}`}
+                          disabled={(transcribiendo || grabando || Boolean(aplicandoSku)) && !grabandoBusqueda}
+                          aria-label={grabandoBusqueda ? 'Suelta para buscar' : 'Mantén pulsado para dictar la búsqueda'}
+                          aria-pressed={grabandoBusqueda}
+                          onContextMenu={(e) => e.preventDefault()}
+                          onPointerDown={(e) => void empezarVozBusqueda(e)}
+                          onPointerUp={terminarVozBusqueda}
+                          onPointerCancel={cancelarVozBusqueda}
+                        >
+                          {transcribiendo && !grabandoBusqueda ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <Mic className="h-5 w-5" />
+                          )}
+                        </button>
+                      </div>
                       <p className="text-[11px] text-stone-500">
                         Búsqueda tolerante a faltas. Elige un resultado para forzar precio y existencia reales.
                       </p>
@@ -2628,6 +2821,7 @@ export default function App() {
                       ) : null}
                     </div>
                     <input
+                      key={`chat-camara-${chatCameraTick}`}
                       ref={chatCameraRef}
                       type="file"
                       accept="image/*"
@@ -2636,9 +2830,11 @@ export default function App() {
                       onChange={(e) => void enviarFotoHilo(e.target.files)}
                     />
                     <input
+                      key={`chat-galeria-${chatCameraTick}`}
                       ref={chatGalleryRef}
                       type="file"
                       accept="image/*"
+                      multiple
                       className="hidden"
                       onChange={(e) => void enviarFotoHilo(e.target.files)}
                     />
@@ -2665,10 +2861,7 @@ export default function App() {
                             <button
                               type="button"
                               className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-                              onClick={() => {
-                                setMenuAdjuntarChat(false);
-                                chatCameraRef.current?.click();
-                              }}
+                              onClick={abrirCamaraChat}
                             >
                               <Camera className="h-4 w-4 shrink-0 text-stone-500" />
                               Cámara
@@ -2676,10 +2869,7 @@ export default function App() {
                             <button
                               type="button"
                               className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
-                              onClick={() => {
-                                setMenuAdjuntarChat(false);
-                                chatGalleryRef.current?.click();
-                              }}
+                              onClick={abrirGaleriaChat}
                             >
                               <ImagePlus className="h-4 w-4 shrink-0 text-stone-500" />
                               Galería
@@ -2725,7 +2915,7 @@ export default function App() {
                         <button
                           type="submit"
                           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm hover:bg-orange-600 disabled:opacity-40"
-                          disabled={!chatListo || enviando || transcribiendo || analizandoFotoHilo}
+                          disabled={!chatListo || enviando || transcribiendo || analizandoFotoHilo || grabandoBusqueda}
                           aria-label="Enviar"
                         >
                           {enviando && !analizandoFotoHilo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
@@ -2740,7 +2930,7 @@ export default function App() {
                                 ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-400 ring-offset-2'
                                 : 'composer-wa-icon'
                           }`}
-                          disabled={!chatListo || enviando || transcribiendo || analizandoFotoHilo}
+                          disabled={!chatListo || enviando || transcribiendo || analizandoFotoHilo || grabandoBusqueda}
                           aria-label={grabando ? 'Detener grabación' : 'Grabar mensaje de voz'}
                           onClick={() => void toggleGrabacion()}
                         >
@@ -2756,6 +2946,7 @@ export default function App() {
                     </form>
                   </article>
       </section>
+      </div>
     </div>
   );
 }

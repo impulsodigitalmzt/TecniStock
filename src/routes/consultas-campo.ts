@@ -153,6 +153,13 @@ consultasCampoRoutes.post("/texto", async (c) => {
   });
 });
 
+consultasCampoRoutes.post("/transcribir", async (c) => {
+  const form = await parseMultipartBody(c);
+  const audio = extractAudioFromBody(form);
+  const whisper = await transcribeAudio(c.env, audio.blob, audio.filename, "es");
+  return c.json({ ok: true, text: whisper.text, transcripcion: whisper.text });
+});
+
 consultasCampoRoutes.get("/:id/export/csv", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
