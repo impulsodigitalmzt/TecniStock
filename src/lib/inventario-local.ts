@@ -26,6 +26,7 @@ export type FilaInventarioLocal = {
   precio: number;
   ubicacion_tienda: string;
   url_imagen: string;
+  descripcion_tecnica: string;
 };
 
 /** Entero tal cual viene de Neon. Sin promedios ni estimaciones. */
@@ -129,6 +130,7 @@ function mapFila(row: Record<string, unknown>): FilaInventarioLocal | null {
     precio: precioLiteral(row.precio),
     ubicacion_tienda: String(row.ubicacion_tienda ?? "").trim(),
     url_imagen: String(row.url_imagen ?? "").trim(),
+    descripcion_tecnica: String(row.descripcion_tecnica ?? "").trim(),
   };
 }
 
@@ -145,6 +147,7 @@ function filaAStockItem(fila: FilaInventarioLocal): StockItem {
     estado: estadoDesdeStock(fila.stock_disponible),
     ubicacion_tienda: fila.ubicacion_tienda || undefined,
     url_imagen: fila.url_imagen || undefined,
+    descripcion_tecnica: fila.descripcion_tecnica || undefined,
   };
 }
 
@@ -157,7 +160,7 @@ export async function listarInventarioLocal(sql: Sql): Promise<StockItem[]> {
 export async function listarFilasInventarioLocal(sql: Sql): Promise<FilaInventarioLocal[]> {
   await ensureInventarioLocalSchema(sql);
   const rows = await sql`
-    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
+    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen, descripcion_tecnica
     FROM inventario_local
     ORDER BY nombre_pieza
   `;
@@ -172,7 +175,7 @@ export async function obtenerInventarioPorSku(sql: Sql, sku: string): Promise<Fi
   if (!codigo) return null;
   await ensureInventarioLocalSchema(sql);
   const rows = await sql`
-    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen
+    SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen, descripcion_tecnica
     FROM inventario_local
     WHERE sku = ${codigo}
     LIMIT 1
@@ -189,6 +192,7 @@ export function aplicarFilaLiteral(stock: BloqueStock, fila: FilaInventarioLocal
   stock.precio = fila.precio;
   stock.ubicacion_tienda = fila.ubicacion_tienda || undefined;
   stock.url_imagen = fila.url_imagen || undefined;
+  stock.descripcion_tecnica = fila.descripcion_tecnica || undefined;
   stock.estado = estadoDesdeStock(piezas);
   stock.fuente = "inventario_local";
   stock.consulta_ok = true;
@@ -405,6 +409,7 @@ export type ResultadoBusquedaInventario = {
   precio: number;
   ubicacion_tienda: string;
   url_imagen: string;
+  descripcion_tecnica?: string;
   relevancia?: number;
 };
 
@@ -856,6 +861,7 @@ function filaAResultado(fila: FilaInventarioLocal, relevancia?: number): Resulta
     precio: fila.precio,
     ubicacion_tienda: fila.ubicacion_tienda,
     url_imagen: fila.url_imagen,
+    descripcion_tecnica: fila.descripcion_tecnica || undefined,
     relevancia,
   };
 }
@@ -874,15 +880,15 @@ function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
     case "placa":
       return ` AND (${n} ~ '(placa|tapa|embellecedor)' OR ${s} LIKE 'plac%') AND ${n} !~ '(termomagnet|pastilla|timbre|cable|cinta)'`;
     case "breaker":
-      return ` AND (${n} ~ '(termomagnet|pastilla|breaker|centro de carga)' OR ${s} ~ '^(tmt|cc)[-_]') AND ${n} !~ '(apagador|contacto|tomacorriente|timbre)'`;
+      return ` AND (${n} ~ '(termomagnet|pastilla|breaker|centro de carga)' OR ${s} ~ '^(tmt|cc|per)[-_]') AND ${n} !~ '(apagador|contacto|tomacorriente|timbre)'`;
     case "timbre":
       return ` AND (${n} ~ '(timbre|pulsador)' OR ${s} LIKE '%tim%')`;
     case "foco":
-      return ` AND (${n} ~ '(foco|lampara|luminaria|bombilla|led)' OR ${s} ~ '^(foco|lamp)[-_]')`;
+      return ` AND (${n} ~ '(foco|lampara|luminaria|bombilla|led)' OR ${s} ~ '^(foco|lamp|led)[-_]')`;
     case "cable":
       return ` AND (${n} ~ '(cable|conductor|thw|thhn)' OR ${s} LIKE 'cab%')`;
     case "cinta":
-      return ` AND (${n} ~ '(cinta|aislar|aislante)' OR ${s} LIKE 'cin%')`;
+      return ` AND (${n} ~ '(cinta|aislar|aislante)' OR ${s} LIKE 'cin%') AND ${n} !~ '(metrica|flexometro)'`;
     case "conduit":
       return ` AND (${n} ~ '(conduit|cople)' OR ${s} ~ '^(tubo|copl)[-_]')`;
     case "clavija":
@@ -896,7 +902,7 @@ function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
     case "cespol":
       return ` AND ${n} ~ '(cespol|sifon)'`;
     case "tornillo":
-      return ` AND ${n} ~ '(tornillo|tuerca|clavo|bisagra)'`;
+      return ` AND ${n} ~ '(tornillo|tuerca|clavo|bisagra|disco|flexometro)'`;
     case "taquete":
       return ` AND ${n} ~ '(taquete)'`;
     case "broca":
@@ -1007,7 +1013,7 @@ async function buscarPorIntencion(
 
   const limitIdx = push(tope * 2);
   const rows = await sql.query(
-    `SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen,
+    `SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen, descripcion_tecnica,
             ${relevanciaSql} AS relevancia
      FROM inventario_local
      WHERE ${matchSql}
@@ -1147,6 +1153,7 @@ export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInvent
     coincidencia: score > 0 ? Number(Math.min(1, score / 80).toFixed(3)) : 1,
     ubicacion_tienda: mejor.ubicacion_tienda || undefined,
     url_imagen: mejor.url_imagen || undefined,
+    descripcion_tecnica: mejor.descripcion_tecnica || undefined,
     stock_disponible: piezas,
     fuente: "inventario_local",
     consulta_ok: true,

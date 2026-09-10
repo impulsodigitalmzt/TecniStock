@@ -71,6 +71,7 @@ type BloqueStock = {
   alternativas?: SustitutoStock[];
   url_imagen?: string;
   ubicacion_tienda?: string;
+  descripcion_tecnica?: string;
   motivo_indisponible?: 'faltante_temporal' | 'descontinuado' | 'fuera_de_surtido' | null;
   consulta_ok?: boolean;
   filas_catalogo?: number;
@@ -274,6 +275,7 @@ type ResultadoBusquedaInventario = {
   precio: number;
   ubicacion_tienda: string;
   url_imagen?: string;
+  descripcion_tecnica?: string;
 };
 
 function recortarListaMostrador(texto: string): string {
@@ -2121,6 +2123,13 @@ export default function App() {
                                   disabled={Boolean(aplicandoSku)}
                                   onClick={() => void aplicarSkuBusqueda(item)}
                                 >
+                                  {urlFotoCatalogo(item.url_imagen) ? (
+                                    <img
+                                      src={urlFotoCatalogo(item.url_imagen) ?? ''}
+                                      alt=""
+                                      className="h-10 w-10 shrink-0 rounded-md object-cover bg-stone-800"
+                                    />
+                                  ) : null}
                                   <span className="min-w-0 flex-1">
                                     <span className="block text-sm font-medium leading-snug">{textoMostrador(item.nombre)}</span>
                                     <span className="mt-0.5 block font-mono text-[11px] text-stone-500">{item.sku}</span>
@@ -2324,6 +2333,11 @@ export default function App() {
                   {descripcion ? (
                     <p className="mt-2 text-sm leading-relaxed text-stone-600 whitespace-pre-wrap">{descripcion}</p>
                   ) : null}
+                  {stock.descripcion_tecnica ? (
+                    <p className={`text-sm leading-relaxed text-stone-600 ${descripcion ? 'mt-1 text-stone-500' : 'mt-2'}`}>
+                      {stock.descripcion_tecnica}
+                    </p>
+                  ) : null}
 
                   {stock.motivo_indisponible === 'faltante_temporal' ? (
                     <p className="mt-1 text-xs text-amber-800">Sigue vigente: es un faltante momentáneo.</p>
@@ -2438,9 +2452,23 @@ export default function App() {
                                 disabled={Boolean(aplicandoSku)}
                                 onClick={() => void aplicarSkuBusqueda(item)}
                               >
+                                {urlFotoCatalogo(item.url_imagen) ? (
+                                  <img
+                                    src={urlFotoCatalogo(item.url_imagen) ?? ''}
+                                    alt=""
+                                    className="h-12 w-12 shrink-0 rounded-lg object-cover bg-stone-200"
+                                  />
+                                ) : (
+                                  <span className="h-12 w-12 shrink-0 rounded-lg bg-stone-100" />
+                                )}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-sm font-semibold leading-snug text-stone-900">{textoMostrador(item.nombre)}</span>
                                   <span className="mt-0.5 block font-mono text-[11px] text-stone-400">{item.sku}</span>
+                                  {item.descripcion_tecnica ? (
+                                    <span className="mt-0.5 block text-[11px] leading-snug text-stone-500 line-clamp-2">
+                                      {item.descripcion_tecnica}
+                                    </span>
+                                  ) : null}
                                 </span>
                                 <span className="shrink-0 text-right">
                                   <span className="block text-sm font-semibold tabular-nums">

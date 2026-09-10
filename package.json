@@ -17,7 +17,8 @@
     "types": "wrangler types",
     "check": "tsc --noEmit",
     "test": "node --experimental-strip-types --test src/lib/interprete-busqueda.test.ts",
-    "seed:inventario-local": "node scripts/cargar-inventario-local.mjs"
+    "seed:inventario-local": "node scripts/cargar-inventario-local.mjs",
+    "seed:fotos": "node scripts/vincular-fotos-inventario.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

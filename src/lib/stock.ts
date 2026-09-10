@@ -49,6 +49,7 @@ export type BloqueStock = {
   coincidencia: number;
   url_imagen?: string;
   ubicacion_tienda?: string;
+  descripcion_tecnica?: string;
   /** Entero literal de inventario_local.stock_disponible. No interpolar. */
   stock_disponible?: number | null;
   fuente?: "inventario_local" | "espejo" | "productos" | "mock";

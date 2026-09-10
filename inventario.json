@@ -167,19 +167,117 @@
       "sku": "TUBO-CON-50",
       "nombre_pieza": "Tubo conduit pared delgada 1/2 pulgada",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Tubo metálico galvanizado ligero de 3 metros para protección de cableado",
+      "descripcion_tecnica": "Tubo conduit EMT de pared delgada, metálico galvanizado liso de 1/2 pulgada, tramo de 3 m para protección de cableado",
       "stock_disponible": 25,
       "precio": 92,
-      "url_imagen": "/static/productos/TUBO-CON-50.jpg"
+      "url_imagen": "/static/productos/TUBO-CON-50.webp"
     },
     {
       "sku": "COPL-CON-05",
       "nombre_pieza": "Cople para tubo conduit 1/2 pulgada",
       "categoria": "electricidad",
-      "descripcion_tecnica": "Conector o cople de compresión metálico para unión de tubo conduit",
+      "descripcion_tecnica": "Cople o unión set-screw de acero galvanizado para tubo conduit EMT de 1/2 pulgada, dos tornillos de apriete",
       "stock_disponible": 50,
       "precio": 12,
       "url_imagen": "/static/productos/COPL-CON-05.webp"
+    },
+    {
+      "sku": "INT-VIAJE-127",
+      "nombre_pieza": "Apagador triple 127 V",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Apagador triple de empotrar, 3 teclas tipo rocker, 127 V 18 A, placa plástica blanca Bticino",
+      "stock_disponible": 18,
+      "precio": 62,
+      "url_imagen": "/static/productos/INT-VIAJE-127.webp"
+    },
+    {
+      "sku": "TUBO-CON-5M",
+      "nombre_pieza": "Tubo conduit pared delgada 1/2 pulgada",
+      "categoria": "ferreteria",
+      "descripcion_tecnica": "Tubo conduit EMT de pared delgada, metálico galvanizado liso de 1/2 pulgada, tramo de 3 m para protección de cableado",
+      "stock_disponible": 25,
+      "precio": 92,
+      "url_imagen": "/static/productos/TUBO-CON-5M.webp"
+    },
+    {
+      "sku": "CINTA-UNI-5M",
+      "nombre_pieza": "Cinta métrica 5 m",
+      "categoria": "ferreteria",
+      "descripcion_tecnica": "Flexómetro 5 metros, cinta métrica de acero con freno",
+      "stock_disponible": 19,
+      "precio": 68
+    },
+    {
+      "sku": "DISCO-4-5",
+      "nombre_pieza": "Disco de corte 4.5 pulg",
+      "categoria": "ferreteria",
+      "descripcion_tecnica": "Disco abrasivo Truper Expert 4-1/2 pulgadas (115 mm) para corte de metal, amoladora, 1.2 mm de espesor",
+      "stock_disponible": 36,
+      "precio": 22,
+      "url_imagen": "/static/productos/DISCO-4-5.webp"
+    },
+    {
+      "sku": "TEF-12",
+      "nombre_pieza": "Cinta de teflón 1/2 pulg",
+      "categoria": "plomeria",
+      "descripcion_tecnica": "Cinta PTFE sella roscas Truper Expert Seal-Pro Industrial 1/2 pulgada, 0.1 mm, 3x mayor densidad para fontanería y gas",
+      "stock_disponible": 38,
+      "precio": 8.5,
+      "url_imagen": "/static/productos/TEF-12.jpg"
+    },
+    {
+      "sku": "BRO-CON-14",
+      "nombre_pieza": "Broca para concreto 1/4",
+      "categoria": "ferreteria",
+      "descripcion_tecnica": "Broca SDS Plus para concreto 1/4 pulgada, punta de vidia, para taladro percutor o rotomartillo",
+      "stock_disponible": 22,
+      "precio": 38,
+      "url_imagen": "/static/productos/BRO-CON-14.jpg"
+    },
+    {
+      "sku": "TAQ-PLA-14",
+      "nombre_pieza": "Taquete de plástico 1/4",
+      "categoria": "ferreteria",
+      "descripcion_tecnica": "Taquete de expansión de plástico gris 1/4 pulgada, ancla para concreto, tabique y tablaroca",
+      "stock_disponible": 260,
+      "precio": 0.85,
+      "url_imagen": "/static/productos/TAQ-PLA-14.jpg"
+    },
+    {
+      "sku": "TORN-MAD-8X2",
+      "nombre_pieza": "Tornillo para madera 8 x 2",
+      "categoria": "ferreteria",
+      "descripcion_tecnica": "Tornillo para madera cabeza plana pavonada, 8 x 2 pulgadas",
+      "stock_disponible": 480,
+      "precio": 1.2,
+      "url_imagen": "/static/productos/TORN-MAD-8X2.jpg"
+    },
+    {
+      "sku": "LED-9W-E27",
+      "nombre_pieza": "Foco LED 9 W E27",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Foco LED A19 9 watts, rosca E27, luz fría, equivalente 60 W",
+      "stock_disponible": 85,
+      "precio": 29,
+      "url_imagen": "/static/productos/LED-9W-E27.webp"
+    },
+    {
+      "sku": "PER100-15A",
+      "nombre_pieza": "Termomagnético 1 polo 15A",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Breaker unipolar 15 A Siemens tipo BL, pastilla 1P 120/240 V, compatible en el mismo riel que 20 A",
+      "stock_disponible": 16,
+      "precio": 89,
+      "url_imagen": "/static/productos/PER100-15A.jpg"
+    },
+    {
+      "sku": "CAB-THW-14",
+      "nombre_pieza": "Cable THW calibre 14 AWG",
+      "categoria": "electricidad",
+      "descripcion_tecnica": "Cable THW-LS / THHW-LS calibre 14 AWG cobre, aislamiento PVC rojo, rollo para circuitos de iluminación; sustituto ligero de calibre 12",
+      "stock_disponible": 80,
+      "precio": 14.5,
+      "url_imagen": "/static/productos/CAB-THW-14.jpg"
     }
   ]
 }

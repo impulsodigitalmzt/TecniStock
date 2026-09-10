@@ -454,6 +454,7 @@ function hallazgosGuardados(consulta: ConsultaCampo): ResultadoBusquedaInventari
         precio: Number(row.precio ?? 0) || 0,
         ubicacion_tienda: String(row.ubicacion_tienda ?? ""),
         url_imagen: String(row.url_imagen ?? ""),
+        descripcion_tecnica: String(row.descripcion_tecnica ?? "").trim() || undefined,
       } satisfies ResultadoBusquedaInventario;
     })
     .filter((item): item is ResultadoBusquedaInventario => Boolean(item));

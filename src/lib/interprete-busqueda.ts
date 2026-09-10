@@ -180,6 +180,11 @@ const LEXICO: Record<string, EntradaLexico> = {
   cpvc: { canonico: "cpvc", familia: "tubo", rubro: "plomeria", peso: 6 },
   tinaco: { canonico: "tinaco", familia: "tubo", rubro: "plomeria", peso: 8 },
   flexometro: { canonico: "flexometro", familia: "tornillo", rubro: "ferreteria", peso: 6 },
+  cintametrica: { canonico: "flexometro", familia: "tornillo", rubro: "ferreteria", peso: 10 },
+  teflon: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 10 },
+  ptfe: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 10 },
+  disco: { canonico: "disco", familia: "tornillo", rubro: "ferreteria", peso: 10 },
+  discodecorte: { canonico: "disco", familia: "tornillo", rubro: "ferreteria", peso: 10 },
 
   tornillo: { canonico: "tornillo", familia: "tornillo", rubro: "ferreteria", peso: 10 },
   tuerca: { canonico: "tuerca", familia: "tornillo", rubro: "ferreteria", peso: 9 },
@@ -518,7 +523,7 @@ const PATRON_FAMILIA: Record<FamiliaProducto, RegExp> = {
   timbre: /\b(timbre|pulsador)\b/,
   foco: /\b(foco|lampara|luminaria|bombilla|led)\b/,
   cable: /\b(cable|conductor|thw|thhn)\b/,
-  cinta: /\b(cinta|aislar|aislante)\b/,
+  cinta: /\b(cinta|aislar|aislante|teflon)\b/,
   conduit: /\b(conduit|cople)\b/,
   clavija: /\b(clavija)\b/,
   valvula: /\b(valvula|llave de paso)\b/,
@@ -526,7 +531,7 @@ const PATRON_FAMILIA: Record<FamiliaProducto, RegExp> = {
   tubo: /\b(tubo|pvc|cpvc)\b/,
   codo: /\b(codo)\b/,
   cespol: /\b(cespol|sifon)\b/,
-  tornillo: /\b(tornillo|tuerca|clavo|bisagra)\b/,
+  tornillo: /\b(tornillo|tuerca|clavo|bisagra|disco|flexometro)\b/,
   taquete: /\b(taquete|taco)\b/,
   broca: /\b(broca)\b/,
 };
@@ -535,11 +540,11 @@ const SKU_FAMILIA: Partial<Record<FamiliaProducto, RegExp>> = {
   apagador: /^(int|kit|mod)[-_]/i,
   contacto: /^cont[-_]/i,
   placa: /^plac[-_]/i,
-  breaker: /^(tmt|cc)[-_]/i,
+  breaker: /^(tmt|cc|per)[-_]/i,
   timbre: /tim[-_]/i,
   cable: /^cab[-_]/i,
   cinta: /^cin[-_]/i,
-  foco: /^(foco|lamp)[-_]/i,
+  foco: /^(foco|lamp|led)[-_]/i,
   conduit: /^(tubo|copl)[-_]/i,
   clavija: /^clv[-_]/i,
 };
@@ -568,6 +573,10 @@ export function filaPerteneceAFamilia(nombre: string, sku: string, familia: Fami
       return false;
     }
     return PATRON_FAMILIA.contacto.test(plano) || Boolean(SKU_FAMILIA.contacto?.test(sku));
+  }
+  if (familia === "cinta") {
+    if (/\b(metrica|flexometro)\b/.test(plano)) return false;
+    return PATRON_FAMILIA.cinta.test(plano) || Boolean(SKU_FAMILIA.cinta?.test(sku));
   }
   if (PATRON_FAMILIA[familia]?.test(plano)) return true;
   if (SKU_FAMILIA[familia]?.test(sku)) return true;

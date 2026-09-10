@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,16 @@ function norm(texto) {
     .trim();
 }
 
+/** Archivo origen (sin extensión, normalizado) → SKUs destino. */
+const ALIAS_ARCHIVO = {
+  "int trip 127": ["INT-VIAJE-127"],
+  "int viaje 127": ["INT-VIAJE-127"],
+  "term 15a": ["PER100-15A"],
+  "per100 15a": ["PER100-15A"],
+  "tubo con 50": ["TUBO-CON-50", "TUBO-CON-5M"],
+  "tubo con 5m": ["TUBO-CON-5M"],
+};
+
 const pares = [
   { sku: "INT-SENC-127", claves: ["int senc 127"] },
   { sku: "INT-DOB-127", claves: ["paso doble empotrado"] },
@@ -28,6 +38,7 @@ const pares = [
   { sku: "PLAC-ACEO-02", claves: ["2 gangas", "2 espacios", "2 modulos"] },
   { sku: "TMT-1P-20A", claves: ["1x20"] },
   { sku: "TMT-2P-30A", claves: ["2x30"] },
+  { sku: "TMT-2P-30A", claves: ["2x50"] },
   { sku: "CC-2Q-01", claves: ["centro de carga"] },
   { sku: "CAB-12-THW", claves: ["calibre 12"] },
   { sku: "CAB-10-THW", claves: ["calibre 10"] },
@@ -40,30 +51,80 @@ const pares = [
   { sku: "TUBO-CON-50", claves: ["pared delgada"] },
   { sku: "COPL-CON-05", claves: ["cople"] },
   { sku: "INT-PALANCA-OLD", claves: ["palanca vintage"] },
+  { sku: "INT-VIAJE-127", claves: ["triple"] },
+  { sku: "CAB-THW-14", claves: ["cab thw 14"] },
+  { sku: "DISCO-4-5", claves: ["disco 4 5"] },
+  { sku: "BRO-CON-14", claves: ["bro con 14"] },
+  { sku: "LED-9W-E27", claves: ["led 9w e27"] },
+  { sku: "TAQ-PLA-14", claves: ["taq pla 14"] },
+  { sku: "TEF-12", claves: ["tef 12"] },
+  { sku: "TORN-MAD-8X2", claves: ["torn mad 8x2"] },
+  { sku: "PER100-15A", claves: ["term 15a"] },
 ];
 
-const archivos = readdirSync(srcDir).filter((nombre) => !nombre.startsWith("."));
+const SKUS = new Set(pares.flatMap((par) => [par.sku, ...(ALIAS_ARCHIVO[norm(par.sku)] ?? [])]));
+for (const skus of Object.values(ALIAS_ARCHIVO)) {
+  for (const sku of skus) SKUS.add(sku);
+}
+
+const archivos = existsSync(srcDir)
+  ? readdirSync(srcDir).filter((nombre) => !nombre.startsWith(".") && extname(nombre))
+  : [];
 const usados = new Set();
 const copiados = [];
+const assigned = new Set();
 
-for (const dest of destDirs) mkdirSync(dest, { recursive: true });
+function copiarHacia(sku, archivo) {
+  const destino = `${sku}${extname(archivo).toLowerCase()}`;
+  for (const dest of destDirs) {
+    if (!existsSync(dest) && dest.includes("dist")) continue;
+    mkdirSync(dest, { recursive: true });
+    copyFileSync(join(srcDir, archivo), join(dest, destino));
+  }
+  assigned.add(sku);
+  copiados.push({ sku, origen: archivo, destino: `/static/productos/${destino}` });
+}
+
+for (const dest of destDirs) {
+  if (dest.includes("dist") && !existsSync(join(root, "dist", "client"))) continue;
+  mkdirSync(dest, { recursive: true });
+}
+
+for (const archivo of archivos) {
+  const base = norm(archivo.replace(/\.[^.]+$/, ""));
+  const porAlias = ALIAS_ARCHIVO[base];
+  const porSku = SKUS.has(archivo.replace(/\.[^.]+$/, "").toUpperCase())
+    ? [archivo.replace(/\.[^.]+$/, "").toUpperCase()]
+    : [];
+  const skus = porAlias ?? (porSku.length ? porSku : null);
+  if (!skus) continue;
+  usados.add(archivo);
+  for (const sku of skus) {
+    if (assigned.has(sku)) continue;
+    copiarHacia(sku, archivo);
+  }
+}
 
 for (const par of pares) {
+  if (assigned.has(par.sku)) continue;
   const archivo = archivos.find((nombre) => {
     if (usados.has(nombre)) return false;
     const n = norm(nombre);
     return par.claves.every((clave) => n.includes(norm(clave)));
   });
-  if (!archivo) throw new Error(`No hay foto para ${par.sku} (${par.claves.join(", ")})`);
+  if (!archivo) continue;
   usados.add(archivo);
-  const destino = `${par.sku}${extname(archivo).toLowerCase()}`;
-  for (const dest of destDirs) {
-    copyFileSync(join(srcDir, archivo), join(dest, destino));
-  }
-  copiados.push({ sku: par.sku, origen: archivo, destino: `/static/productos/${destino}` });
+  copiarHacia(par.sku, archivo);
 }
 
-const sobrantes = archivos.filter((nombre) => !usados.has(nombre));
-if (sobrantes.length) throw new Error(`Fotos sin relacionar: ${sobrantes.join(", ")}`);
+const duplicadosOk = ["cople", "pared delgada", "tubo conduit"];
+const sobrantes = archivos.filter((nombre) => {
+  if (usados.has(nombre)) return false;
+  const n = norm(nombre);
+  return !duplicadosOk.some((clave) => n.includes(clave));
+});
+if (sobrantes.length) {
+  throw new Error(`Fotos sin relacionar: ${sobrantes.join(", ")}`);
+}
 
-console.log(JSON.stringify({ ok: true, copiados, total: copiados.length }, null, 2));
+console.log(JSON.stringify({ ok: true, copiados, omitidos: archivos.filter((n) => !usados.has(n)), total: copiados.length }, null, 2));
