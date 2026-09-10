@@ -29,6 +29,9 @@ export type FamiliaProducto =
   | "taquete"
   | "broca";
 
+/** Variante comercial dentro de una familia (homónimos: teflón vs aislar, PVC vs conduit, etc.). */
+export type SubtipoProducto = "teflon" | "aislar" | "pvc" | "conduit";
+
 export type TokenPeso = {
   token: string;
   peso: number;
@@ -40,6 +43,7 @@ export type IntencionBusqueda = {
   canonico: string;
   rubro: RubroGiro | null;
   familia: FamiliaProducto | null;
+  subtipo: SubtipoProducto | null;
   familiasExcluidas: FamiliaProducto[];
   tokens: string[];
   tokensPeso: TokenPeso[];
@@ -60,6 +64,10 @@ const RELLENO = new Set([
   "mostrar", "muestrame", "ensename", "verlo", "verla", "foto", "imagen", "ficha",
   "tipo", "tipos", "es", "son", "ser", "cuales", "porque", "sirve", "funciona",
   "visible", "estandar", "clara", "claro", "moderno", "moderna", "diseno",
+  "dame", "deme", "nuestras", "nuestro", "nuestra", "muestreme", "mostrarme",
+  "traeme", "pasame", "ver", "mira", "mirame", "checa", "checame",
+  "tres", "dos", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez",
+  "opciones", "alternativas", "disponibles", "stock", "anaquel", "inventario",
 ]);
 
 type EntradaLexico = {
@@ -144,10 +152,17 @@ const LEXICO: Record<string, EntradaLexico> = {
   thhn: { canonico: "thhn", familia: "cable", rubro: "electricidad", peso: 8 },
   calibre: { canonico: "calibre", familia: "cable", rubro: "electricidad", peso: 4 },
 
-  cinta: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 10 },
-  aislante: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 7 },
-  aislar: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 7 },
-  ailante: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 7 },
+  cinta: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  cintas: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  cista: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  cistas: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  synta: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  zinta: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  sinta: { canonico: "cinta", familia: "cinta", rubro: "electricidad", peso: 8 },
+  aislante: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 10 },
+  aislar: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 10 },
+  ailante: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 10 },
+  vinilica: { canonico: "aislar", familia: "cinta", rubro: "electricidad", peso: 8 },
 
   conduit: { canonico: "conduit", familia: "conduit", rubro: "electricidad", peso: 10 },
   cople: { canonico: "cople", familia: "conduit", rubro: "electricidad", peso: 8 },
@@ -181,8 +196,14 @@ const LEXICO: Record<string, EntradaLexico> = {
   tinaco: { canonico: "tinaco", familia: "tubo", rubro: "plomeria", peso: 8 },
   flexometro: { canonico: "flexometro", familia: "tornillo", rubro: "ferreteria", peso: 6 },
   cintametrica: { canonico: "flexometro", familia: "tornillo", rubro: "ferreteria", peso: 10 },
-  teflon: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 10 },
-  ptfe: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 10 },
+  teflon: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  teflones: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  tefon: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  teflo: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  tefflon: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  teflonn: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  ptfe: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 12 },
+  sellaroscas: { canonico: "teflon", familia: "cinta", rubro: "plomeria", peso: 10 },
   disco: { canonico: "disco", familia: "tornillo", rubro: "ferreteria", peso: 10 },
   discodecorte: { canonico: "disco", familia: "tornillo", rubro: "ferreteria", peso: 10 },
 
@@ -204,7 +225,7 @@ const FAMILIAS_OPUESTAS: Record<FamiliaProducto, FamiliaProducto[]> = {
   timbre: ["apagador", "contacto", "breaker", "datos"],
   foco: ["apagador", "contacto", "breaker", "cinta"],
   cable: ["cinta", "foco", "apagador", "contacto"],
-  cinta: ["cable", "foco", "apagador", "contacto"],
+  cinta: ["cable", "foco", "apagador", "contacto", "breaker", "timbre", "datos"],
   conduit: ["tubo", "valvula", "mezcladora"],
   clavija: ["apagador", "breaker"],
   valvula: ["apagador", "contacto", "breaker", "mezcladora"],
@@ -216,6 +237,11 @@ const FAMILIAS_OPUESTAS: Record<FamiliaProducto, FamiliaProducto[]> = {
   taquete: ["apagador", "contacto"],
   broca: ["apagador", "contacto"],
 };
+
+export function familiasCruceProhibido(a: FamiliaProducto | null, b: FamiliaProducto | null): boolean {
+  if (!a || !b || a === b) return false;
+  return (FAMILIAS_OPUESTAS[a] ?? []).includes(b) || (FAMILIAS_OPUESTAS[b] ?? []).includes(a);
+}
 
 const FUERA_DE_GIRO_RE =
   /\b(celular|telefono|laptop|tablet|comida|playera|zapatos|juguete|medicina|auto|carro|perro|gato)\b/;
@@ -232,6 +258,40 @@ export function plegarTexto(texto: string): string {
     .replace(/[^a-z0-9./]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Faltas de dedo y transcripciones de voz frecuentes en mostrador MX. */
+const CORRECCIONES_FONETICAS: Array<[RegExp, string]> = [
+  [/\bcistas?\b/g, "cinta"],
+  [/\bsyntas?\b/g, "cinta"],
+  [/\bzintas?\b/g, "cinta"],
+  [/\bsintas?\b/g, "cinta"],
+  [/\bteflonn?\b/g, "teflon"],
+  [/\btefones?\b/g, "teflon"],
+  [/\bteflos?\b/g, "teflon"],
+  [/\btefflons?\b/g, "teflon"],
+  [/\bapagodores?\b/g, "apagador"],
+  [/\binteruptores?\b/g, "interruptor"],
+  [/\btomocorrintes?\b/g, "tomacorriente"],
+  [/\btomo\s+corrintes?\b/g, "tomacorriente"],
+  [/\bcontacos?\b/g, "contacto"],
+  [/\bvalbulas?\b/g, "valvula"],
+  [/\bfokos?\b/g, "foco"],
+  [/\bcabre\b/g, "cable"],
+  [/\bconduid\b/g, "conduit"],
+  [/\bmezcldoras?\b/g, "mezcladora"],
+  [/\btaqetes?\b/g, "taquete"],
+  [/\bbrokas?\b/g, "broca"],
+  [/\btorniilos?\b/g, "tornillo"],
+];
+
+/** Limpia acentos, muletillas fonéticas y jerga antes de tokenizar. */
+export function preprocesarConsulta(texto: string): string {
+  let t = plegarTexto(texto);
+  for (const [patron, canon] of CORRECCIONES_FONETICAS) {
+    t = t.replace(patron, canon);
+  }
+  return t.replace(/\s+/g, " ").trim();
 }
 
 function plegarDuro(texto: string): string {
@@ -336,7 +396,7 @@ function esElectricoFuerte(texto: string): boolean {
 function esPlomeriaContext(texto: string): boolean {
   return (
     esMezcladoraContext(texto) ||
-    /\b(cespol|sifon|valvula|plomer|hidraul|drenaje|tinaco|cpvc|lavabo|fregadero)\b/.test(texto)
+    /\b(cespol|sifon|valvula|plomer|hidraul|drenaje|tinaco|cpvc|lavabo|fregadero|teflon|ptfe)\b/.test(texto)
   );
 }
 
@@ -390,6 +450,12 @@ function atribuirFamilia(
   if (mejor === "conduit" && /\b(pvc|cpvc|hidraul|agua|drenaje)\b/.test(plano)) {
     return { familia: "tubo", rubro: "plomeria" };
   }
+  if (mejor === "cinta" && /\b(teflon|ptfe|sella roscas?)\b/.test(plano) && !/\b(aislar|aislante|vinil)\b/.test(plano)) {
+    return { familia: "cinta", rubro: "plomeria" };
+  }
+  if (mejor === "cinta" && /\b(aislar|aislante|vinil)\b/.test(plano) && !/\b(teflon|ptfe)\b/.test(plano)) {
+    return { familia: "cinta", rubro: "electricidad" };
+  }
   if ((mejor === "apagador" || mejor === "contacto" || mejor === "placa") && esPlomeriaContext(plano) && !esElectricoFuerte(plano)) {
     return {
       familia: esMezcladoraContext(plano) ? "mezcladora" : mejor === "apagador" ? null : mejor,
@@ -404,10 +470,58 @@ function atribuirFamilia(
   return { familia: mejor, rubro };
 }
 
+function resolverVarianteComercial(
+  texto: string,
+  hits: EntradaLexico[],
+  familia: FamiliaProducto | null,
+  rubro: RubroGiro | null
+): { familia: FamiliaProducto | null; rubro: RubroGiro | null; subtipo: SubtipoProducto | null } {
+  const plano = plegarTexto(texto);
+  const hayTeflon =
+    hits.some((hit) => hit.canonico === "teflon") || /\b(teflon|ptfe|sella roscas?)\b/.test(plano);
+  const hayAislar =
+    hits.some((hit) => hit.canonico === "aislar") || /\b(aislar|aislante|vinil)\b/.test(plano);
+  const hayCinta = familia === "cinta" || /\bcinta\b/.test(plano);
+  if (hayTeflon && !hayAislar) {
+    return { familia: "cinta", rubro: "plomeria", subtipo: "teflon" };
+  }
+  if (hayAislar && !hayTeflon && hayCinta) {
+    return { familia: "cinta", rubro: "electricidad", subtipo: "aislar" };
+  }
+  if (hayCinta && familia === "cinta") {
+    if (rubro === "plomeria") return { familia, rubro, subtipo: "teflon" };
+    return { familia, rubro: rubro ?? "electricidad", subtipo: "aislar" };
+  }
+  if (familia === "conduit" && /\b(pvc|cpvc|hidraul|agua|drenaje)\b/.test(plano)) {
+    return { familia: "tubo", rubro: "plomeria", subtipo: "pvc" };
+  }
+  if (familia === "tubo" && /\b(conduit|electri)\b/.test(plano) && !/\b(pvc|cpvc|agua)\b/.test(plano)) {
+    return { familia: "conduit", rubro: "electricidad", subtipo: "conduit" };
+  }
+  return { familia, rubro, subtipo: null };
+}
+
+const TOKENS_PROHIBIDOS_FAMILIA: Partial<Record<FamiliaProducto, string[]>> = {
+  apagador: ["contacto", "tomacorriente", "enchufe", "duplex"],
+  contacto: ["apagador", "interruptor", "tecla", "palanca"],
+  mezcladora: ["apagador", "interruptor", "tecla", "palanca", "contacto"],
+  breaker: ["apagador", "contacto", "tecla", "palanca"],
+  valvula: ["apagador", "interruptor", "grifo", "mezcladora"],
+  tubo: ["conduit", "apagador", "contacto"],
+  conduit: ["pvc", "cpvc", "valvula"],
+};
+
+const TOKENS_PROHIBIDOS_SUBTIPO: Record<string, string[]> = {
+  teflon: ["aislar", "aislante", "vinil"],
+  aislar: ["teflon", "ptfe"],
+  pvc: ["conduit"],
+  conduit: ["pvc", "cpvc"],
+};
+
 function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusqueda {
-  const normalizado = plegarTexto(textoFuente);
+  const normalizado = preprocesarConsulta(textoFuente);
   const skuHint = detectarSku(crudo) ?? detectarSku(textoFuente);
-  const tokensCrudos = tokenizar(textoFuente);
+  const tokensCrudos = tokenizar(normalizado);
   const frase = resolverFrasesCompuestas(tokensCrudos);
   const hits: EntradaLexico[] = frase ? [frase] : [];
   const tokensPeso: TokenPeso[] = [];
@@ -433,37 +547,42 @@ function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusque
     if (crudoToken.length >= 3) meter(crudoToken, 3);
   }
 
-  const { familia, rubro } = atribuirFamilia(normalizado, hits);
-  if (familia === "apagador") {
-    for (const prohibido of ["contacto", "tomacorriente", "enchufe", "duplex"]) {
-      const idx = tokensPeso.findIndex((item) => item.token === prohibido);
-      if (idx >= 0) tokensPeso.splice(idx, 1);
-    }
+  const atribuida = atribuirFamilia(normalizado, hits);
+  const { familia, rubro, subtipo } = resolverVarianteComercial(normalizado, hits, atribuida.familia, atribuida.rubro);
+  const prohibidos = [
+    ...(familia ? TOKENS_PROHIBIDOS_FAMILIA[familia] ?? [] : []),
+    ...(subtipo ? TOKENS_PROHIBIDOS_SUBTIPO[subtipo] ?? [] : []),
+  ];
+  for (const prohibido of prohibidos) {
+    const idx = tokensPeso.findIndex((item) => item.token === prohibido);
+    if (idx >= 0) tokensPeso.splice(idx, 1);
   }
-  if (familia === "contacto") {
-    for (const prohibido of ["apagador", "interruptor", "tecla", "palanca"]) {
-      const idx = tokensPeso.findIndex((item) => item.token === prohibido);
-      if (idx >= 0) tokensPeso.splice(idx, 1);
-    }
-  }
-  if (familia === "mezcladora") {
-    for (const prohibido of ["apagador", "interruptor", "tecla", "palanca", "contacto"]) {
-      const idx = tokensPeso.findIndex((item) => item.token === prohibido);
-      if (idx >= 0) tokensPeso.splice(idx, 1);
-    }
+  if (subtipo === "teflon") {
+    if (!tokensPeso.some((item) => item.token === "cinta")) meter("cinta", 8);
+    if (!tokensPeso.some((item) => item.token === "teflon")) meter("teflon", 12);
   }
 
+  const cabezaCanon =
+    subtipo === "teflon"
+      ? ["cinta", "teflon"]
+      : familia === "contacto"
+        ? ["contacto"]
+        : familia === "apagador"
+          ? ["apagador"]
+          : familia === "tubo"
+            ? ["tubo"]
+            : [];
   const canonico =
-    familia === "contacto"
-      ? ["contacto", ...tokensPeso.filter((item) => item.token !== "contacto").map((item) => item.token)].slice(0, 4).join(" ")
-      : familia === "apagador"
-        ? ["apagador", ...tokensPeso.filter((item) => item.token !== "apagador").map((item) => item.token)].slice(0, 4).join(" ")
-        : tokensPeso
-            .slice()
-            .sort((a, b) => b.peso - a.peso)
-            .map((item) => item.token)
-            .slice(0, 6)
-            .join(" ") || normalizado;
+    cabezaCanon.length > 0
+      ? [...cabezaCanon, ...tokensPeso.filter((item) => !cabezaCanon.includes(item.token)).map((item) => item.token)]
+          .slice(0, 4)
+          .join(" ")
+      : tokensPeso
+          .slice()
+          .sort((a, b) => b.peso - a.peso)
+          .map((item) => item.token)
+          .slice(0, 6)
+          .join(" ") || normalizado;
 
   return {
     crudo: crudo.trim(),
@@ -471,6 +590,7 @@ function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusque
     canonico: canonico.trim() || normalizado,
     rubro,
     familia,
+    subtipo,
     familiasExcluidas: familia ? (FAMILIAS_OPUESTAS[familia] ?? []) : [],
     tokens: tokensPeso.map((item) => item.token).slice(0, 10),
     tokensPeso: tokensPeso.slice(0, 10),
@@ -498,6 +618,19 @@ export function interpretarPieza(pieza: IdentidadPieza): IntencionBusqueda {
     .filter(Boolean)
     .join(" ");
   const intencion = ensamblarIntencion(pieza.producto_venta || pieza.nombre || fuente, fuente);
+  const cierreSubtipo: Record<SubtipoProducto, { familia: FamiliaProducto; rubro: RubroGiro }> = {
+    teflon: { familia: "cinta", rubro: "plomeria" },
+    aislar: { familia: "cinta", rubro: "electricidad" },
+    pvc: { familia: "tubo", rubro: "plomeria" },
+    conduit: { familia: "conduit", rubro: "electricidad" },
+  };
+  if (intencion.subtipo && cierreSubtipo[intencion.subtipo]) {
+    const cierre = cierreSubtipo[intencion.subtipo];
+    intencion.familia = cierre.familia;
+    intencion.rubro = cierre.rubro;
+    intencion.familiasExcluidas = FAMILIAS_OPUESTAS[cierre.familia] ?? [];
+    return intencion;
+  }
   const cat = plegarTexto(pieza.categoria ?? "");
   if (cat === "electricidad" || cat === "plomeria" || cat === "ferreteria") {
     if (!intencion.rubro || intencion.rubro !== cat) {
@@ -543,13 +676,18 @@ const SKU_FAMILIA: Partial<Record<FamiliaProducto, RegExp>> = {
   breaker: /^(tmt|cc|per)[-_]/i,
   timbre: /tim[-_]/i,
   cable: /^cab[-_]/i,
-  cinta: /^cin[-_]/i,
+  cinta: /^(cin|tef)[-_]/i,
   foco: /^(foco|lamp|led)[-_]/i,
   conduit: /^(tubo|copl)[-_]/i,
   clavija: /^clv[-_]/i,
 };
 
-export function filaPerteneceAFamilia(nombre: string, sku: string, familia: FamiliaProducto | null): boolean {
+export function filaPerteneceAFamilia(
+  nombre: string,
+  sku: string,
+  familia: FamiliaProducto | null,
+  subtipo: SubtipoProducto | null = null
+): boolean {
   if (!familia) return true;
   const plano = plegarTexto(nombre);
   const codigo = sku.toLowerCase();
@@ -576,7 +714,22 @@ export function filaPerteneceAFamilia(nombre: string, sku: string, familia: Fami
   }
   if (familia === "cinta") {
     if (/\b(metrica|flexometro)\b/.test(plano)) return false;
-    return PATRON_FAMILIA.cinta.test(plano) || Boolean(SKU_FAMILIA.cinta?.test(sku));
+    if (subtipo === "teflon") {
+      return /\b(teflon|ptfe)\b/.test(plano) || /^tef[-_]/i.test(sku);
+    }
+    if (subtipo === "aislar") {
+      if (/\b(teflon|ptfe)\b/.test(plano) || /^tef[-_]/i.test(sku)) return false;
+      return /\b(cinta|aislar|aislante|vinil)\b/.test(plano) || Boolean(SKU_FAMILIA.cinta?.test(sku));
+    }
+    return PATRON_FAMILIA.cinta.test(plano) || Boolean(SKU_FAMILIA.cinta?.test(sku)) || /^tef[-_]/i.test(sku);
+  }
+  if (familia === "tubo") {
+    if (/\bconduit\b/.test(plano)) return false;
+    return PATRON_FAMILIA.tubo.test(plano);
+  }
+  if (familia === "conduit") {
+    if (/\b(pvc|cpvc)\b/.test(plano) && !/\bconduit\b/.test(plano)) return false;
+    return PATRON_FAMILIA.conduit.test(plano) || Boolean(SKU_FAMILIA.conduit?.test(sku));
   }
   if (PATRON_FAMILIA[familia]?.test(plano)) return true;
   if (SKU_FAMILIA[familia]?.test(sku)) return true;

@@ -29,6 +29,7 @@ if (copia.status !== 0) {
   throw new Error(copia.stderr || copia.stdout || `copiar-fotos-productos salió ${copia.status}`);
 }
 
+const copiaJson = JSON.parse(copia.stdout || "{}");
 const catalogo = JSON.parse(readFileSync(INVENTARIO_PATH, { encoding: "utf8" }));
 const piezas = Array.isArray(catalogo) ? catalogo : catalogo.piezas;
 const sql = neon(loadDatabaseUrl(root));
@@ -75,16 +76,39 @@ for (const pieza of piezas) {
   actualizados += 1;
 }
 
-const extraAlias = [
-  { sku: "INT-TRIP-127", url: "/static/productos/INT-VIAJE-127.webp" },
-  { sku: "TERM-15A", url: "/static/productos/PER100-15A.jpg" },
-];
-for (const alias of extraAlias) {
-  if (!hay.has(alias.sku)) continue;
-  await sql.query(`UPDATE inventario_local SET url_imagen = $1 WHERE sku = $2 AND COALESCE(btrim(url_imagen), '') = ''`, [
-    alias.url,
-    alias.sku,
-  ]);
+for (const item of copiaJson.copiados ?? []) {
+  const sku = recortar(item.sku, 50);
+  const url = recortar(item.destino, 255);
+  if (!sku || !url) continue;
+  if (!hay.has(sku)) {
+    if (sku !== "LLAV-MON") {
+      sinFila.push(sku);
+      continue;
+    }
+    await sql.query(
+      `INSERT INTO inventario_local (sku, nombre_pieza, categoria, url_imagen, descripcion_tecnica)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (sku) DO UPDATE SET
+         url_imagen = COALESCE(EXCLUDED.url_imagen, inventario_local.url_imagen),
+         descripcion_tecnica = COALESCE(EXCLUDED.descripcion_tecnica, inventario_local.descripcion_tecnica)`,
+      [
+        sku,
+        "Llave monomando para lavabo",
+        "plomeria",
+        url,
+        "Mezcladora monomando de lavabo, cuerpo metálico cromado, maneral tipo palanca, salida corta para baño",
+      ]
+    );
+    hay.add(sku);
+    actualizados += 1;
+    continue;
+  }
+  await sql.query(
+    `UPDATE inventario_local
+     SET url_imagen = COALESCE($1, url_imagen)
+     WHERE sku = $2 AND COALESCE(btrim(url_imagen), '') = ''`,
+    [url, sku]
+  );
 }
 
 const resumen = await sql.query(`
@@ -94,13 +118,20 @@ const resumen = await sql.query(`
     count(*) FILTER (WHERE COALESCE(descripcion_tecnica, '') <> '')::int AS con_descripcion
   FROM inventario_local
 `);
+const pendientes = await sql.query(`
+  SELECT sku, nombre_pieza
+  FROM inventario_local
+  WHERE COALESCE(btrim(url_imagen), '') = ''
+  ORDER BY sku
+`);
 const muestra = await sql.query(`
-  SELECT sku, nombre_pieza, url_imagen, left(coalesce(descripcion_tecnica, ''), 80) AS descripcion
+  SELECT sku, nombre_pieza, url_imagen
   FROM inventario_local
   WHERE sku IN (
-    'INT-VIAJE-127', 'PER100-15A', 'CAB-THW-14', 'LED-9W-E27', 'DISCO-4-5',
-    'TEF-12', 'BRO-CON-14', 'TAQ-PLA-14', 'TORN-MAD-8X2', 'TUBO-CON-5M',
-    'TUBO-CON-50', 'COPL-CON-05', 'CINTA-UNI-5M'
+    'INT-SENC-BLC', 'INT-SENC-GRY-MOD', 'INT-DOB-BLC', 'INT-DOB-GRY-MOD',
+    'INT-ESC-BLC', 'CONT-DUP-BLC', 'CONT-DUP-GRY-MOD', 'CONT-SEN-BLC-MOD',
+    'CONT-SEN-GRY-MOD', 'INT-USB-PLT', 'KIT-2INT-1CONT-PLT', 'KIT-2INT-1CONT-BLC',
+    'KIT-1INT-2CONT-PLT', 'KIT-3INT-PLT', 'LLAV-MON', 'PLAC-ACEO-03'
   )
   ORDER BY sku
 `);
@@ -109,12 +140,13 @@ console.log(
   JSON.stringify(
     {
       ok: true,
-      copia: JSON.parse(copia.stdout || "{}"),
+      copia: copiaJson,
       actualizados,
-      insertados: 0,
-      sin_fila: sinFila,
+      insertados: hay.has("LLAV-MON") ? 1 : 0,
+      sin_fila: [...new Set(sinFila.filter((sku) => !hay.has(sku)))],
       ...(resumen[0] ?? {}),
-      muestra,
+      vinculados: muestra,
+      sin_foto: pendientes,
     },
     null,
     2

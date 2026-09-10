@@ -119,7 +119,7 @@ analizarRoutes.post("/", async (c) => {
     // Las fotos no se persisten: solo alimentaron al modelo de visión y no se envían a Neon.
     if (c.env.DATABASE_URL) {
       const sql = createSql(c.env.DATABASE_URL);
-      const stock = await resolverStockInventarioLocal(sql, pieza);
+      const stock = await resolverStockInventarioLocal(sql, pieza, { env: c.env });
       await ensureConsultasCampoSchema(sql);
       await purgarConsultasVencidas(sql);
       const consulta = hiloId

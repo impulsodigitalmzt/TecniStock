@@ -20,13 +20,25 @@ function norm(texto) {
 
 /** Archivo origen (sin extensión, normalizado) → SKUs destino. */
 const ALIAS_ARCHIVO = {
-  "int trip 127": ["INT-VIAJE-127"],
-  "int viaje 127": ["INT-VIAJE-127"],
+  "int trip 127": ["INT-VIAJE-127", "KIT-3INT-PLT"],
+  "int viaje 127": ["INT-VIAJE-127", "KIT-3INT-PLT"],
   "term 15a": ["PER100-15A"],
   "per100 15a": ["PER100-15A"],
   "tubo con 50": ["TUBO-CON-50", "TUBO-CON-5M"],
   "tubo con 5m": ["TUBO-CON-5M"],
+  "llav mon": ["LLAV-MON"],
 };
+
+/** SKU canónico (ya copiado) → variantes Neon que usan la misma foto. */
+const VARIANTES = {
+  "INT-SENC-127": ["INT-SENC-GRY-MOD", "INT-SENC-BLC", "INT-SENC-BLC-MOD"],
+  "INT-DOB-127": ["INT-DOB-GRY-MOD", "INT-DOB-BLC", "KIT-2INT-1CONT-PLT", "KIT-2INT-1CONT-BLC"],
+  "INT-ESC-03": ["INT-ESC-BLC"],
+  "CONT-DUP-127": ["CONT-DUP-BLC", "CONT-DUP-GRY-MOD", "CONT-SEN-BLC-MOD", "CONT-SEN-GRY-MOD", "KIT-1INT-2CONT-PLT"],
+  "CONT-USB-01": ["INT-USB-PLT"],
+};
+
+export { VARIANTES };
 
 const pares = [
   { sku: "INT-SENC-127", claves: ["int senc 127"] },
@@ -35,7 +47,7 @@ const pares = [
   { sku: "CONT-DUP-127", claves: ["aterrizado"] },
   { sku: "CONT-USB-01", claves: ["usb"] },
   { sku: "PLAC-ACEO-01", claves: ["artlite"] },
-  { sku: "PLAC-ACEO-02", claves: ["2 gangas", "2 espacios", "2 modulos"] },
+  { sku: "PLAC-ACEO-02", claves: ["2 gangas"] },
   { sku: "TMT-1P-20A", claves: ["1x20"] },
   { sku: "TMT-2P-30A", claves: ["2x30"] },
   { sku: "TMT-2P-30A", claves: ["2x50"] },
@@ -83,6 +95,10 @@ function copiarHacia(sku, archivo) {
   }
   assigned.add(sku);
   copiados.push({ sku, origen: archivo, destino: `/static/productos/${destino}` });
+  for (const extra of VARIANTES[sku] ?? []) {
+    if (assigned.has(extra)) continue;
+    copiarHacia(extra, archivo);
+  }
 }
 
 for (const dest of destDirs) {

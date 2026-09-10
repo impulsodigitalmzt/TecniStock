@@ -89,4 +89,47 @@ describe("intérprete de búsqueda TecniStock", () => {
     assert.equal(paso.familia, "valvula");
     assert.equal(paso.rubro, "plomeria");
   });
+
+  it("corrige 'cista de teflon' a cinta PTFE de plomería", () => {
+    const intencion = interpretarTexto("cista de teflon");
+    assert.equal(intencion.familia, "cinta");
+    assert.equal(intencion.rubro, "plomeria");
+    assert.equal(intencion.subtipo, "teflon");
+    assert.ok(intencion.canonico.includes("teflon"));
+    assert.ok(filaPerteneceAFamilia("Cinta de teflón 1/2 pulg", "TEF-12", intencion.familia, intencion.subtipo));
+    assert.ok(!filaPerteneceAFamilia("Cinta de aislar vinílica profesional", "CIN-AIS-3M", intencion.familia, intencion.subtipo));
+  });
+
+  it("entiende 'Dame nuestras tres cintas de teflon' sin pedir otra familia", () => {
+    const intencion = interpretarTexto("Dame nuestras tres cintas de teflon");
+    assert.equal(intencion.familia, "cinta");
+    assert.equal(intencion.rubro, "plomeria");
+    assert.equal(intencion.subtipo, "teflon");
+    assert.ok(!intencion.tokens.includes("dame"));
+    assert.ok(!intencion.tokens.includes("nuestras"));
+    assert.ok(!intencion.tokens.includes("tres"));
+    assert.equal(intencion.modulos, null);
+  });
+
+  it("no cruza cinta de aislar con teflón", () => {
+    const intencion = interpretarTexto("cinta de aislar");
+    assert.equal(intencion.familia, "cinta");
+    assert.equal(intencion.rubro, "electricidad");
+    assert.equal(intencion.subtipo, "aislar");
+    assert.ok(filaPerteneceAFamilia("Cinta de aislar vinílica profesional", "CIN-AIS-3M", intencion.familia, intencion.subtipo));
+    assert.ok(!filaPerteneceAFamilia("Cinta de teflón 1/2 pulg", "TEF-12", intencion.familia, intencion.subtipo));
+  });
+
+  it("corrige faltas de otras familias, no solo cinta", () => {
+    const foco = interpretarTexto("foko led 10w");
+    assert.equal(foco.familia, "foco");
+    assert.equal(foco.rubro, "electricidad");
+    const cable = interpretarTexto("cabre thw 12");
+    assert.equal(cable.familia, "cable");
+    assert.equal(cable.rubro, "electricidad");
+    const tubo = interpretarTexto("tubo pvc 1/2");
+    assert.equal(tubo.familia, "tubo");
+    assert.equal(tubo.rubro, "plomeria");
+    assert.ok(!filaPerteneceAFamilia("Tubo conduit 1/2", "TUBO-CON-50", tubo.familia));
+  });
 });

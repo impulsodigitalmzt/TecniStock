@@ -278,6 +278,13 @@
       "stock_disponible": 80,
       "precio": 14.5,
       "url_imagen": "/static/productos/CAB-THW-14.jpg"
+    },
+    {
+      "sku": "LLAV-MON",
+      "nombre_pieza": "Llave monomando para lavabo",
+      "categoria": "plomeria",
+      "descripcion_tecnica": "Mezcladora monomando de lavabo, cuerpo metálico cromado, maneral tipo palanca, salida corta para baño",
+      "url_imagen": "/static/productos/LLAV-MON.webp"
     }
   ]
 }

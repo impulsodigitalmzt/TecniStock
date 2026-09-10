@@ -33,7 +33,7 @@ import {
   type SnapshotPedido,
 } from "../lib/apartados";
 import {
-  buscarInventarioLocal,
+  consultarInventarioUnificado,
   extraerConsultaInventario,
   esPreguntaSeguimientoPieza,
   esSeleccionProducto,
@@ -46,7 +46,8 @@ import {
   obtenerInventarioPorSku,
   type ResultadoBusquedaInventario,
 } from "../lib/inventario-local";
-import { interpretarTexto, piezaDesdeIntencion } from "../lib/interprete-busqueda";
+import { piezaDesdeIntencion } from "../lib/interprete-busqueda";
+import { interpretarEntrada, type OrigenConsulta } from "../lib/pipeline-busqueda";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -103,8 +104,10 @@ consultasCampoRoutes.post("/texto", async (c) => {
   const sku = String(body.sku ?? "").trim();
   if (!q && !sku) throw new AppError(400, "Escribe el nombre de la pieza o un SKU. La foto no es obligatoria.", "QUERY_REQUIRED");
 
-  const intencion = interpretarTexto(q || sku);
-  let resultados: ResultadoBusquedaInventario[] = [];
+  const { intencion, resultados: hallados } = sku
+    ? { intencion: interpretarEntrada({ origen: "texto", texto: q || sku }), resultados: [] as ResultadoBusquedaInventario[] }
+    : await consultarInventarioUnificado(sql, { origen: "texto", texto: q, env: c.env }, 40);
+  let resultados: ResultadoBusquedaInventario[] = hallados;
   if (sku) {
     const fila = await obtenerInventarioPorSku(sql, sku);
     if (!fila) throw new AppError(404, "Ese SKU no está en inventario local.", "SKU_NO_ENCONTRADO");
@@ -120,8 +123,6 @@ consultasCampoRoutes.post("/texto", async (c) => {
         relevancia: 100,
       },
     ];
-  } else {
-    resultados = await buscarInventarioLocal(sql, q, 40);
   }
 
   const stock = stockDesdeResultadosBusqueda(resultados);
@@ -193,7 +194,7 @@ consultasCampoRoutes.get("/:id", async (c) => {
   const dispositivo = dispositivoDe(c);
   const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
   const mensajes = await listarMensajesCampo(sql, consulta.id);
-  const stockVivo = await stockDesdeInventarioLocal(sql, consulta);
+  const stockVivo = await stockDesdeInventarioLocal(sql, consulta, c.env);
   return c.json({
     ok: true,
     consulta: detalleConsulta({ ...consulta, stock: stockVivo as unknown as Record<string, unknown> }),
@@ -342,7 +343,7 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
     .catch(() => ({} as { image?: string }));
   const dataUrls = extraerImagenesFotoHilo(body);
   const pieza = await identificarPiezaConVision(c.env, dataUrls);
-  const stock = await resolverStockInventarioLocal(sql, pieza);
+  const stock = await resolverStockInventarioLocal(sql, pieza, { env: c.env });
   const actualizada = await actualizarConsultaCampo(sql, consulta.id, dispositivo, { pieza, stock }, { omitirMensajeGuia: true });
   await recordarHallazgosChat(sql, consulta.id, dispositivo, {
     hallazgos_chat: (stock.alternativas ?? []).map((item) => ({
@@ -386,7 +387,7 @@ consultasCampoRoutes.post("/:id/voz", async (c) => {
       lineasRaw = undefined;
     }
   }
-  const { mensajes, pedido } = await responderConsultaCampo(c.env, sql, consulta, whisper.text, lineasRaw);
+  const { mensajes, pedido } = await responderConsultaCampo(c.env, sql, consulta, whisper.text, lineasRaw, "voz");
   return c.json({ ok: true, transcripcion: whisper.text, mensajes, pedido });
 });
 
@@ -446,25 +447,26 @@ function identidadDesdeConsulta(consulta: ConsultaCampo): IdentidadPieza {
 function hallazgosGuardados(consulta: ConsultaCampo): ResultadoBusquedaInventario[] {
   const crudo = consulta.stock?.hallazgos_chat;
   if (!Array.isArray(crudo)) return [];
-  return crudo
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const sku = String(row.sku ?? "").trim();
-      const nombre = String(row.nombre ?? row.nombre_pieza ?? "").trim();
-      if (!sku || !nombre) return null;
-      return {
-        sku,
-        nombre,
-        categoria: String(row.categoria ?? ""),
-        stock_disponible: Number(row.stock_disponible ?? row.existencia ?? 0) || 0,
-        precio: Number(row.precio ?? 0) || 0,
-        ubicacion_tienda: String(row.ubicacion_tienda ?? ""),
-        url_imagen: String(row.url_imagen ?? ""),
-        descripcion_tecnica: String(row.descripcion_tecnica ?? "").trim() || undefined,
-      } satisfies ResultadoBusquedaInventario;
-    })
-    .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
+  const out: ResultadoBusquedaInventario[] = [];
+  for (const item of crudo) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const sku = String(row.sku ?? "").trim();
+    const nombre = String(row.nombre ?? row.nombre_pieza ?? "").trim();
+    if (!sku || !nombre) continue;
+    const descripcion = String(row.descripcion_tecnica ?? "").trim();
+    out.push({
+      sku,
+      nombre,
+      categoria: String(row.categoria ?? ""),
+      stock_disponible: Number(row.stock_disponible ?? row.existencia ?? 0) || 0,
+      precio: Number(row.precio ?? 0) || 0,
+      ubicacion_tienda: String(row.ubicacion_tienda ?? ""),
+      url_imagen: String(row.url_imagen ?? ""),
+      ...(descripcion ? { descripcion_tecnica: descripcion } : {}),
+    });
+  }
+  return out;
 }
 
 function fusionarHallazgosConversacion(stockFoto: BloqueStock, consulta: ConsultaCampo): BloqueStock {
@@ -521,12 +523,14 @@ function stockParaSeguimiento(stockFoto: BloqueStock, consulta: ConsultaCampo, t
 
 async function stockDesdeInventarioLocal(
   sql: Awaited<ReturnType<typeof sqlCampo>>,
-  consulta: ConsultaCampo
+  consulta: ConsultaCampo,
+  env?: Env
 ): Promise<BloqueStock> {
   const skuGuardado = consulta.stock?.forzado === true ? String(consulta.stock.sku ?? "").trim() : "";
   try {
     const stock = await resolverStockInventarioLocal(sql, identidadDesdeConsulta(consulta), {
       skuForzado: skuGuardado || undefined,
+      env,
     });
     if (skuGuardado && stock.encontrado) stock.forzado = true;
     return stock;
@@ -675,12 +679,35 @@ function reforzarActitudComercial(texto: string, resultados: ResultadoBusquedaIn
   return "En anaquel sí hay opciones cercanas; te las muestro para que elijas. ¿Cuál apartamos?";
 }
 
+function pideDatoInventado(texto: string): boolean {
+  return /\b(dato m[aá]s|necesito un dato|ancho o grosor|qu[eé] (ancho|grosor|medida|color|calibre|amperaje|m[oó]dulos?)|tres opciones disponibles|opciones disponibles en nuestro inventario)\b/.test(
+    texto.toLowerCase()
+  );
+}
+
+function reforzarOfertaInventario(
+  texto: string,
+  resultados: ResultadoBusquedaInventario[],
+  query: string
+): string {
+  if (resultados.length > 0 && pideDatoInventado(texto)) {
+    const nombres = resultados.slice(0, 3).map((item) => item.nombre).join(", ");
+    return `En anaquel tenemos ${nombres}. ¿Cuál apartamos?`;
+  }
+  if (resultados.length === 0 && pideDatoInventado(texto)) {
+    const pista = query.trim() || "eso";
+    return `En anaquel no hay coincidencia de ${pista} en esa familia. Si me das el nombre de mostrador o el SKU lo busco de nuevo.`;
+  }
+  return texto;
+}
+
 async function responderConsultaCampo(
   env: Env,
   sql: Awaited<ReturnType<typeof sqlCampo>>,
   consulta: ConsultaCampo,
   texto: string,
-  lineasRaw?: unknown
+  lineasRaw?: unknown,
+  origen: OrigenConsulta = "texto"
 ): Promise<{ mensajes: MensajeCampo[]; pedido: SnapshotPedido }> {
   let lineasPedido = lineasPedidoActual(consulta, lineasRaw);
   if (Array.isArray(lineasRaw) || lineasPedido.length > 0) {
@@ -689,7 +716,7 @@ async function responderConsultaCampo(
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const ultimoChat = ultimoAsistente(historial);
-  const stockFoto = await stockDesdeInventarioLocal(sql, consulta);
+  const stockFoto = await stockDesdeInventarioLocal(sql, consulta, env);
   const correccionCliente = esCorreccionCliente(texto);
   const verMas = pideMasOpciones(texto);
   const queryBusqueda = reescribirConsultaVenta(texto) || extraerConsultaInventario(texto);
@@ -708,9 +735,15 @@ async function responderConsultaCampo(
 
   if (debeBuscarInventarioPorTexto(texto, ultimoChat) && (queryBusqueda || correccionCliente)) {
     const queryEfectiva = queryBusqueda || queryRespaldoCorreccion(consulta);
-    resultadosBusqueda = await buscarInventarioLocal(sql, queryEfectiva, 40);
+    const primaria = await consultarInventarioUnificado(sql, { origen, texto: queryEfectiva, env }, 40);
+    resultadosBusqueda = primaria.resultados;
     if (resultadosBusqueda.length === 0 && correccionCliente) {
-      resultadosBusqueda = await buscarInventarioLocal(sql, queryRespaldoCorreccion(consulta), 40);
+      const respaldo = await consultarInventarioUnificado(
+        sql,
+        { origen, texto: queryRespaldoCorreccion(consulta), env },
+        40
+      );
+      resultadosBusqueda = respaldo.resultados;
     }
     consultaSecundaria = true;
     stockVivo = stockDesdeResultadosBusqueda(resultadosBusqueda);
@@ -753,7 +786,9 @@ async function responderConsultaCampo(
 
   const edicion = extraerEdicionPedido(texto);
   if (edicionPideBusqueda(texto) && resultadosBusqueda.length === 0 && edicion?.pista) {
-    resultadosBusqueda = await buscarInventarioLocal(sql, edicion.pista, 20);
+    resultadosBusqueda = (
+      await consultarInventarioUnificado(sql, { origen, texto: edicion.pista, env }, 20)
+    ).resultados;
   }
   const extraPedido = resultadosBusqueda.map((item) => ({
     sku: item.sku,
@@ -911,6 +946,7 @@ async function responderConsultaCampo(
     "No pude completar la respuesta. Intenta de nuevo.";
   textoAsesor = alinearCifrasStock(textoAsesor, stockParaFicha);
   textoAsesor = reforzarActitudComercial(textoAsesor, resultadosBusqueda);
+  textoAsesor = reforzarOfertaInventario(textoAsesor, resultadosBusqueda, queryBusqueda);
   textoAsesor = adjuntarTarjetasRespuesta({
     texto: textoAsesor,
     textoUsuario: texto,

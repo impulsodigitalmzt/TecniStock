@@ -9,11 +9,9 @@ import {
 import { mexicanizarMostrador } from "../ia/prompts";
 import {
   filaPerteneceAFamilia,
-  interpretarPieza,
-  interpretarTexto,
-  type FamiliaProducto,
   type IntencionBusqueda,
 } from "./interprete-busqueda";
+import { normalizarConsulta, type EntradaPipeline } from "./pipeline-busqueda";
 
 let schemaReady = false;
 let trgmReady: boolean | null = null;
@@ -326,6 +324,20 @@ const RELLENO_CONSULTA = new Set([
   "muestrame",
   "ensename",
   "ensenar",
+  "dame",
+  "deme",
+  "nuestras",
+  "nuestro",
+  "nuestra",
+  "traeme",
+  "pasame",
+  "tres",
+  "dos",
+  "cuatro",
+  "cinco",
+  "opciones",
+  "alternativas",
+  "disponibles",
   "verlo",
   "verla",
   "veamos",
@@ -419,7 +431,7 @@ const SINONIMOS_OBJETO: Record<string, string[]> = {
   apagador: ["apagador", "interruptor"],
   contacto: ["contacto", "tomacorriente", "enchufe"],
   foco: ["foco", "lampara", "luminaria"],
-  cinta: ["cinta"],
+  cinta: ["cinta", "teflon", "ptfe", "aislar"],
   cable: ["cable", "conductor"],
   conduit: ["conduit", "tubo"],
   clavija: ["clavija"],
@@ -557,7 +569,7 @@ export function objetoMostrador(pieza: IdentidadPieza | string): string | null {
   if (/^interruptor\b/.test(start) && !/\b(termomagnet|pastilla)\b/.test(t)) return "apagador";
   if (/^(contacto|tomacorriente|enchufe)\b/.test(start)) return "contacto";
   if (/^(foco|lampara|luminaria)\b/.test(start)) return "foco";
-  if (/^cinta\b/.test(start)) return "cinta";
+  if (/^cinta\b/.test(start) || /\b(teflon|ptfe)\b/.test(t)) return "cinta";
   if (/^(cable|conductor|rollo)\b/.test(start)) return "cable";
   if (/^(tubo|conduit)\b/.test(start)) return "conduit";
   if (/^clavija\b/.test(start)) return "clavija";
@@ -761,7 +773,7 @@ function limpiarNegacionesCatalogo(texto: string): string {
 }
 
 const INTENTO_BUSQUEDA_RE =
-  /\b(tienes|tienen|hay|trae|traen|vende|venden|busco|busca|buscando|necesito|quiero|quisiera|consigue|consiguen|maneja|manejan|me das|otra cosa|otro modelo|otro articulo|ademas|tambien tienen|tambien hay|en vez|en lugar|lo que (busco|quiero|necesito)|estoy buscando)\b/;
+  /\b(tienes|tienen|hay|trae|traen|vende|venden|busco|busca|buscando|necesito|quiero|quisiera|dame|deme|muestrame|ensename|consigue|consiguen|maneja|manejan|me das|otra cosa|otro modelo|otro articulo|ademas|tambien tienen|tambien hay|en vez|en lugar|lo que (busco|quiero|necesito)|estoy buscando|nuestras)\b/;
 
 const SEGUIMIENTO_RE =
   /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantos modulos|cuantas ventanas|cuantos espacios|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles)\b/;
@@ -866,7 +878,8 @@ function filaAResultado(fila: FilaInventarioLocal, relevancia?: number): Resulta
   };
 }
 
-function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
+function sqlCandadoFamilia(intencion: Pick<IntencionBusqueda, "familia" | "subtipo">): string {
+  const familia = intencion.familia;
   if (!familia) return "";
   const n = NOMBRE_PLEGADO;
   const s = SKU_PLEGADO;
@@ -888,7 +901,13 @@ function sqlCandadoFamilia(familia: FamiliaProducto | null): string {
     case "cable":
       return ` AND (${n} ~ '(cable|conductor|thw|thhn)' OR ${s} LIKE 'cab%')`;
     case "cinta":
-      return ` AND (${n} ~ '(cinta|aislar|aislante)' OR ${s} LIKE 'cin%') AND ${n} !~ '(metrica|flexometro)'`;
+      if (intencion.subtipo === "teflon") {
+        return ` AND (${n} ~ '(teflon|ptfe)' OR ${s} LIKE 'tef%') AND ${n} !~ '(aislar|aislante|vinil|metrica|flexometro)'`;
+      }
+      if (intencion.subtipo === "aislar") {
+        return ` AND (${n} ~ '(aislar|aislante|vinil)' OR ${s} LIKE 'cin%') AND ${n} !~ '(teflon|ptfe|metrica|flexometro)'`;
+      }
+      return ` AND (${n} ~ '(cinta|aislar|aislante|teflon|ptfe)' OR ${s} ~ '^(cin|tef)') AND ${n} !~ '(metrica|flexometro)'`;
     case "conduit":
       return ` AND (${n} ~ '(conduit|cople)' OR ${s} ~ '^(tubo|copl)[-_]')`;
     case "clavija":
@@ -921,7 +940,6 @@ function sqlCandadoRubro(rubro: IntencionBusqueda["rubro"]): { sql: string; valo
 
 const MIN_RELEVANCIA_FAMILIA = 6;
 const MIN_RELEVANCIA_ABIERTA = 10;
-const MIN_COINCIDENCIA_EXACTA = 28;
 
 function relevanciaDeFila(row: Record<string, unknown>): number {
   const n = Number(row.relevancia ?? 0);
@@ -973,7 +991,7 @@ async function buscarPorIntencion(
     rubroSql = ` AND lower(categoria) = $${idx}`;
   }
 
-  const familiaSql = sqlCandadoFamilia(intencion.familia);
+  const familiaSql = sqlCandadoFamilia(intencion);
   const likeClause =
     likeIdx.length > 0
       ? likeIdx
@@ -1029,7 +1047,7 @@ async function buscarPorIntencion(
     .map((row) => {
       const fila = mapFila(row);
       if (!fila) return null;
-      if (intencion.familia && !filaPerteneceAFamilia(fila.nombre_pieza, fila.sku, intencion.familia)) return null;
+      if (intencion.familia && !filaPerteneceAFamilia(fila.nombre_pieza, fila.sku, intencion.familia, intencion.subtipo)) return null;
       if (intencion.rubro && fila.categoria && fila.categoria !== "otro" && fila.categoria !== intencion.rubro) {
         return null;
       }
@@ -1039,7 +1057,81 @@ async function buscarPorIntencion(
     })
     .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
 
-  return filtrados.slice(0, tope);
+  const directos = filtrados.slice(0, tope);
+  if (directos.length > 0) return directos;
+  return buscarRespaldoFamilia(sql, intencion, tope, usaTrgm);
+}
+
+/** Si no hay match de tokens, busca lo más cercano SOLO dentro del rubro/familia ya limpios. Nunca abre el catálogo entero. */
+async function buscarRespaldoFamilia(
+  sql: Sql,
+  intencion: IntencionBusqueda,
+  tope: number,
+  usaTrgm: boolean
+): Promise<ResultadoBusquedaInventario[]> {
+  if (!intencion.familia && !intencion.rubro) return [];
+  const queryNorm = (intencion.canonico || intencion.normalizado).slice(0, 120);
+  if (!queryNorm) return [];
+  const params: unknown[] = [queryNorm];
+  const rubro = sqlCandadoRubro(intencion.rubro);
+  let rubroSql = rubro.sql;
+  if (rubro.valor) {
+    params.push(rubro.valor);
+    rubroSql = ` AND lower(categoria) = $${params.length}`;
+  }
+  const familiaSql = sqlCandadoFamilia(intencion);
+  const scoreSql = usaTrgm
+    ? `(similarity(${NOMBRE_PLEGADO}, $1) * 50) + (word_similarity($1, ${NOMBRE_PLEGADO}) * 40)`
+    : `CASE WHEN ${NOMBRE_PLEGADO} LIKE '%' || $1 || '%' THEN 12 ELSE 4 END`;
+  params.push(tope);
+  const rows = await sql.query(
+    `SELECT sku, nombre_pieza, categoria, stock_disponible, precio, ubicacion_tienda, url_imagen, descripcion_tecnica,
+            ${scoreSql} AS relevancia
+     FROM inventario_local
+     WHERE 1=1
+       ${rubroSql}
+       ${familiaSql}
+     ORDER BY relevancia DESC, stock_disponible DESC NULLS LAST, nombre_pieza ASC
+     LIMIT $${params.length}`,
+    params
+  );
+  return rows
+    .map((row) => {
+      const fila = mapFila(row);
+      if (!fila) return null;
+      if (intencion.familia && !filaPerteneceAFamilia(fila.nombre_pieza, fila.sku, intencion.familia, intencion.subtipo)) {
+        return null;
+      }
+      if (intencion.rubro && fila.categoria && fila.categoria !== "otro" && fila.categoria !== intencion.rubro) {
+        return null;
+      }
+      const score = relevanciaDeFila(row);
+      if (score < 2) return null;
+      return filaAResultado(fila, score);
+    })
+    .filter((item): item is ResultadoBusquedaInventario => Boolean(item))
+    .slice(0, tope);
+}
+
+/** SELECT ponderado a partir de una intención ya normalizada. */
+export async function buscarInventarioPorIntencion(
+  sql: Sql,
+  intencion: IntencionBusqueda,
+  limit = MAX_HALLAZGOS_VISION
+): Promise<ResultadoBusquedaInventario[]> {
+  return buscarPorIntencion(sql, intencion, limit);
+}
+
+/** Texto, voz o visión: normaliza y recién entonces consulta Neon. */
+export async function consultarInventarioUnificado(
+  sql: Sql,
+  entrada: EntradaPipeline,
+  limit = MAX_HALLAZGOS_VISION
+): Promise<{ intencion: IntencionBusqueda; resultados: ResultadoBusquedaInventario[] }> {
+  const intencion = await normalizarConsulta(entrada);
+  if (intencion.fueraDeGiro) return { intencion, resultados: [] };
+  const resultados = await buscarPorIntencion(sql, intencion, limit);
+  return { intencion, resultados };
 }
 
 /** SELECT ponderado. Ya no abre el anaquel si falta la familia: sin coincidencia = lista vacía. */
@@ -1050,34 +1142,21 @@ export async function buscarInventarioPorPalabrasClave(
   tokenObligatorio?: string | null
 ): Promise<ResultadoBusquedaInventario[]> {
   const texto = [tokenObligatorio, ...claves].filter(Boolean).join(" ");
-  return buscarPorIntencion(sql, interpretarTexto(texto), limit);
+  const { resultados } = await consultarInventarioUnificado(sql, { origen: "texto", texto }, limit);
+  return resultados;
 }
 
 /** Búsqueda dual: texto libre de mostrador. Acepta faltas, jerga y acentos omitidos. */
 export async function buscarInventarioLocal(
   sql: Sql,
   query: string,
-  limit = MAX_HALLAZGOS_VISION
+  limit = MAX_HALLAZGOS_VISION,
+  env?: Env
 ): Promise<ResultadoBusquedaInventario[]> {
   const q = (extraerConsultaInventario(query) || query.trim()).slice(0, 160);
   if (!q) return [];
-  const intencion = interpretarTexto(q);
-  const pool = await buscarPorIntencion(sql, intencion, Math.max(limit, MAX_HALLAZGOS_VISION));
-  const pieza: IdentidadPieza = {
-    nombre: intencion.canonico || q,
-    material: "",
-    medida: intencion.modulos ? `${intencion.modulos} módulos` : "",
-    categoria: intencion.rubro ?? "",
-    descripcion: q,
-    producto_venta: intencion.canonico,
-    palabras_clave: intencion.tokens,
-  };
-  const ranked = rankearHallazgosMostrador(pool, intencion.tokens.length > 0 ? intencion.tokens : extraerTerminosIlike([q]), pieza);
-  const deFamilia = ranked.filter((row) => row.misma);
-  const orden = intencion.familia ? deFamilia : ranked.filter((row) => row.score > 0 || (row.fila.relevancia ?? 0) >= MIN_RELEVANCIA_ABIERTA);
-  return orden
-    .map((row) => row.fila)
-    .slice(0, Math.max(1, Math.min(40, Math.trunc(limit) || MAX_HALLAZGOS_VISION)));
+  const { resultados } = await consultarInventarioUnificado(sql, { origen: "texto", texto: q, env }, limit);
+  return resultados;
 }
 
 function resultadoASustituto(item: ResultadoBusquedaInventario): {
@@ -1132,9 +1211,6 @@ export function stockDesdeResultadosBusqueda(resultados: ResultadoBusquedaInvent
   const mejor = resultados[0];
   if (!mejor) return bloqueVacioInventario(0);
   const score = mejor.relevancia ?? 0;
-  if (score > 0 && score < MIN_COINCIDENCIA_EXACTA) {
-    return stockDesdeHallazgosVision(resultados.slice(0, MAX_MOSTRADOR), resultados.slice(MAX_MOSTRADOR));
-  }
   const alternativas = resultados.slice(1, MAX_HALLAZGOS_VISION).map(resultadoASustituto);
   const piezas = mejor.stock_disponible;
   return {
@@ -1196,7 +1272,7 @@ export function stockDesdeHallazgosVision(
 export async function resolverStockInventarioLocal(
   sql: Sql,
   pieza: IdentidadPieza,
-  opciones: { skuForzado?: string } = {}
+  opciones: { skuForzado?: string; env?: Env } = {}
 ): Promise<BloqueStock> {
   const skuForzado = (opciones.skuForzado ?? "").trim();
   if (skuForzado) {
@@ -1208,8 +1284,11 @@ export async function resolverStockInventarioLocal(
     return bloque;
   }
 
-  const intencion = interpretarPieza(pieza);
-  const pool = await buscarPorIntencion(sql, intencion, MAX_HALLAZGOS_VISION);
+  const { intencion, resultados: pool } = await consultarInventarioUnificado(
+    sql,
+    { origen: "vision", pieza, env: opciones.env },
+    MAX_HALLAZGOS_VISION
+  );
   const tokens = intencion.tokens.length > 0 ? intencion.tokens : tokensSinAccesorioPlaca(terminosDesdePieza(pieza), objetoMostrador(pieza));
   const { mejores, resto } = acotarHallazgosMostrador(pool, tokens, {
     ...pieza,
