@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   AlertCircle, Camera, ClipboardPaste, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
-  MessageCircle, Mic, Moon, MoreVertical, PackageSearch, Pencil, Plus, RefreshCw, Search, Send, Square, Sun, Tag, Trash2, Wrench, X,
+  MessageCircle, Mic, Moon, MoreVertical, Pencil, Plus, RefreshCw, Search, Send, ShoppingCart, Square, Sun, Tag, Trash2, Wrench, X,
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
 import {
@@ -173,6 +173,22 @@ type TarjetaChat = {
   existencia: number;
 };
 
+type LineaPaqueteBom = {
+  sku: string;
+  nombre: string;
+  cantidad: number;
+  precio: number;
+  existencia: number;
+  grupo: string;
+  url: string;
+};
+
+type PaqueteBomVista = {
+  titulo: string;
+  lineas: LineaPaqueteBom[];
+  faltantes: { query: string; grupo: string }[];
+};
+
 const PREGUNTA_GUIA =
   '¿Qué deseas hacer con esta pieza? (Ej: consultar disponibilidad en stock, buscar repuestos, ver ficha o registrar movimiento).';
 
@@ -182,12 +198,54 @@ function extraerMarcaFicha(texto: string): {
   miniaturas: { sku: string; url: string }[];
   tarjetas: TarjetaChat[];
   fotoHilo: boolean;
+  paquete: PaqueteBomVista | null;
 } {
   let sku: string | null = null;
   let fotoHilo = false;
+  let tituloBom = '';
   const miniaturas: { sku: string; url: string }[] = [];
   const tarjetas: TarjetaChat[] = [];
+  const lineasBom: LineaPaqueteBom[] = [];
+  const faltantes: { query: string; grupo: string }[] = [];
   const limpio = texto
+    .replace(/\[\[[\s]*bom[\s]*:[\s]*([^\]]+)\]\]/gi, (_, titulo: string) => {
+      const valor = String(titulo ?? '').trim();
+      if (valor && !tituloBom) tituloBom = valor;
+      return '';
+    })
+    .replace(
+      /\[\[[\s]*bomitem[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi,
+      (
+        _: string,
+        code: string,
+        nombre: string,
+        cantidad: string,
+        precio: string,
+        existencia: string,
+        grupo: string,
+        url: string
+      ) => {
+        const clave = String(code ?? '').trim();
+        if (clave) {
+          lineasBom.push({
+            sku: clave,
+            nombre: String(nombre ?? '').trim() || clave,
+            cantidad: Math.max(1, Math.trunc(Number.parseFloat(String(cantidad ?? '').trim()) || 1)),
+            precio: Number.parseFloat(String(precio ?? '').trim()) || 0,
+            existencia: Math.trunc(Number.parseFloat(String(existencia ?? '').trim()) || 0),
+            grupo: String(grupo ?? '').trim() || 'materiales',
+            url: String(url ?? '').trim(),
+          });
+          if (!sku) sku = clave;
+        }
+        return '';
+      }
+    )
+    .replace(/\[\[[\s]*bomfaltante[\s]*:[\s]*([^|\]]*)\|([^\]]*)\]\]/gi, (_, query: string, grupo: string) => {
+      const pedido = String(query ?? '').trim();
+      if (pedido) faltantes.push({ query: pedido, grupo: String(grupo ?? '').trim() || 'materiales' });
+      return '';
+    })
     .replace(
       /\[\[[\s]*card[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi,
       (_, code: string, url: string, precio: string, existencia: string, nombre: string) => {
@@ -224,7 +282,11 @@ function extraerMarcaFicha(texto: string): {
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-  return { texto: limpio, sku, miniaturas, tarjetas, fotoHilo };
+  const paquete =
+    tituloBom || lineasBom.length || faltantes.length
+      ? { titulo: tituloBom || 'Paquete sugerido', lineas: lineasBom, faltantes }
+      : null;
+  return { texto: limpio, sku, miniaturas, tarjetas, fotoHilo, paquete };
 }
 
 function textoMostrador(texto: string): string {
@@ -292,6 +354,7 @@ function esOpenerInventario(texto: string): boolean {
   const plano = texto.replace(/\s+/g, ' ').trim();
   return (
     /^He identificado un /i.test(plano) ||
+    /^Claro, de /i.test(plano) ||
     /^En inventario local encontré /i.test(plano) ||
     /^Esto es lo más cercano a un /i.test(plano) ||
     /^En esta foto/i.test(plano) ||
@@ -312,6 +375,7 @@ type BurbujaChat = {
   miniaturas: { sku: string; url: string }[];
   tarjetas: TarjetaChat[];
   fotoHilo: boolean;
+  paquete: PaqueteBomVista | null;
 };
 
 function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
@@ -347,6 +411,7 @@ function burbujasChat(
       miniaturas: [],
       tarjetas: tarjetasOpener,
       fotoHilo: false,
+      paquete: null,
     });
   }
   const resto: BurbujaChat[] = [];
@@ -362,6 +427,7 @@ function burbujasChat(
           miniaturas: [],
           tarjetas: [],
           fotoHilo: marca.fotoHilo,
+          paquete: null,
         });
       }
       continue;
@@ -376,6 +442,7 @@ function burbujasChat(
       miniaturas: marca.miniaturas,
       tarjetas: marca.tarjetas,
       fotoHilo: false,
+      paquete: marca.paquete,
     } satisfies BurbujaChat;
     if (cuerpo) {
       if (diagnostico && norma === diagnostico) {
@@ -394,12 +461,13 @@ function burbujasChat(
           miniaturas: [],
           tarjetas: [],
           fotoHilo: false,
+          paquete: marca.paquete,
         });
         continue;
       }
       if (/para no dejarte sin material|estas alternativas compatibles sí están listas/i.test(norma)) continue;
     }
-    if (!cuerpo && !marca.sku && marca.miniaturas.length === 0 && marca.tarjetas.length === 0) continue;
+    if (!cuerpo && !marca.sku && marca.miniaturas.length === 0 && marca.tarjetas.length === 0 && !marca.paquete) continue;
     resto.push({
       id: msg.id,
       rol: 'assistant',
@@ -408,6 +476,7 @@ function burbujasChat(
       miniaturas: marca.miniaturas,
       tarjetas: marca.tarjetas,
       fotoHilo: false,
+      paquete: marca.paquete,
     });
   }
   return [...intro, ...resto];
@@ -579,6 +648,101 @@ function CarruselEnChat({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function gruposPaquete(lineas: LineaPaqueteBom[]): { grupo: string; lineas: LineaPaqueteBom[] }[] {
+  const orden: string[] = [];
+  const mapa = new Map<string, LineaPaqueteBom[]>();
+  for (const linea of lineas) {
+    const grupo = linea.grupo.trim() || 'materiales';
+    if (!mapa.has(grupo)) {
+      mapa.set(grupo, []);
+      orden.push(grupo);
+    }
+    mapa.get(grupo)!.push(linea);
+  }
+  return orden.map((grupo) => ({ grupo, lineas: mapa.get(grupo) ?? [] }));
+}
+
+function PaqueteBomEnChat({
+  paquete,
+  moneda = 'MXN',
+  disabled = false,
+  cantidadesCarrito = {},
+  onAgregarLinea,
+  onAgregarPaquete,
+}: {
+  paquete: PaqueteBomVista;
+  moneda?: string;
+  disabled?: boolean;
+  cantidadesCarrito?: Record<string, number>;
+  onAgregarLinea?: (linea: LineaPaqueteBom) => void;
+  onAgregarPaquete?: (lineas: LineaPaqueteBom[]) => void;
+}) {
+  if (paquete.lineas.length === 0 && paquete.faltantes.length === 0) return null;
+  const total = paquete.lineas.reduce((acc, linea) => acc + linea.precio * linea.cantidad, 0);
+  const disponibles = paquete.lineas.filter((linea) => linea.existencia > 0);
+  return (
+    <div className="paquete-bom">
+      <header className="paquete-bom-head">
+        <p className="paquete-bom-kicker">Paquete de materiales</p>
+        <h3>{textoMostrador(paquete.titulo)}</h3>
+      </header>
+      {gruposPaquete(paquete.lineas).map(({ grupo, lineas }) => (
+        <section key={grupo} className="paquete-bom-grupo">
+          <p className="paquete-bom-grupo-titulo">{grupo}</p>
+          <ul>
+            {lineas.map((linea) => {
+              const foto = urlFotoCatalogo(linea.url);
+              const enPedido = cantidadesCarrito[linea.sku.toLowerCase()] ?? 0;
+              return (
+                <li key={linea.sku}>
+                  <button
+                    type="button"
+                    className="paquete-bom-linea"
+                    disabled={disabled || !onAgregarLinea || linea.existencia <= 0}
+                    onClick={() => onAgregarLinea?.(linea)}
+                  >
+                    {foto ? <img src={foto} alt="" /> : <span className="paquete-bom-sin-foto">Sin foto</span>}
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block text-[13px] font-semibold leading-snug text-stone-900">
+                        {textoMostrador(linea.nombre)}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[10px] text-stone-400">{linea.sku}</span>
+                      <span className="mt-0.5 block text-[11px] text-stone-500">
+                        {linea.cantidad} pza · {linea.existencia > 0 ? `${linea.existencia} en anaquel` : 'Sin existencia'}
+                        {enPedido > 0 ? ` · ${enPedido} en el pedido` : ''}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-sm font-semibold tabular-nums">{dinero(linea.precio * linea.cantidad, moneda)}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+      {paquete.faltantes.length > 0 ? (
+        <p className="paquete-bom-faltantes">
+          Hoy no topé: {paquete.faltantes.map((item) => item.query).join(', ')}.
+        </p>
+      ) : null}
+      {disponibles.length > 0 ? (
+        <div className="paquete-bom-pie">
+          <p className="text-sm font-semibold tabular-nums">{dinero(total, moneda)}</p>
+          <button
+            type="button"
+            className="paquete-bom-agregar"
+            disabled={disabled}
+            onClick={() => onAgregarPaquete?.(disponibles)}
+          >
+            <ShoppingCart className="h-4 w-4" />
+            Agregar paquete al pedido
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -766,6 +930,7 @@ export default function App() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const bandejaRef = useRef<HTMLElement>(null);
+  const errorCercaRef = useRef<HTMLParagraphElement>(null);
   const chatCameraRef = useRef<HTMLInputElement>(null);
   const chatGalleryRef = useRef<HTMLInputElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -937,8 +1102,7 @@ export default function App() {
   }, [buscadorAbierto]);
 
   useEffect(() => {
-    const enLanding = !consultaId;
-    if (!buscadorAbierto && !enLanding) return;
+    if (!buscadorAbierto) return;
     const q = queryBusqueda.trim();
     if (q.length < 1) {
       setResultadosBusqueda([]);
@@ -969,7 +1133,7 @@ export default function App() {
       ac.abort();
       window.clearTimeout(t);
     };
-  }, [buscadorAbierto, queryBusqueda, consultaId]);
+  }, [buscadorAbierto, queryBusqueda]);
 
   const cargarHistorial = async () => {
     try {
@@ -1183,15 +1347,16 @@ export default function App() {
     setMenuExportar(false);
     setMenuCorreccion(false);
     try {
-      const payloads = fotos.map((item) => item.dataUrl);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      const payloads = fotos.map((item) => item.dataUrl).filter(Boolean);
       const response = await fetchCampo('/api/analizar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           images: payloads,
-          image: payloads[0],
           ...(hiloId ? { consulta_id: hiloId } : {}),
         }),
+        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(70_000) : undefined,
       });
       const data = await leerJson<AnalisisResponse>(response, 'No se pudo identificar la pieza.');
       if (!data.ok) throw new Error(data.detail || 'No se pudo identificar la pieza.');
@@ -1219,7 +1384,16 @@ export default function App() {
         void cargarHistorial();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo analizar la foto.');
+      const abortado = err instanceof DOMException && (err.name === 'AbortError' || err.name === 'TimeoutError');
+      const mensaje = abortado
+        ? 'El análisis con varias fotos tardó demasiado. Intenta de nuevo o deja 2 tomas.'
+        : err instanceof Error
+          ? err.message
+          : 'No se pudo analizar la foto.';
+      setError(mensaje);
+      window.setTimeout(() => {
+        errorCercaRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }, 50);
     } finally {
       setAnalizando(false);
     }
@@ -1541,6 +1715,48 @@ export default function App() {
     );
   };
 
+  const agregarLineaPaquete = (linea: LineaPaqueteBom) => {
+    setError('');
+    setCarrito((prev) =>
+      agregarAlCarrito(prev, {
+        sku: linea.sku,
+        nombre: linea.nombre,
+        cantidad: linea.cantidad,
+        precio: linea.precio,
+        url_imagen: linea.url || undefined,
+        existencia: linea.existencia,
+      })
+    );
+  };
+
+  const agregarPaqueteAlPedido = (lineas: LineaPaqueteBom[]) => {
+    setError('');
+    setCarrito((prev) =>
+      lineas.reduce(
+        (acc, linea) =>
+          agregarAlCarrito(acc, {
+            sku: linea.sku,
+            nombre: linea.nombre,
+            cantidad: linea.cantidad,
+            precio: linea.precio,
+            url_imagen: linea.url || undefined,
+            existencia: linea.existencia,
+          }),
+        prev
+      )
+    );
+    setCarritoAbierto(true);
+  };
+
+  const enviarBarraLanding = () => {
+    if (fotos.length > 0) {
+      void analizar();
+      return;
+    }
+    const q = queryBusqueda.trim();
+    if (q) void iniciarConsultaTexto(q);
+  };
+
   const generarApartadoCarrito = async () => {
     if (!consultaId || carrito.length === 0 || enviandoApartado) return;
     setEnviandoApartado(true);
@@ -1573,7 +1789,7 @@ export default function App() {
 
   const transcribirYBuscar = async (blob: Blob, ext: string) => {
     if (blob.size < 400) {
-      setError('Mantén pulsado el micrófono, di el nombre de la pieza y suelta para buscar.');
+      setError('Mantén pulsado el micrófono, di lo que ocupas y suelta para enviar.');
       return;
     }
     setTranscribiendo(true);
@@ -1587,7 +1803,7 @@ export default function App() {
       );
       const texto = (data.text || data.transcripcion || '').trim();
       if (!texto) {
-        setError('No se escuchó el nombre de la pieza. Intenta de nuevo.');
+        setError('No se escuchó lo que ocupas. Intenta de nuevo.');
         return;
       }
       setQueryBusqueda(texto);
@@ -1935,7 +2151,7 @@ export default function App() {
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-400 lg:hidden">Campo</p>
               <h1 className="text-3xl lg:text-xl font-bold tracking-tight leading-none">TecniStock</h1>
-              <p className="hidden lg:block text-[11px] leading-snug text-stone-300 mt-0.5">Tu Asesor Técnico en Campo 24/7</p>
+              <p className="hidden lg:block text-[11px] leading-snug text-stone-300 mt-0.5">Asesor de mostrador · ferretería, plomería y electricidad</p>
             </div>
             <div className="carrito-ancla">
               <BotonCarritoHeader piezas={piezasCarrito(carrito)} onClick={() => setCarritoAbierto((prev) => !prev)} />
@@ -1968,7 +2184,7 @@ export default function App() {
               {oscuro ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
           </div>
-          <p className="text-stone-300 text-base leading-snug lg:hidden">Tu Asesor Técnico en Campo 24/7</p>
+          <p className="text-stone-300 text-base leading-snug lg:hidden">Asesor de mostrador · una sola barra para pedirlo todo</p>
           <div className="mt-5 lg:mt-3 grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -2114,12 +2330,12 @@ export default function App() {
                     <div className="flex flex-col items-center text-stone-400 px-5 pt-8 pb-4 text-center">
                       <Camera className="h-10 w-10 mb-3 text-orange-400" />
                       <p className="text-white font-semibold text-base">
-                        {modoCorreccion === 'rehacer' ? 'Nueva toma' : modoCorreccion === 'agregar' ? 'Otra foto de la pieza' : '¿Qué pieza buscas?'}
+                        {modoCorreccion === 'rehacer' ? 'Nueva toma' : modoCorreccion === 'agregar' ? 'Otra foto de la pieza' : '¿Qué ocupas?'}
                       </p>
                       <p className="text-sm mt-1 leading-relaxed">
                         {corrigiendoFoto
                           ? 'La consulta y el chat no se pierden. Analiza de nuevo cuando tengas la foto.'
-                          : 'Tómale foto o escríbela por nombre. Varias tomas ayudan a identificarla mejor.'}
+                          : 'Una pieza, un armado o una foto. El asesor te arma lo que hay en anaquel.'}
                       </p>
                     </div>
                   )}
@@ -2164,166 +2380,147 @@ export default function App() {
                   </div>
                 ) : null}
                 <div className="bg-stone-950 px-3 pb-3 pt-1 space-y-3">
-                  {fotos.length < MAX_FOTOS_CONSULTA ? (
-                    <>
-                      <div className="foto-acciones" role="group" aria-label="Agregar foto de la pieza">
+                  <form
+                    className="busqueda-landing"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      enviarBarraLanding();
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="busqueda-libre-landing">
+                      Dile al asesor lo que ocupas
+                    </label>
+                    <div className="busqueda-landing-acciones">
+                      <div className="relative" ref={addMenuRef}>
                         <button
                           type="button"
-                          className="foto-accion foto-accion-camara"
-                          aria-label="Tomar foto"
-                          disabled={preparando}
-                          onClick={abrirCamaraBandeja}
+                          className="composer-wa-icon busqueda-landing-adjuntar"
+                          disabled={preparando || fotos.length >= MAX_FOTOS_CONSULTA}
+                          aria-label="Adjuntar foto"
+                          aria-expanded={menuAgregar}
+                          onClick={() => setMenuAgregar((abierto) => !abierto)}
                         >
-                          <Camera className="h-4 w-4" />
-                          Cámara
+                          <Plus className="h-6 w-6" strokeWidth={2.2} />
                         </button>
-                        <button
-                          type="button"
-                          className="foto-accion foto-accion-galeria"
-                          aria-label="Elegir de galería"
-                          disabled={preparando}
-                          onClick={abrirGaleriaBandeja}
-                        >
-                          <ImagePlus className="h-4 w-4" />
-                          Galería
-                        </button>
-                        <button
-                          type="button"
-                          className="foto-accion foto-accion-pegar"
-                          aria-label="Pegar imagen"
-                          disabled={preparando}
-                          onClick={() => void pegarImagenBandeja()}
-                        >
-                          <ClipboardPaste className="h-4 w-4" />
-                          Pegar
-                        </button>
-                      </div>
-                      <p className="mt-2 text-center text-[11px] text-stone-500">
-                        {fotos.length === 0
-                          ? `Hasta ${MAX_FOTOS_CONSULTA} fotos. En PC también pega con Ctrl+V.`
-                          : `Toma otra toma · ${fotos.length}/${MAX_FOTOS_CONSULTA}`}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-center text-[11px] text-stone-500">
-                      Llegaste al máximo de {MAX_FOTOS_CONSULTA} fotos.
-                    </p>
-                  )}
-                  {fotos.length === 0 ? (
-                    <>
-                      <div className="busqueda-landing">
-                        <p className="busqueda-landing-sep">o busca por nombre</p>
-                        <label className="sr-only" htmlFor="busqueda-libre-landing">
-                          Buscar pieza por nombre
-                        </label>
-                        <div className="busqueda-landing-acciones">
-                        <div className={`busqueda-landing-fila${grabandoBusqueda ? ' esta-grabando' : ''}`}>
-                          {grabandoBusqueda ? (
-                            <>
-                              <span className="busqueda-voz-dot" aria-hidden="true" />
-                              <span className="busqueda-voz-timer">{formatoMmSs(segundosVoz)}</span>
-                              <span className="busqueda-voz-hint">Suelta para buscar</span>
-                            </>
-                          ) : (
-                            <>
-                              <Search className="h-4 w-4 shrink-0 text-orange-400" />
-                              <input
-                                id="busqueda-libre-landing"
-                                type="search"
-                                placeholder={transcribiendo ? 'Transcribiendo…' : 'Ej. contacto dúplex, cinta, foco LED'}
-                                value={queryBusqueda}
-                                disabled={transcribiendo}
-                                onChange={(e) => setQueryBusqueda(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && queryBusqueda.trim()) {
-                                    e.preventDefault();
-                                    void iniciarConsultaTexto(queryBusqueda.trim());
-                                  }
-                                }}
-                              />
-                              <button
-                                type="button"
-                                className="busqueda-landing-btn"
-                                disabled={!queryBusqueda.trim() || Boolean(aplicandoSku) || transcribiendo}
-                                onClick={() => void iniciarConsultaTexto(queryBusqueda.trim())}
-                              >
-                                {aplicandoSku === 'texto' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Buscar'}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                          <button
-                            type="button"
-                            className={`busqueda-mic${grabandoBusqueda ? ' grabando' : ''}`}
-                            disabled={(transcribiendo || grabando || Boolean(aplicandoSku)) && !grabandoBusqueda}
-                            aria-label={grabandoBusqueda ? 'Suelta para buscar' : 'Mantén pulsado para dictar la búsqueda'}
-                            aria-pressed={grabandoBusqueda}
-                            onContextMenu={(e) => e.preventDefault()}
-                            onPointerDown={(e) => void empezarVozBusqueda(e)}
-                            onPointerUp={terminarVozBusqueda}
-                            onPointerCancel={cancelarVozBusqueda}
-                          >
-                            {transcribiendo && !grabandoBusqueda ? (
-                              <Loader2 className="h-5 w-5 animate-spin" />
-                            ) : (
-                              <Mic className="h-5 w-5" />
-                            )}
-                          </button>
-                        </div>
-                        <p className="busqueda-voz-ayuda">Mantén pulsado el micrófono, habla y suelta para buscar.</p>
-                        {buscandoInventario ? (
-                          <p className="flex items-center gap-2 px-1 py-2 text-xs text-stone-400">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Buscando…
-                          </p>
-                        ) : queryBusqueda.trim() && resultadosBusqueda.length === 0 ? (
-                          <p className="px-1 py-2 text-xs text-stone-400">No encontramos esa pieza en el surtido.</p>
-                        ) : resultadosBusqueda.length > 0 ? (
-                          <ul className="mt-2 max-h-48 divide-y divide-stone-800 overflow-y-auto">
-                            {resultadosBusqueda.map((item) => (
-                              <li key={item.sku}>
-                                <button
-                                  type="button"
-                                  className="flex w-full items-start gap-2 px-1 py-2 text-left text-stone-100 hover:bg-stone-800 disabled:opacity-50"
-                                  disabled={Boolean(aplicandoSku)}
-                                  onClick={() => void aplicarSkuBusqueda(item)}
-                                >
-                                  {urlFotoCatalogo(item.url_imagen) ? (
-                                    <img
-                                      src={urlFotoCatalogo(item.url_imagen) ?? ''}
-                                      alt=""
-                                      className="h-10 w-10 shrink-0 rounded-md object-cover bg-stone-800"
-                                    />
-                                  ) : null}
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-sm font-medium leading-snug">{textoMostrador(item.nombre)}</span>
-                                    <span className="mt-0.5 block font-mono text-[11px] text-stone-500">{item.sku}</span>
-                                  </span>
-                                  <span className="shrink-0 text-right text-xs tabular-nums text-stone-300">
-                                    {dinero(item.precio, 'MXN')}
-                                  </span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
+                        {menuAgregar ? (
+                          <div className="absolute bottom-full left-0 z-20 mb-2 w-48 overflow-hidden rounded-xl border border-stone-200 bg-white py-1 shadow-lg">
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                              onClick={() => {
+                                setMenuAgregar(false);
+                                abrirCamaraBandeja();
+                              }}
+                            >
+                              <Camera className="h-4 w-4 shrink-0 text-stone-500" />
+                              Cámara
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                              onClick={() => {
+                                setMenuAgregar(false);
+                                abrirGaleriaBandeja();
+                              }}
+                            >
+                              <ImagePlus className="h-4 w-4 shrink-0 text-stone-500" />
+                              Galería
+                            </button>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-stone-800 hover:bg-stone-50"
+                              onClick={() => {
+                                setMenuAgregar(false);
+                                void pegarImagenBandeja();
+                              }}
+                            >
+                              <ClipboardPaste className="h-4 w-4 shrink-0 text-stone-500" />
+                              Pegar imagen
+                            </button>
+                          </div>
                         ) : null}
                       </div>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn-primary w-full min-h-14 text-lg rounded-2xl bg-stone-900 hover:bg-stone-800 active:bg-black focus:ring-stone-500"
-                      onClick={() => void analizar()}
-                      disabled={analizando || preparando}
-                    >
-                      {analizando ? <Loader2 className="h-5 w-5 animate-spin" /> : <PackageSearch className="h-5 w-5" />}
-                      {analizando
-                        ? 'Identificando pieza…'
-                        : corrigiendoFoto
-                          ? `Actualizar identificación${fotos.length > 1 ? ` (${fotos.length})` : ''}`
-                          : `Analizar pieza${fotos.length > 1 ? ` (${fotos.length})` : ''}`}
-                    </button>
-                  )}
+                      <div className={`busqueda-landing-fila${grabandoBusqueda ? ' esta-grabando' : ''}`}>
+                        {grabandoBusqueda ? (
+                          <>
+                            <span className="busqueda-voz-dot" aria-hidden="true" />
+                            <span className="busqueda-voz-timer">{formatoMmSs(segundosVoz)}</span>
+                            <span className="busqueda-voz-hint">Suelta para enviar</span>
+                          </>
+                        ) : (
+                          <input
+                            id="busqueda-libre-landing"
+                            type="search"
+                            placeholder={
+                              transcribiendo
+                                ? 'Transcribiendo…'
+                                : fotos.length > 0
+                                  ? 'Opcional: una nota · Enter identifica la foto'
+                                  : 'Una pieza o todo un armado…'
+                            }
+                            value={queryBusqueda}
+                            disabled={transcribiendo || analizando}
+                            onChange={(e) => setQueryBusqueda(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                enviarBarraLanding();
+                              }
+                            }}
+                          />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className={`busqueda-mic${grabandoBusqueda ? ' grabando' : ''}`}
+                        disabled={(transcribiendo || grabando || analizando || Boolean(aplicandoSku)) && !grabandoBusqueda}
+                        aria-label={grabandoBusqueda ? 'Suelta para enviar' : 'Mantén pulsado para dictar'}
+                        aria-pressed={grabandoBusqueda}
+                        onContextMenu={(e) => e.preventDefault()}
+                        onPointerDown={(e) => void empezarVozBusqueda(e)}
+                        onPointerUp={terminarVozBusqueda}
+                        onPointerCancel={cancelarVozBusqueda}
+                      >
+                        {transcribiendo && !grabandoBusqueda ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <Mic className="h-5 w-5" />
+                        )}
+                      </button>
+                      <button
+                        type="submit"
+                        className="busqueda-landing-btn busqueda-landing-enviar"
+                        disabled={
+                          analizando ||
+                          preparando ||
+                          transcribiendo ||
+                          Boolean(aplicandoSku) ||
+                          (fotos.length === 0 && !queryBusqueda.trim())
+                        }
+                        aria-label={fotos.length > 0 ? 'Identificar foto' : 'Enviar al asesor'}
+                      >
+                        {analizando || aplicandoSku === 'texto' ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="busqueda-voz-ayuda">
+                      {fotos.length > 0
+                        ? analizando
+                          ? fotos.length > 1
+                            ? `Identificando con ${fotos.length} fotos…`
+                            : 'Identificando la pieza…'
+                          : 'Envía la foto o escribe/dicta lo que ocupas.'
+                        : 'Mantén pulsado el micrófono, habla y suelta. El asesor decide si es una pieza o un armado.'}
+                    </p>
+                  </form>
+                  {error && fotos.length > 0 ? (
+                    <p ref={errorCercaRef} className="text-center text-sm text-red-600 dark:text-red-400">
+                      {error}
+                    </p>
+                  ) : null}
                   {preparando ? <p className="text-center text-sm text-stone-500">Preparando foto…</p> : null}
                 </div>
               </section>
@@ -2719,9 +2916,9 @@ export default function App() {
                         <MessageCircle className="h-4 w-4" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold leading-tight">Asesor técnico</p>
+                        <p className="text-sm font-semibold leading-tight">Asesor de mostrador</p>
                         <p className="text-[11px] text-stone-500">
-                          {expiresAt ? `Chat · se borra en ${diasRestantes(expiresAt)}` : 'Chat · foto o búsqueda por texto'}
+                          {expiresAt ? `Chat · se borra en ${diasRestantes(expiresAt)}` : 'Una barra · pieza, armado, voz o foto'}
                         </p>
                       </div>
                       <button
@@ -2763,9 +2960,9 @@ export default function App() {
                           <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-orange-500/15 text-orange-500">
                             <MessageCircle className="h-6 w-6" />
                           </span>
-                          <p className="text-sm font-semibold text-stone-700">Asesor técnico</p>
+                          <p className="text-sm font-semibold text-stone-700">Asesor de mostrador</p>
                           <p className="mt-1.5 max-w-xs text-xs leading-relaxed text-stone-500">
-                            Tómale foto o busca por nombre. Aquí te digo qué hay y te armo el pedido.
+                            Escribe, dicta o fotografía lo que ocupas. Si es una pieza te la ficho; si es un armado te armo el paquete.
                           </p>
                         </div>
                       ) : null}
@@ -2791,6 +2988,7 @@ export default function App() {
                           );
                         }
                         const tarjetas = stock ? tarjetasDeBurbuja(msg, stock, pieza ?? null) : msg.tarjetas;
+                        const paquete = msg.paquete;
                         return (
                           <div key={msg.id} className="hilo-turno space-y-2">
                             {msg.texto ? (
@@ -2798,7 +2996,16 @@ export default function App() {
                                 <p className="whitespace-pre-wrap">{msg.texto}</p>
                               </div>
                             ) : null}
-                            {tarjetas.length > 0 && stock ? (
+                            {paquete && (paquete.lineas.length > 0 || paquete.faltantes.length > 0) ? (
+                              <PaqueteBomEnChat
+                                paquete={paquete}
+                                moneda={stock?.moneda ?? 'MXN'}
+                                disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
+                                cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
+                                onAgregarLinea={agregarLineaPaquete}
+                                onAgregarPaquete={agregarPaqueteAlPedido}
+                              />
+                            ) : tarjetas.length > 0 && stock ? (
                               <CarruselEnChat
                                 tarjetas={tarjetas}
                                 stock={stock}
@@ -2891,14 +3098,14 @@ export default function App() {
                         className="composer-wa-input"
                         placeholder={
                           !chatListo
-                            ? 'Toma foto o busca por nombre'
+                            ? 'Una pieza o todo un armado…'
                             : grabando
                             ? 'Grabando… toca el recuadro rojo para enviar'
                             : transcribiendo
                               ? 'Transcribiendo con Whisper…'
                               : modoCorreccion === 'describir'
                                 ? 'Describe la pieza: marca, medida, material…'
-                                : 'Escribe un mensaje'
+                                : 'Una pieza o todo un armado…'
                         }
                         rows={1}
                         value={borrador}

@@ -10,7 +10,7 @@ import { compactarTextoAsesor, mexicanizarMostrador, PROMPT_ANALISIS_VISUAL, USE
 export const DEFAULT_GROQ_VISION_MODEL = "qwen/qwen3.6-27b";
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 export const MAX_FOTOS_ANALISIS = 8;
-/** Groq visión admite como máximo 5 imágenes por request (3 en qwen3.8). */
+/** Groq visión: tope genérico 5; Qwen 3.6/3.8 solo aceptan 3. */
 const MAX_IMAGENES_VISION_GROQ = 5;
 
 /** Modelos Groq con entrada de imagen. Primero los que documenta Groq hoy. */
@@ -79,8 +79,15 @@ function esModeloVisionGroq(id: string): boolean {
 }
 
 function maxImagenesDelModelo(model: string): number {
-  if (/qwen3\.8/i.test(model)) return 3;
+  if (/qwen3\.(6|8)/i.test(model)) return 3;
   return MAX_IMAGENES_VISION_GROQ;
+}
+
+function esFalloPorLoteImagenes(status: number, text: string): boolean {
+  if (status === 413) return true;
+  return /too many images|max(?:imum)? (?:input )?images|only \d+ image|image(?:s)? (?:limit|per request)|request too large|payload too large|context.?length|tpm|rate.?limit/i.test(
+    text
+  );
 }
 
 function siguienteModeloVision(actual: string): string | null {
@@ -327,7 +334,7 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
   if (imagenes.length === 0) {
     throw new AppError(400, "Falta la imagen.", "IMAGE_REQUIRED");
   }
-  const lote = imagenes.slice(0, maxImagenesDelModelo(modeloGroqVision(env)));
+  let lote = imagenes.slice(0, maxImagenesDelModelo(modeloGroqVision(env)));
 
   let model = modeloGroqVision(env);
   let extrasQwen = /qwen/i.test(model);
@@ -335,7 +342,7 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
   let usarJsonObject = true;
   let lastFailText = "";
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     const body: Record<string, unknown> = {
       model,
       temperature: 0.1,
@@ -403,6 +410,11 @@ export async function identificarPiezaConVision(env: Env, dataUrls: string | str
           extrasQwen = /qwen/i.test(model);
           continue;
         }
+      }
+      if ((response.status === 413 || response.status === 429 || esFalloPorLoteImagenes(response.status, lastFailText)) && lote.length > 1) {
+        lote = lote.slice(0, lote.length - 1);
+        maxCompletionTokens = completionInicial(lote.length);
+        continue;
       }
       if ((response.status === 413 || response.status === 429) && attempt < 3) {
         const tpm = parseLimiteTpm(lastFailText);

@@ -1,6 +1,6 @@
 import { cantidadStock, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible, type SustitutoStock } from "../lib/stock";
 
-import { extraerMarcaFicha, conMarcaFicha, conMiniaturas, conTarjetas } from "../lib/ficha-chat";
+import { extraerMarcaFicha, conMarcaFicha, conMiniaturas, conPaqueteBom, conTarjetas } from "../lib/ficha-chat";
 
 /**
  * Tres capas, sin mezclarlas:
@@ -18,7 +18,7 @@ const PREGUNTA_PROACTIVA_RE =
 
 /** Quita la CTA repetida y párrafos idénticos seguidos. Conserva tarjetas visuales; nunca deja [[...]] sueltos. */
 export function compactarTextoAsesor(texto: string): string {
-  const { texto: cuerpo, sku, miniaturas, tarjetas } = extraerMarcaFicha(texto);
+  const { texto: cuerpo, sku, miniaturas, tarjetas, paquete } = extraerMarcaFicha(texto);
   const limpio = cuerpo.replace(PREGUNTA_PROACTIVA_RE, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   const partes = limpio
     .split(/\n{2,}/)
@@ -31,6 +31,9 @@ export function compactarTextoAsesor(texto: string): string {
     if (norma && norma !== previa) unicas.push(parte);
   }
   let compacto = mexicanizarMostrador(unicas.join("\n\n"));
+  if (paquete && (paquete.lineas.length || paquete.faltantes.length || paquete.titulo)) {
+    return conPaqueteBom(compacto, paquete);
+  }
   if (tarjetas.length) return conTarjetas(compacto, tarjetas);
   if (sku) compacto = conMarcaFicha(compacto, sku);
   if (miniaturas.length) compacto = conMiniaturas(compacto, miniaturas);
@@ -196,7 +199,8 @@ PROHIBIDO:
 - Confirmar un apartado sin nombre completo, teléfono, horario de recoger (máximo 24 horas) y el Total a pagar.
 - Inventar cantidades del pedido o decir «N unidades más» si pedido.lineas ya trae la cantidad.
 - Repetir la ficha. No preguntes «qué deseas hacer con esta pieza»; cierra con apartar, otras opciones o armar el pedido.
-- Escribir [[ficha:...]], [[thumb:...]], [[card:...]] o cualquier código [[...]] en la respuesta. El cliente nunca debe ver esos marcadores.
+- Escribir [[ficha:...]], [[thumb:...]], [[card:...]], [[bom:...]] o cualquier código [[...]] en la respuesta. El cliente nunca debe ver esos marcadores.
+- Inventar listas de materiales o SKUs para un armado. Si el cliente pide un proyecto, el backend ya validó el paquete contra anaquel.
 - Usar ganga, gangas, rocker, switch, outlet, 3-way u otros anglicismos de catálogo. Di apagador, contacto, módulos, espacios o ventanas.
 
 ESTILO:
@@ -235,7 +239,11 @@ export function alinearCifrasStock(texto: string, stock: BloqueStock): string {
 }
 
 /** Primera burbuja: confirma la pieza. Cifra = stock_disponible de Neon, no Groq. */
-export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock): string {
+export function redactarMensajeInicial(
+  nombrePieza: string,
+  stock: BloqueStock,
+  origen: "texto" | "vision" = "vision"
+): string {
   const nombre = articuloNombre(nombrePieza);
   const piezas = cantidadStock(stock);
   const hayExacto = stock.encontrado && piezas > 0 && !stock.requiere_sustituto;
@@ -248,10 +256,15 @@ export function redactarMensajeInicial(nombrePieza: string, stock: BloqueStock):
     return `En inventario local encontré ${etiqueta} (${stock.sku}). Hay existencia (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
   if (catalogoVacio && !stock.encontrado && alternativas.length === 0) {
-    return `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
+    return origen === "texto"
+      ? `De ${nombre} no topé coincidencia en anaquel. Si me das el nombre de mostrador o el SKU lo busco de nuevo.`
+      : `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
   }
   if (hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : "";
+    if (origen === "texto") {
+      return `Claro, de ${nombre} traemos este en anaquel. Hay existencia (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    }
     return `He identificado un ${nombre}. Hay existencia en inventario local (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
   }
   if (stock.encontrado && piezas <= 0) {

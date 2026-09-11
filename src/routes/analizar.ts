@@ -37,7 +37,7 @@ function extraerImagenesDeJson(body: {
   const lista = Array.isArray(body.images) ? body.images : Array.isArray(body.imagenes) ? body.imagenes : [];
   const desdeLista = lista.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   const unica = body.image || body.imagen || body.image_base64 || "";
-  const raw = [...desdeLista, ...(unica.trim() ? [unica] : [])];
+  const raw = desdeLista.length > 0 ? desdeLista : unica.trim() ? [unica] : [];
   const unicas = [...new Set(raw.map((item) => item.trim()))];
   if (unicas.length === 0) {
     throw new AppError(400, "Falta la imagen en base64 (campo images, image, imagen o image_base64).", "IMAGE_REQUIRED");

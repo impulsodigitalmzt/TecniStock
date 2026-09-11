@@ -167,7 +167,13 @@ function mapConsulta(row: Record<string, unknown>): ConsultaCampo {
 
 export async function crearConsultaCampo(
   sql: Sql,
-  input: { dispositivoId: string; pieza: PiezaDetectada; stock: BloqueStock; mensajeUsuario?: string }
+  input: {
+    dispositivoId: string;
+    pieza: PiezaDetectada;
+    stock: BloqueStock;
+    mensajeUsuario?: string;
+    mensajeAsistente?: string;
+  }
 ): Promise<ConsultaCampo> {
   const piezaMeta = piezaSinBinarios(input.pieza);
   const titulo = input.pieza.nombre.slice(0, 120) || "Consulta de campo";
@@ -192,9 +198,14 @@ export async function crearConsultaCampo(
   );
   const consulta = mapConsulta(rows[0] ?? {});
   if (input.mensajeUsuario?.trim()) {
-    await agregarMensajeCampo(sql, consulta.id, "user", input.mensajeUsuario.trim().slice(0, 500));
+    await agregarMensajeCampo(sql, consulta.id, "user", input.mensajeUsuario.trim().slice(0, 800));
   }
-  await agregarMensajeCampo(sql, consulta.id, "assistant", mensajeGuiaInicial(input.pieza, input.stock));
+  await agregarMensajeCampo(
+    sql,
+    consulta.id,
+    "assistant",
+    input.mensajeAsistente?.trim() || mensajeGuiaInicial(input.pieza, input.stock)
+  );
   return consulta;
 }
 

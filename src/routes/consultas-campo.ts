@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { AppError, isAppError } from "../lib/errors";
 import { groqChatPlainText, transcribeAudio } from "../lib/groq";
-import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO, redactarMensajeFotoHilo } from "../ia/prompts";
+import { compactarTextoAsesor, alinearCifrasStock, PROMPT_CHAT_CAMPO, redactarMensajeFotoHilo, redactarMensajeInicial } from "../ia/prompts";
 import { cantidadStock, familiaCatalogo, limitarAlternativas, type BloqueStock, type IdentidadPieza, type SustitutoStock } from "../lib/stock";
 import {
   conTarjetas,
@@ -48,6 +48,14 @@ import {
 } from "../lib/inventario-local";
 import { piezaDesdeIntencion } from "../lib/interprete-busqueda";
 import { interpretarEntrada, type OrigenConsulta } from "../lib/pipeline-busqueda";
+import {
+  armarPaqueteProyecto,
+  buscarCruceProducto,
+  clasificarIntencion,
+  pareceProyecto,
+  redactarPaqueteMostrador,
+  resultadosDesdePaquete,
+} from "../lib/orquestador-intencion";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -100,9 +108,45 @@ consultasCampoRoutes.post("/texto", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
   const body = await c.req.json<{ q?: string; sku?: string }>().catch(() => ({} as { q?: string; sku?: string }));
-  const q = String(body.q ?? "").trim().slice(0, 160);
+  const q = String(body.q ?? "").trim().slice(0, 400);
   const sku = String(body.sku ?? "").trim();
-  if (!q && !sku) throw new AppError(400, "Escribe el nombre de la pieza o un SKU. La foto no es obligatoria.", "QUERY_REQUIRED");
+  if (!q && !sku) throw new AppError(400, "Escribe lo que ocupas o un SKU. La foto no es obligatoria.", "QUERY_REQUIRED");
+
+  const clasificacion = sku ? { ruta: "producto" as const } : await clasificarIntencion(q, c.env);
+  if (!sku && clasificacion.ruta === "proyecto") {
+    const paquete = await armarPaqueteProyecto(sql, q, c.env);
+    const resultados = resultadosDesdePaquete(paquete);
+    const stock = stockDesdeResultadosBusqueda(resultados);
+    const pieza = piezaDesdeIntencion(interpretarEntrada({ origen: "texto", texto: q }), paquete.titulo);
+    pieza.nombre = paquete.titulo;
+    pieza.categoria = pieza.categoria || "proyecto";
+    const consulta = await crearConsultaCampo(sql, {
+      dispositivoId: dispositivo,
+      pieza,
+      stock,
+      mensajeUsuario: q,
+      mensajeAsistente: redactarPaqueteMostrador(paquete),
+    });
+    if (resultados.length) {
+      await recordarHallazgosChat(sql, consulta.id, dispositivo, {
+        hallazgos_chat: resultados,
+        sku_conversacion: stock.sku,
+        query_busqueda: q,
+      });
+    }
+    const mensajes = await listarMensajesCampo(sql, consulta.id);
+    return c.json({
+      ok: true,
+      consulta_id: consulta.id,
+      retencion_dias: 30,
+      expires_at: consulta.expires_at,
+      pieza: piezaPublicaCampo(pieza),
+      stock,
+      mensajes,
+      ruta: "proyecto",
+      interpretacion: { canonico: paquete.titulo, rubro: pieza.categoria, familia: null },
+    });
+  }
 
   const { intencion, resultados: hallados } = sku
     ? { intencion: interpretarEntrada({ origen: "texto", texto: q || sku }), resultados: [] as ResultadoBusquedaInventario[] }
@@ -125,17 +169,41 @@ consultasCampoRoutes.post("/texto", async (c) => {
     ];
   }
 
+  const vistos = new Set(resultados.map((item) => item.sku.toLowerCase()));
+  const cruzados = sku ? [] : await buscarCruceProducto(sql, c.env, intencion, vistos);
+  const catalogo = [...resultados, ...cruzados];
   const stock = stockDesdeResultadosBusqueda(resultados);
+  if (cruzados.length) {
+    stock.alternativas = [
+      ...(stock.alternativas ?? []),
+      ...cruzados.map((item) => ({
+        sku: item.sku,
+        nombre: item.nombre,
+        material: "",
+        medida: "",
+        existencia: item.stock_disponible,
+        precio: item.precio,
+        razon: "También te sirve en el mismo trabajo.",
+        url_imagen: item.url_imagen,
+        ubicacion_tienda: item.ubicacion_tienda,
+      })),
+    ];
+  }
   if (sku && stock.encontrado) stock.forzado = true;
   const pieza = piezaDesdeIntencion(intencion, stock.nombre || resultados[0]?.nombre || intencion.canonico || q);
   if (resultados[0]?.categoria) pieza.categoria = resultados[0].categoria;
   else if (intencion.rubro) pieza.categoria = intencion.rubro;
 
+  const mensajeAsistente = conTarjetas(
+    redactarMensajeInicial(pieza.nombre, stock, "texto"),
+    catalogo.slice(0, 8).map((item) => tarjetaDesdeCatalogo(item))
+  );
   const consulta = await crearConsultaCampo(sql, {
     dispositivoId: dispositivo,
     pieza,
     stock,
-    mensajeUsuario: q ? `Busco: ${q}` : `Seleccioné ${pieza.nombre}`,
+    mensajeUsuario: q ? q : `Seleccioné ${pieza.nombre}`,
+    mensajeAsistente,
   });
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
@@ -146,6 +214,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
     pieza: piezaPublicaCampo(pieza),
     stock,
     mensajes,
+    ruta: "producto",
     interpretacion: {
       canonico: intencion.canonico,
       rubro: intencion.rubro,
@@ -716,6 +785,28 @@ async function responderConsultaCampo(
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const ultimoChat = ultimoAsistente(historial);
+  if (
+    pareceProyecto(texto) &&
+    !pideApartar(texto) &&
+    !cancelaApartado(texto) &&
+    !esSeleccionProducto(texto) &&
+    !pideMostrarProducto(texto) &&
+    !pideResumenPedido(texto, ultimoChat) &&
+    !extraerEdicionPedido(texto)
+  ) {
+    const paquete = await armarPaqueteProyecto(sql, texto, env);
+    const resultadosBom = resultadosDesdePaquete(paquete);
+    if (resultadosBom.length) {
+      const stockBom = stockDesdeResultadosBusqueda(resultadosBom);
+      await recordarHallazgosChat(sql, consulta.id, consulta.dispositivo_id, {
+        hallazgos_chat: resultadosBom,
+        sku_conversacion: stockBom.sku,
+        query_busqueda: texto,
+      });
+    }
+    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", redactarPaqueteMostrador(paquete));
+    return paqueteChat([userMsg, assistantMsg], lineasPedido);
+  }
   const stockFoto = await stockDesdeInventarioLocal(sql, consulta, env);
   const correccionCliente = esCorreccionCliente(texto);
   const verMas = pideMasOpciones(texto);

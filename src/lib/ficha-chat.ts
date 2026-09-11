@@ -24,10 +24,36 @@ export type TarjetaChat = {
   existencia: number;
 };
 
+export type LineaPaqueteBom = {
+  sku: string;
+  nombre: string;
+  cantidad: number;
+  precio: number;
+  existencia: number;
+  grupo: string;
+  url: string;
+};
+
+export type FaltantePaqueteBom = {
+  query: string;
+  grupo: string;
+};
+
+export type PaqueteBom = {
+  titulo: string;
+  resumen?: string;
+  lineas: LineaPaqueteBom[];
+  faltantes: FaltantePaqueteBom[];
+};
+
 const MARCA_FICHA_RE = /\[\[[\s]*ficha[\s]*:[\s]*["']?([A-Za-z0-9._-]+)["']?[\s]*\]\]/gi;
 const MARCA_THUMB_RE = /\[\[[\s]*thumb[\s]*:[\s]*([A-Za-z0-9._-]+)[\s]*\|[\s]*([^\]]+)\]\]/gi;
 const MARCA_CARD_RE =
   /\[\[[\s]*card[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi;
+const MARCA_BOM_RE = /\[\[[\s]*bom[\s]*:[\s]*([^\]]+)\]\]/gi;
+const MARCA_BOMITEM_RE =
+  /\[\[[\s]*bomitem[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi;
+const MARCA_BOMFALTANTE_RE = /\[\[[\s]*bomfaltante[\s]*:[\s]*([^|\]]*)\|([^\]]*)\]\]/gi;
 const MARCA_FOTO_HILO_RE = /\[\[[\s]*foto-hilo[\s]*\]\]/gi;
 const MARCA_RESIDUO_RE = /\[\[[^\]]*\]\]/g;
 
@@ -106,18 +132,86 @@ function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
   return out.slice(0, 12);
 }
 
+export function serializarLineaBom(linea: LineaPaqueteBom): string {
+  return `[[bomitem:${sanitizarCampo(linea.sku).replace(/\s+/g, "")}|${sanitizarCampo(linea.nombre)}|${Math.max(1, Math.trunc(linea.cantidad) || 1)}|${Number.isFinite(linea.precio) ? linea.precio : 0}|${Math.max(0, Math.trunc(linea.existencia) || 0)}|${sanitizarCampo(linea.grupo) || "materiales"}|${sanitizarCampo(linea.url)}]]`;
+}
+
+function fusionarLineasBom(items: LineaPaqueteBom[]): LineaPaqueteBom[] {
+  const vistos = new Set<string>();
+  const out: LineaPaqueteBom[] = [];
+  for (const item of items) {
+    const sku = item.sku.trim();
+    if (!sku) continue;
+    const clave = sku.toLowerCase();
+    if (vistos.has(clave)) continue;
+    vistos.add(clave);
+    out.push({
+      sku,
+      nombre: item.nombre.trim() || sku,
+      cantidad: Math.max(1, Math.trunc(item.cantidad) || 1),
+      precio: Number.isFinite(item.precio) ? item.precio : 0,
+      existencia: Math.max(0, Math.trunc(item.existencia) || 0),
+      grupo: item.grupo.trim() || "materiales",
+      url: item.url.trim(),
+    });
+  }
+  return out.slice(0, 12);
+}
+
 export function extraerMarcaFicha(texto: string): {
   texto: string;
   sku: string | null;
   miniaturas: MiniaturaChat[];
   tarjetas: TarjetaChat[];
   fotoHilo: boolean;
+  paquete: PaqueteBom | null;
 } {
   let sku: string | null = null;
   let fotoHilo = false;
+  let tituloBom = "";
   const miniaturas: MiniaturaChat[] = [];
   const tarjetas: TarjetaChat[] = [];
+  const lineasBom: LineaPaqueteBom[] = [];
+  const faltantes: FaltantePaqueteBom[] = [];
   const limpio = texto
+    .replace(MARCA_BOM_RE, (_, titulo: string) => {
+      const valor = String(titulo ?? "").trim();
+      if (valor && !tituloBom) tituloBom = valor;
+      return "";
+    })
+    .replace(
+      MARCA_BOMITEM_RE,
+      (
+        _: string,
+        code: string,
+        nombre: string,
+        cantidad: string,
+        precio: string,
+        existencia: string,
+        grupo: string,
+        url: string
+      ) => {
+        const clave = String(code ?? "").trim();
+        if (clave) {
+          lineasBom.push({
+            sku: clave,
+            nombre: String(nombre ?? "").trim() || clave,
+            cantidad: Math.max(1, Math.trunc(numeroTarjeta(cantidad)) || 1),
+            precio: numeroTarjeta(precio),
+            existencia: Math.max(0, Math.trunc(numeroTarjeta(existencia))),
+            grupo: String(grupo ?? "").trim() || "materiales",
+            url: String(url ?? "").trim(),
+          });
+          if (!sku) sku = clave;
+        }
+        return "";
+      }
+    )
+    .replace(MARCA_BOMFALTANTE_RE, (_, query: string, grupo: string) => {
+      const pedido = String(query ?? "").trim();
+      if (pedido) faltantes.push({ query: pedido, grupo: String(grupo ?? "").trim() || "materiales" });
+      return "";
+    })
     .replace(MARCA_CARD_RE, (_, code: string, url: string, precio: string, existencia: string, nombre: string) => {
       const tarjeta = tarjetaDesdeCatalogo({
         sku: String(code ?? "").trim(),
@@ -151,7 +245,27 @@ export function extraerMarcaFicha(texto: string): {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { texto: limpio, sku, miniaturas, tarjetas: fusionarTarjetas(tarjetas), fotoHilo };
+  const paquete =
+    tituloBom || lineasBom.length || faltantes.length
+      ? {
+          titulo: tituloBom || "Paquete sugerido",
+          lineas: fusionarLineasBom(lineasBom),
+          faltantes,
+        }
+      : null;
+  return { texto: limpio, sku, miniaturas, tarjetas: fusionarTarjetas(tarjetas), fotoHilo, paquete };
+}
+
+export function conPaqueteBom(texto: string, paquete: PaqueteBom): string {
+  const { texto: cuerpo } = extraerMarcaFicha(texto);
+  const marcas = [
+    `[[bom:${sanitizarCampo(paquete.titulo) || "Paquete sugerido"}]]`,
+    ...fusionarLineasBom(paquete.lineas).map(serializarLineaBom),
+    ...paquete.faltantes
+      .filter((item) => item.query.trim())
+      .map((item) => `[[bomfaltante:${sanitizarCampo(item.query)}|${sanitizarCampo(item.grupo) || "materiales"}]]`),
+  ].join("\n");
+  return `${cuerpo}\n\n${marcas}`.trim();
 }
 
 export function conTarjetas(texto: string, items: TarjetaChat[]): string {

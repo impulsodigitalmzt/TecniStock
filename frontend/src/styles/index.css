@@ -305,6 +305,28 @@
   .busqueda-landing-btn:disabled {
     opacity: 0.45;
   }
+  .busqueda-landing-enviar {
+    width: 2.75rem;
+    height: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .busqueda-landing-adjuntar {
+    width: 2.75rem;
+    height: 2.75rem;
+    color: #e7e5e4;
+    background: #292524;
+    border-radius: 999px;
+  }
+  .busqueda-landing-adjuntar:hover {
+    background: #44403c;
+  }
+  .busqueda-landing-adjuntar:disabled {
+    opacity: 0.4;
+  }
   .busqueda-landing-fila.esta-grabando {
     border-color: #25d366;
     box-shadow: 0 0 0 2px rgba(37, 211, 102, 0.28);
@@ -504,6 +526,60 @@
   }
   .tarjeta-chat-cuerpo {
     @apply px-2.5 pb-2.5 pt-2;
+  }
+  .paquete-bom {
+    @apply overflow-hidden rounded-2xl rounded-bl-sm border border-stone-200 bg-white shadow-sm;
+    width: min(100%, 22rem);
+  }
+  .paquete-bom-head {
+    @apply border-b border-stone-100 bg-orange-50 px-3 py-2.5;
+  }
+  .paquete-bom-kicker {
+    @apply text-[10px] font-bold uppercase tracking-[0.14em] text-orange-700;
+  }
+  .paquete-bom-head h3 {
+    @apply mt-0.5 text-sm font-bold leading-snug text-stone-900;
+  }
+  .paquete-bom-grupo {
+    @apply px-3 py-2;
+  }
+  .paquete-bom-grupo + .paquete-bom-grupo {
+    @apply border-t border-stone-100;
+  }
+  .paquete-bom-grupo-titulo {
+    @apply mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400;
+  }
+  .paquete-bom-linea {
+    @apply flex w-full items-center gap-2 rounded-xl px-1 py-1.5 text-left;
+  }
+  .paquete-bom-linea:hover:not(:disabled) {
+    background: #fff7ed;
+  }
+  .paquete-bom-linea:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+  .paquete-bom-linea img,
+  .paquete-bom-sin-foto {
+    @apply h-11 w-11 shrink-0 rounded-lg object-cover bg-stone-100;
+  }
+  .paquete-bom-sin-foto {
+    @apply flex items-center justify-center text-[9px] font-semibold text-stone-400;
+  }
+  .paquete-bom-faltantes {
+    @apply border-t border-stone-100 px-3 py-2 text-[11px] leading-relaxed text-stone-500;
+  }
+  .paquete-bom-pie {
+    @apply flex items-center justify-between gap-2 border-t border-stone-100 bg-stone-50 px-3 py-2.5;
+  }
+  .paquete-bom-agregar {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white;
+  }
+  .paquete-bom-agregar:disabled {
+    opacity: 0.45;
+  }
+  .paquete-bom-agregar:hover:not(:disabled) {
+    background: #c2410c;
   }
   .tarjeta-chat-elegir {
     @apply mt-2 flex min-h-[1.75rem] w-full items-center justify-center rounded-lg bg-orange-500 px-2 py-1.5 text-center text-[11px] font-semibold text-white;
@@ -1055,8 +1131,17 @@ html.dark section {
 .dark .border-stone-200 { border-color: #2a3942 !important; }
 .dark .tarjeta-chat,
 .dark .ficha-chat,
-.dark .tarjeta-alt {
+.dark .tarjeta-alt,
+.dark .paquete-bom {
   background-color: #1f2c34;
+  border-color: #2a3942;
+}
+.dark .paquete-bom-head {
+  background-color: #3b2415;
+  border-color: #2a3942;
+}
+.dark .paquete-bom-pie {
+  background-color: #172127;
   border-color: #2a3942;
 }
 .dark .composer-wa {
