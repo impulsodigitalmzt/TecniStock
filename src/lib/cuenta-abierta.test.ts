@@ -3,9 +3,11 @@ import { describe, it } from "node:test";
 import {
   asegurarCierreAbierto,
   cantidadDesdeConsulta,
+  esNegociacionMostrador,
   fusionarLineasPedido,
   lineaDesdeInventario,
   pideCerrarCuenta,
+  ponerLineasPedido,
   ultimoTextoUsuario,
 } from "./cuenta-abierta.ts";
 
@@ -34,8 +36,34 @@ describe("cuenta abierta de mostrador", () => {
   it("mantiene la cuenta abierta salvo cierre explícito", () => {
     assert.equal(pideCerrarCuenta("también cinta de teflón"), false);
     assert.equal(pideCerrarCuenta("es todo"), true);
+    assert.equal(pideCerrarCuenta("con esto cerramos"), true);
+    assert.equal(pideCerrarCuenta("nada mas"), true);
     assert.match(asegurarCierreAbierto("Ya lo agregué a tu lista."), /Se te ofrece algo más/);
     assert.equal(asegurarCierreAbierto("¿Se te ofrece algo más o con esto cerramos?"), "¿Se te ofrece algo más o con esto cerramos?");
+  });
+
+  it("no cierra si el cliente objeta metros, rollos o cantidades", () => {
+    const objecion = "pero un rollo de cable es demasiado, solo ocupo como uso 5 metros nada mas";
+    assert.equal(esNegociacionMostrador(objecion), true);
+    assert.equal(pideCerrarCuenta(objecion), false);
+    assert.equal(esNegociacionMostrador("el rollo de 100m es mucho, ocupo 5 metros"), true);
+    assert.equal(pideCerrarCuenta("el rollo de 100m es mucho, ocupo 5 metros"), false);
+    assert.equal(pideCerrarCuenta("¿me puedes dejar solo 5 metros?"), false);
+    assert.equal(esNegociacionMostrador("me das el rollo de cinta"), false);
+  });
+
+  it("sustituye las líneas del paquete sin sumar encima", () => {
+    const cuenta = ponerLineasPedido(
+      [
+        { sku: "CAB-10", nombre: "Rollo 100m", cantidad: 1, precio: 1450 },
+        { sku: "TEF-12", nombre: "Cinta teflón", cantidad: 1, precio: 12 },
+      ],
+      [{ sku: "INT-30", nombre: "Termomagnético", cantidad: 1, precio: 260 }],
+      ["CAB-10", "INT-30"]
+    );
+    assert.equal(cuenta.some((linea) => linea.sku === "CAB-10"), false);
+    assert.equal(cuenta.find((linea) => linea.sku === "TEF-12")?.cantidad, 1);
+    assert.equal(cuenta.find((linea) => linea.sku === "INT-30")?.cantidad, 1);
   });
 
   it("toma el último turno del cliente si mandan el hilo completo", () => {

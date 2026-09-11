@@ -20,4 +20,11 @@ describe("orquestador de intención TecniStock", () => {
     assert.equal(clasificarIntencionHeuristica("instalar una bomba de cisterna").ruta, "proyecto");
     assert.equal(clasificarIntencionHeuristica("lista de materiales para acometida").ruta, "proyecto");
   });
+
+  it("no trata una objeción de metros como proyecto nuevo", () => {
+    assert.equal(
+      clasificarIntencionHeuristica("pero un rollo de cable es demasiado, solo ocupo 5 metros nada mas").ruta,
+      "producto"
+    );
+  });
 });

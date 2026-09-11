@@ -12,6 +12,7 @@ import {
   resolverFichaSolicitada,
   tarjetaDesdeCatalogo,
   textoHiloParaLlm,
+  ultimoPaqueteDelHilo,
   type TarjetaChat,
 } from "../lib/ficha-chat";
 import { dataUrlDesdeBase64, identificarPiezaConVision, type PiezaDetectada } from "../lib/pieza-ia";
@@ -61,9 +62,11 @@ import {
 import {
   asegurarCierreAbierto,
   cantidadDesdeConsulta,
+  esNegociacionMostrador,
   fusionarLineasPedido,
   lineaDesdeInventario,
   pideCerrarCuenta,
+  ponerLineasPedido,
   ultimoTextoUsuario,
 } from "../lib/cuenta-abierta";
 import { createSql } from "../db";
@@ -103,6 +106,23 @@ function dispositivoDe(c: { req: { header: (name: string) => string | undefined 
   return validarDispositivoId(c.req.header("X-Dispositivo-Id"));
 }
 
+function historialDesdeCliente(messages: unknown): { rol: string; texto: string }[] {
+  if (!Array.isArray(messages)) return [];
+  const out: { rol: string; texto: string }[] = [];
+  for (const row of messages) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const role = String(item.role ?? item.rol ?? "").toLowerCase();
+    const content = String(item.content ?? item.texto ?? "").trim();
+    if (!content) continue;
+    out.push({
+      rol: role === "assistant" || role === "asistente" ? "assistant" : "user",
+      texto: content,
+    });
+  }
+  return out.slice(-16);
+}
+
 consultasCampoRoutes.get("/", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
@@ -126,7 +146,9 @@ consultasCampoRoutes.post("/texto", async (c) => {
 
   const clasificacion = sku ? { ruta: "producto" as const } : await clasificarIntencion(q, c.env);
   if (!sku && clasificacion.ruta === "proyecto") {
-    const paquete = await armarPaqueteProyecto(sql, q, c.env);
+    const paquete = await armarPaqueteProyecto(sql, q, c.env, {
+      historial: historialDesdeCliente(body.messages),
+    });
     const resultados = resultadosDesdePaquete(paquete);
     const stock = stockDesdeResultadosBusqueda(resultados);
     const pieza = piezaDesdeIntencion(interpretarEntrada({ origen: "texto", texto: q }), paquete.titulo);
@@ -137,7 +159,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
       pieza,
       stock,
       mensajeUsuario: q,
-      mensajeAsistente: asegurarCierreAbierto(redactarPaqueteMostrador(paquete)),
+      mensajeAsistente: redactarPaqueteMostrador(paquete),
     });
     const lineas = lineasDesdeBom(paquete);
     if (lineas.length) {
@@ -857,24 +879,42 @@ async function responderConsultaCampo(
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const ultimoChat = ultimoAsistente(historial);
+  const paquetePrevio = ultimoPaqueteDelHilo(historial);
+  const negociacion = esNegociacionMostrador(texto);
   const cierraCuenta = pideCerrarCuenta(texto);
-  if (cierraCuenta && !pareceProyecto(texto) && !pideApartar(texto) && !cancelaApartado(texto)) {
+  if (
+    cierraCuenta &&
+    !negociacion &&
+    !pareceProyecto(texto) &&
+    !pideApartar(texto) &&
+    !cancelaApartado(texto)
+  ) {
     const cuerpo = lineasPedido.length
       ? `${textoCuentaPedido(lineasPedido)} Si quieres, lo apartamos a tu nombre para recoger en tienda.`
       : "Aún no hay piezas en la cuenta. Dime qué ocupas y te lo voy sumando.";
     const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", cuerpo);
     return paqueteChat([userMsg, assistantMsg], lineasPedido);
   }
-  if (
+  const debeAjustarPaquete =
+    Boolean(paquetePrevio?.lineas.length) &&
+    negociacion &&
+    !pideApartar(texto) &&
+    !cancelaApartado(texto);
+  const debeArmarPaquete =
+    !debeAjustarPaquete &&
     pareceProyecto(texto) &&
     !pideApartar(texto) &&
     !cancelaApartado(texto) &&
     !esSeleccionProducto(texto) &&
     !pideMostrarProducto(texto) &&
     !pideResumenPedido(texto, ultimoChat) &&
-    !extraerEdicionPedido(texto)
-  ) {
-    const paquete = await armarPaqueteProyecto(sql, texto, env);
+    !extraerEdicionPedido(texto);
+  if (debeAjustarPaquete || debeArmarPaquete) {
+    const paquete = await armarPaqueteProyecto(sql, texto, env, {
+      historial,
+      paquetePrevio,
+      ajuste: debeAjustarPaquete,
+    });
     const resultadosBom = resultadosDesdePaquete(paquete);
     if (resultadosBom.length) {
       const stockBom = stockDesdeResultadosBusqueda(resultadosBom);
@@ -884,13 +924,20 @@ async function responderConsultaCampo(
         query_busqueda: texto,
       });
     }
-    lineasPedido = fusionarLineasPedido(lineasPedido, lineasDesdeBom(paquete));
+    const lineasBom = lineasDesdeBom(paquete);
+    lineasPedido = debeAjustarPaquete
+      ? ponerLineasPedido(
+          lineasPedido,
+          lineasBom,
+          (paquetePrevio?.lineas ?? []).map((linea) => linea.sku)
+        )
+      : fusionarLineasPedido(lineasPedido, lineasBom);
     await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
     const assistantMsg = await agregarMensajeCampo(
       sql,
       consulta.id,
       "assistant",
-      asegurarCierreAbierto(redactarPaqueteMostrador(paquete))
+      redactarPaqueteMostrador(paquete, { ajuste: debeAjustarPaquete })
     );
     return paqueteChat([userMsg, assistantMsg], lineasPedido);
   }
@@ -1015,7 +1062,10 @@ async function responderConsultaCampo(
 
   const entraApartadoAhora =
     pideApartar(texto) || afirmaApartado(texto, ultimoChat) || cancelaApartado(texto);
-  if (pideResumenPedido(texto, ultimoChat) || ((ajuste.cambio || Boolean(ajuste.avisoTope)) && !entraApartadoAhora)) {
+  if (
+    !negociacion &&
+    (pideResumenPedido(texto, ultimoChat) || ((ajuste.cambio || Boolean(ajuste.avisoTope)) && !entraApartadoAhora))
+  ) {
     const yaCuenta = /Total a pagar|Aún no hay piezas/.test(ajuste.avisoTope);
     const cuerpo = yaCuenta
       ? ajuste.avisoTope.trim()
@@ -1063,7 +1113,7 @@ async function responderConsultaCampo(
         { role: "system", content: PROMPT_CHAT_CAMPO },
         {
           role: "user",
-          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pregunta cuántos o cuáles artículos lleva, lista CADA línea de pedido.lineas (nombre, SKU, cantidad, subtotal) y copia pedido.total_obligatorio; PROHIBIDO inventar cantidades o decir solo el número. PROHIBIDO preguntar qué más pidió si ya está en pedido. Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pregunta cuántos o cuáles artículos lleva, lista CADA línea de pedido.lineas (nombre, SKU, cantidad, subtotal) y copia pedido.total_obligatorio; PROHIBIDO inventar cantidades o decir solo el número. PROHIBIDO preguntar qué más pidió si ya está en pedido. Si sesion.negociacion=true, el cliente objetó cantidades o medidas: confirma el pedido YA actualizado; PROHIBIDO resumen final, apartado o «¿cerramos?». Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
           correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,
@@ -1112,7 +1162,8 @@ async function responderConsultaCampo(
           pedido,
           sesion: {
             cuenta_abierta: true,
-            cierre_solicitado: cierraCuenta,
+            cierre_solicitado: cierraCuenta && !negociacion,
+            negociacion,
             mencionados: mencionadosEnHilo(historial),
           },
           estatus: consulta.pieza_estatus,
@@ -1157,7 +1208,7 @@ async function responderConsultaCampo(
     resultadosBusqueda,
     stock: stockParaFicha,
   });
-  textoAsesor = asegurarCierreAbierto(textoAsesor, entraApartadoAhora || cierraCuenta);
+  textoAsesor = asegurarCierreAbierto(textoAsesor, entraApartadoAhora || cierraCuenta || negociacion);
   await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
   const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
   return paqueteChat([userMsg, assistantMsg], lineasPedido);

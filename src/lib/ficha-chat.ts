@@ -322,6 +322,16 @@ export function mencionadosEnHilo(historial: { rol: string; texto: string }[]): 
   return out.slice(0, 24);
 }
 
+export function ultimoPaqueteDelHilo(historial: { rol: string; texto: string }[]): PaqueteBom | null {
+  for (let i = historial.length - 1; i >= 0; i -= 1) {
+    const msg = historial[i];
+    if (!msg || msg.rol !== "assistant") continue;
+    const paquete = extraerMarcaFicha(msg.texto).paquete;
+    if (paquete?.lineas.length) return paquete;
+  }
+  return null;
+}
+
 export function textoHiloParaLlm(texto: string): string {
   const marca = extraerMarcaFicha(texto);
   const notas: string[] = [];
