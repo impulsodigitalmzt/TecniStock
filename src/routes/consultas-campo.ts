@@ -6,10 +6,12 @@ import { cantidadStock, familiaCatalogo, limitarAlternativas, type BloqueStock, 
 import {
   conTarjetas,
   extraerMarcaFicha,
+  mencionadosEnHilo,
   MARCA_FOTO_HILO,
   pideMostrarProducto,
   resolverFichaSolicitada,
   tarjetaDesdeCatalogo,
+  textoHiloParaLlm,
   type TarjetaChat,
 } from "../lib/ficha-chat";
 import { dataUrlDesdeBase64, identificarPiezaConVision, type PiezaDetectada } from "../lib/pieza-ia";
@@ -56,6 +58,14 @@ import {
   redactarPaqueteMostrador,
   resultadosDesdePaquete,
 } from "../lib/orquestador-intencion";
+import {
+  asegurarCierreAbierto,
+  cantidadDesdeConsulta,
+  fusionarLineasPedido,
+  lineaDesdeInventario,
+  pideCerrarCuenta,
+  ultimoTextoUsuario,
+} from "../lib/cuenta-abierta";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -107,8 +117,10 @@ consultasCampoRoutes.get("/", async (c) => {
 consultasCampoRoutes.post("/texto", async (c) => {
   const sql = await sqlCampo(c.env);
   const dispositivo = dispositivoDe(c);
-  const body = await c.req.json<{ q?: string; sku?: string }>().catch(() => ({} as { q?: string; sku?: string }));
-  const q = String(body.q ?? "").trim().slice(0, 400);
+  const body = await c.req.json<{ q?: string; sku?: string; messages?: unknown }>().catch(
+    () => ({} as { q?: string; sku?: string; messages?: unknown })
+  );
+  const q = ultimoTextoUsuario(body.messages, String(body.q ?? "")).trim().slice(0, 400);
   const sku = String(body.sku ?? "").trim();
   if (!q && !sku) throw new AppError(400, "Escribe lo que ocupas o un SKU. La foto no es obligatoria.", "QUERY_REQUIRED");
 
@@ -125,8 +137,12 @@ consultasCampoRoutes.post("/texto", async (c) => {
       pieza,
       stock,
       mensajeUsuario: q,
-      mensajeAsistente: redactarPaqueteMostrador(paquete),
+      mensajeAsistente: asegurarCierreAbierto(redactarPaqueteMostrador(paquete)),
     });
+    const lineas = lineasDesdeBom(paquete);
+    if (lineas.length) {
+      await recordarPedidoCampo(sql, consulta.id, dispositivo, lineas);
+    }
     if (resultados.length) {
       await recordarHallazgosChat(sql, consulta.id, dispositivo, {
         hallazgos_chat: resultados,
@@ -143,6 +159,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
       pieza: piezaPublicaCampo(pieza),
       stock,
       mensajes,
+      pedido: snapshotPedido(lineas),
       ruta: "proyecto",
       interpretacion: { canonico: paquete.titulo, rubro: pieza.categoria, familia: null },
     });
@@ -195,7 +212,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
   else if (intencion.rubro) pieza.categoria = intencion.rubro;
 
   const mensajeAsistente = conTarjetas(
-    redactarMensajeInicial(pieza.nombre, stock, "texto"),
+    asegurarCierreAbierto(redactarMensajeInicial(pieza.nombre, stock, "texto")),
     catalogo.slice(0, 8).map((item) => tarjetaDesdeCatalogo(item))
   );
   const consulta = await crearConsultaCampo(sql, {
@@ -205,6 +222,12 @@ consultasCampoRoutes.post("/texto", async (c) => {
     mensajeUsuario: q ? q : `Seleccioné ${pieza.nombre}`,
     mensajeAsistente,
   });
+  const lineas = sku
+    ? lineasDesdeResultados(resultados, 1)
+    : lineasDesdeResultados(resultados, cantidadDesdeConsulta(q));
+  if (lineas.length) {
+    await recordarPedidoCampo(sql, consulta.id, dispositivo, lineas);
+  }
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
     ok: true,
@@ -214,6 +237,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
     pieza: piezaPublicaCampo(pieza),
     stock,
     mensajes,
+    pedido: snapshotPedido(lineas),
     ruta: "producto",
     interpretacion: {
       canonico: intencion.canonico,
@@ -371,8 +395,10 @@ consultasCampoRoutes.post("/:id/mensajes", async (c) => {
     const sql = await sqlCampo(c.env);
     const dispositivo = dispositivoDe(c);
     const consulta = await obtenerConsultaCampo(sql, c.req.param("id"), dispositivo);
-    const body = await c.req.json<{ texto?: string; lineas?: unknown }>().catch(() => ({} as { texto?: string; lineas?: unknown }));
-    const texto = (body.texto ?? "").trim();
+    const body = await c.req.json<{ texto?: string; lineas?: unknown; messages?: unknown }>().catch(
+      () => ({} as { texto?: string; lineas?: unknown; messages?: unknown })
+    );
+    const texto = ultimoTextoUsuario(body.messages, body.texto ?? "").trim();
     if (!texto) throw new AppError(400, "Escribe un mensaje de texto.", "MENSAJE_VACIO");
     const { mensajes, pedido } = await responderConsultaCampo(c.env, sql, consulta, texto, body.lineas);
     return c.json({ ok: true, mensajes, pedido });
@@ -426,8 +452,27 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
     query_busqueda: (pieza.palabras_clave ?? []).join(" "),
   });
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", MARCA_FOTO_HILO);
-  const textoAsesor = redactarMensajeFotoHilo(pieza.nombre, stock);
+  const tarjetasFoto = catalogoParaTarjetas(stock, []);
+  const textoAsesor = conTarjetas(
+    asegurarCierreAbierto(redactarMensajeFotoHilo(pieza.nombre, stock)),
+    tarjetasFoto.slice(0, 8).map((item) => tarjetaDesdeCatalogo(item))
+  );
   await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
+  const lineasFoto = lineasPedidoActual(consulta, undefined);
+  const nuevasFoto = lineaDesdeInventario(
+    {
+      sku: stock.sku,
+      nombre: stock.nombre,
+      existencia: cantidadStock(stock),
+      precio: stock.precio,
+      url_imagen: stock.url_imagen,
+    },
+    1
+  );
+  const pedidoFoto = fusionarLineasPedido(lineasFoto, nuevasFoto ? [nuevasFoto] : []);
+  if (pedidoFoto.length) {
+    await recordarPedidoCampo(sql, consulta.id, dispositivo, pedidoFoto);
+  }
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
     ok: true,
@@ -435,6 +480,7 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
     pieza: piezaPublicaCampo(pieza),
     stock,
     mensajes,
+    pedido: snapshotPedido(pedidoFoto),
     mensaje_usuario_id: userMsg.id,
   });
 });
@@ -571,6 +617,29 @@ function lineasPedidoActual(consulta: ConsultaCampo, raw: unknown): LineaCarrito
   return normalizarLineasCarrito(guardado);
 }
 
+function lineasDesdeResultados(resultados: ResultadoBusquedaInventario[], cantidad = 1): LineaCarrito[] {
+  const primaria = resultados.find((item) => item.stock_disponible > 0);
+  const linea = primaria ? lineaDesdeInventario(primaria, cantidad) : null;
+  return linea ? [linea] : [];
+}
+
+function lineasDesdeBom(paquete: { lineas: Array<{ sku: string; nombre: string; cantidad: number; precio: number; existencia: number; url: string }> }): LineaCarrito[] {
+  return paquete.lineas
+    .map((linea) =>
+      lineaDesdeInventario(
+        {
+          sku: linea.sku,
+          nombre: linea.nombre,
+          existencia: linea.existencia,
+          precio: linea.precio,
+          url: linea.url,
+        },
+        linea.cantidad
+      )
+    )
+    .filter((item): item is LineaCarrito => Boolean(item));
+}
+
 function queryRespaldoCorreccion(consulta: ConsultaCampo): string {
   const pieza = consulta.pieza ?? {};
   const claves = Array.isArray(pieza.palabras_clave) ? pieza.palabras_clave.map((item) => String(item)) : [];
@@ -684,6 +753,9 @@ function adjuntarTarjetasRespuesta(opts: {
   stock: BloqueStock;
 }): string {
   const extraidas = extraerMarcaFicha(opts.texto);
+  if (extraidas.paquete && extraidas.paquete.lineas.length > 0) {
+    return opts.texto;
+  }
   const tarjetas: TarjetaChat[] = [...extraidas.tarjetas];
   const catalogo = catalogoParaTarjetas(opts.stock, opts.resultadosBusqueda);
   const resolver = (sku: string) => catalogo.find((item) => item.sku.toLowerCase() === sku.trim().toLowerCase());
@@ -785,6 +857,14 @@ async function responderConsultaCampo(
   const userMsg = await agregarMensajeCampo(sql, consulta.id, "user", texto);
   const historial = await listarMensajesCampo(sql, consulta.id);
   const ultimoChat = ultimoAsistente(historial);
+  const cierraCuenta = pideCerrarCuenta(texto);
+  if (cierraCuenta && !pareceProyecto(texto) && !pideApartar(texto) && !cancelaApartado(texto)) {
+    const cuerpo = lineasPedido.length
+      ? `${textoCuentaPedido(lineasPedido)} Si quieres, lo apartamos a tu nombre para recoger en tienda.`
+      : "Aún no hay piezas en la cuenta. Dime qué ocupas y te lo voy sumando.";
+    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", cuerpo);
+    return paqueteChat([userMsg, assistantMsg], lineasPedido);
+  }
   if (
     pareceProyecto(texto) &&
     !pideApartar(texto) &&
@@ -804,7 +884,14 @@ async function responderConsultaCampo(
         query_busqueda: texto,
       });
     }
-    const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", redactarPaqueteMostrador(paquete));
+    lineasPedido = fusionarLineasPedido(lineasPedido, lineasDesdeBom(paquete));
+    await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
+    const assistantMsg = await agregarMensajeCampo(
+      sql,
+      consulta.id,
+      "assistant",
+      asegurarCierreAbierto(redactarPaqueteMostrador(paquete))
+    );
     return paqueteChat([userMsg, assistantMsg], lineasPedido);
   }
   const stockFoto = await stockDesdeInventarioLocal(sql, consulta, env);
@@ -891,6 +978,21 @@ async function responderConsultaCampo(
   const ajuste = aplicarEdicionPedido(texto, lineasPedido, stockVivo, extraPedido);
   if (ajuste.cambio) {
     lineasPedido = ajuste.lineas;
+  }
+  if (
+    !ajuste.cambio &&
+    !seguimiento &&
+    !verMas &&
+    !cierraCuenta &&
+    consultaSecundaria &&
+    resultadosBusqueda.length > 0
+  ) {
+    lineasPedido = fusionarLineasPedido(
+      lineasPedido,
+      lineasDesdeResultados(resultadosBusqueda, cantidadDesdeConsulta(texto))
+    );
+  }
+  if (ajuste.cambio || consultaSecundaria) {
     await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
   }
   const pedido = snapshotPedido(lineasPedido);
@@ -902,7 +1004,10 @@ async function responderConsultaCampo(
         sql,
         consulta.id,
         "assistant",
-        conTarjetas(`Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`, [tarjetaDesdeCatalogo(ficha)])
+        conTarjetas(
+          asegurarCierreAbierto(`Te muestro la ficha de ${ficha.nombre} con foto de anaquel.`),
+          [tarjetaDesdeCatalogo(ficha)]
+        )
       );
       return paqueteChat([userMsg, assistantMsg], lineasPedido);
     }
@@ -1005,12 +1110,17 @@ async function responderConsultaCampo(
             sustituto: alternativas[0] ?? null,
           },
           pedido,
+          sesion: {
+            cuenta_abierta: true,
+            cierre_solicitado: cierraCuenta,
+            mencionados: mencionadosEnHilo(historial),
+          },
           estatus: consulta.pieza_estatus,
         })}`,
       },
-      ...historial.slice(-12).map((msg) => ({
+      ...historial.slice(-30).map((msg) => ({
         role: msg.rol === "user" ? ("user" as const) : ("assistant" as const),
-        content: extraerMarcaFicha(msg.texto).texto,
+        content: textoHiloParaLlm(msg.texto) || extraerMarcaFicha(msg.texto).texto,
       })),
     ],
     { maxTokens: 700, temperature: 0.3 }
@@ -1047,6 +1157,8 @@ async function responderConsultaCampo(
     resultadosBusqueda,
     stock: stockParaFicha,
   });
+  textoAsesor = asegurarCierreAbierto(textoAsesor, entraApartadoAhora || cierraCuenta);
+  await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
   const assistantMsg = await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
   return paqueteChat([userMsg, assistantMsg], lineasPedido);
 }
@@ -1069,6 +1181,7 @@ function resumenConsulta(consulta: ConsultaCampo) {
 }
 
 function detalleConsulta(consulta: ConsultaCampo) {
+  const pedido = snapshotPedido(lineasPedidoActual(consulta, undefined));
   return {
     ...resumenConsulta(consulta),
     apartado: consulta.apartado,
@@ -1076,6 +1189,7 @@ function detalleConsulta(consulta: ConsultaCampo) {
     pieza_medida: consulta.pieza_medida,
     pieza: consulta.pieza,
     stock: consulta.stock,
+    pedido,
     updated_at: consulta.updated_at,
   };
 }

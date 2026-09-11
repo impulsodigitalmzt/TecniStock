@@ -301,6 +301,40 @@ export function conMiniaturas(texto: string, items: MiniaturaChat[]): string {
   return marcas ? `${base}\n\n${marcas}`.trim() : base;
 }
 
+export function mencionadosEnHilo(historial: { rol: string; texto: string }[]): string[] {
+  const out: string[] = [];
+  const vistos = new Set<string>();
+  const meter = (valor: string) => {
+    const nombre = valor.trim();
+    if (!nombre) return;
+    const clave = nombre.toLowerCase();
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    out.push(nombre);
+  };
+  for (const msg of historial) {
+    if (msg.rol !== "assistant") continue;
+    const marca = extraerMarcaFicha(msg.texto);
+    if (marca.paquete?.titulo) meter(`paquete ${marca.paquete.titulo}`);
+    for (const linea of marca.paquete?.lineas ?? []) meter(linea.nombre);
+    for (const tarjeta of marca.tarjetas) meter(tarjeta.nombre);
+  }
+  return out.slice(0, 24);
+}
+
+export function textoHiloParaLlm(texto: string): string {
+  const marca = extraerMarcaFicha(texto);
+  const notas: string[] = [];
+  if (marca.paquete) {
+    const piezas = marca.paquete.lineas.map((linea) => `${linea.nombre} x${linea.cantidad}`).join(", ");
+    notas.push(`paquete ${marca.paquete.titulo}${piezas ? `: ${piezas}` : ""}`);
+  }
+  if (marca.tarjetas.length) {
+    notas.push(`tarjetas: ${marca.tarjetas.map((item) => item.nombre).join(", ")}`);
+  }
+  return [marca.texto, notas.length ? `(mostré ${notas.join("; ")})` : ""].filter(Boolean).join(" ").trim();
+}
+
 export function pideMostrarProducto(texto: string): boolean {
   const t = norm(texto);
   return (

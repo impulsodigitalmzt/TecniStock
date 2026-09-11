@@ -136,7 +136,7 @@ export function textoCuentaPedido(lineas: LineaCarrito[]): string {
     )
     .join("\n");
   const articulos = snap.lineas.length === 1 ? "1 artículo" : `${snap.lineas.length} artículos`;
-  return `Esta es tu cuenta (${articulos}, ${snap.piezas} pza):\n\n${lista}\n\nTotal a pagar: ${snap.total_obligatorio}\n\n¿Lo apartamos, le agregamos o le quitamos algo?`;
+  return `Esta es tu cuenta (${articulos}, ${snap.piezas} pza):\n\n${lista}\n\nTotal a pagar: ${snap.total_obligatorio}\n\n¿Se te ofrece algo más o con esto cerramos?`;
 }
 
 export type ItemCatalogoPedido = {

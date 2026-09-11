@@ -367,6 +367,24 @@ function normaTexto(texto: string): string {
   return texto.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
+function hiloParaApi(
+  mensajes: Mensaje[],
+  extraUser?: string
+): { role: 'user' | 'assistant'; content: string }[] {
+  const out: { role: 'user' | 'assistant'; content: string }[] = [];
+  for (const msg of mensajes) {
+    if (msg.rol !== 'user' && msg.rol !== 'assistant') continue;
+    const content = extraerMarcaFicha(msg.texto).texto || (msg.rol === 'user' ? msg.texto : '');
+    if (!content.trim() && msg.rol !== 'user') continue;
+    out.push({
+      role: msg.rol === 'user' ? 'user' : 'assistant',
+      content: content.trim() || msg.texto,
+    });
+  }
+  if (extraUser?.trim()) out.push({ role: 'user', content: extraUser.trim() });
+  return out;
+}
+
 type BurbujaChat = {
   id: string;
   rol: string;
@@ -452,14 +470,14 @@ function burbujasChat(
       if (norma === pregunta) continue;
       if (esOpenerInventario(cuerpo)) {
         const textoCorto = recortarListaMostrador(cuerpo);
-        if (openerNorma && normaTexto(textoCorto) === openerNorma) continue;
+        if (openerNorma && normaTexto(textoCorto) === openerNorma && !marca.tarjetas.length && !marca.paquete) continue;
         resto.push({
           id: msg.id,
           rol: 'assistant',
           texto: textoCorto,
-          fichaSku: null,
-          miniaturas: [],
-          tarjetas: [],
+          fichaSku: marca.sku,
+          miniaturas: marca.miniaturas,
+          tarjetas: marca.tarjetas,
           fotoHilo: false,
           paquete: marca.paquete,
         });
@@ -787,14 +805,14 @@ function openerDesdeStock(nombre: string, stock: BloqueStock): string {
   if (stock.forzado && hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : '';
     const etiqueta = stock.nombre || pieza;
-    return `En inventario local encontré ${etiqueta} (${stock.sku}). Hay existencia (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    return `En inventario local encontré ${etiqueta} (${stock.sku}). Hay existencia (${piezas} pza).${donde} Ya lo agregué a tu lista. ¿Se te ofrece algo más o con esto cerramos?`;
   }
   if (catalogoVacio && !stock.encontrado && !lista) {
     return `He identificado un ${pieza}. No cuento con ese artículo ni con una alternativa en el inventario local actual.`;
   }
   if (hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : '';
-    return `He identificado un ${pieza}. Hay existencia en inventario local (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    return `He identificado un ${pieza}. Hay existencia en inventario local (${piezas} pza).${donde} Ya lo agregué a tu lista. ¿Se te ofrece algo más o con esto cerramos?`;
   }
   if (stock.encontrado && piezas <= 0) {
     if (lista) {
@@ -1409,6 +1427,7 @@ export default function App() {
           stock: BloqueStock;
           expires_at: string;
           pieza_nombre: string;
+          pedido?: { lineas: LineaCarrito[] };
         };
         mensajes: Mensaje[];
       }>(await fetchCampo(`/api/consultas/${id}`), 'No se encontró la consulta.');
@@ -1425,6 +1444,13 @@ export default function App() {
         stock: data.consulta.stock,
       });
       setMensajes(data.mensajes ?? []);
+      setCarrito(
+        aplicarPedidoServidor(
+          [],
+          data.consulta.pedido ??
+            (data.consulta.stock as BloqueStock & { pedido?: { lineas: LineaCarrito[] } }).pedido
+        )
+      );
       soltarUrlsLocales();
       let locales: string[] = [];
       try {
@@ -1483,6 +1509,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             texto,
+            messages: hiloParaApi(mensajes, texto),
             lineas: carrito.map((linea) => ({
               sku: linea.sku,
               nombre: linea.nombre,
@@ -1535,6 +1562,7 @@ export default function App() {
         pieza: PiezaDetectada;
         stock: BloqueStock;
         mensajes: Mensaje[];
+        pedido?: { lineas: LineaCarrito[] };
         mensaje_usuario_id?: string;
         expires_at?: string;
         detail?: string;
@@ -1556,6 +1584,7 @@ export default function App() {
       });
       if (data.expires_at) setExpiresAt(data.expires_at);
       setMensajes(data.mensajes ?? []);
+      setCarrito((prev) => aplicarPedidoServidor(prev, data.pedido));
       const realId = data.mensaje_usuario_id;
       setFotosHilo((prev) => {
         const next = { ...prev };
@@ -1607,12 +1636,17 @@ export default function App() {
         pieza: PiezaDetectada;
         stock: BloqueStock;
         mensajes?: Mensaje[];
+        pedido?: { lineas: LineaCarrito[] };
         detail?: string;
       }>(
         await fetchCampo('/api/consultas/texto', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ q: query, sku: sku || undefined }),
+          body: JSON.stringify({
+            q: query,
+            sku: sku || undefined,
+            messages: [{ role: 'user', content: query }],
+          }),
         }),
         'No se pudo buscar esa pieza.'
       );
@@ -1630,19 +1664,7 @@ export default function App() {
       setBuscadorAbierto(false);
       setQueryBusqueda('');
       setResultadosBusqueda([]);
-      if (sku) {
-        const elegido = resultadosBusqueda.find((item) => item.sku === sku);
-        setCarrito((prev) =>
-          agregarAlCarrito(prev, {
-            sku,
-            nombre: elegido?.nombre || data.stock.nombre || data.pieza.nombre,
-            cantidad: 1,
-            precio: elegido?.precio ?? data.stock.precio ?? 0,
-            url_imagen: elegido?.url_imagen ?? data.stock.url_imagen,
-            existencia: elegido?.stock_disponible ?? data.stock.stock_disponible ?? 0,
-          })
-        );
-      }
+      setCarrito((prev) => aplicarPedidoServidor(prev, data.pedido));
       void cargarHistorial();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo buscar esa pieza.');
@@ -2989,6 +3011,18 @@ export default function App() {
                         }
                         const tarjetas = stock ? tarjetasDeBurbuja(msg, stock, pieza ?? null) : msg.tarjetas;
                         const paquete = msg.paquete;
+                        const stockCarrusel = stock ?? {
+                          encontrado: false,
+                          sku: null,
+                          nombre: null,
+                          material: null,
+                          medida: null,
+                          existencia: 0,
+                          precio: null,
+                          moneda: 'MXN',
+                          requiere_sustituto: false,
+                          sustituto: null,
+                        };
                         return (
                           <div key={msg.id} className="hilo-turno space-y-2">
                             {msg.texto ? (
@@ -2999,16 +3033,16 @@ export default function App() {
                             {paquete && (paquete.lineas.length > 0 || paquete.faltantes.length > 0) ? (
                               <PaqueteBomEnChat
                                 paquete={paquete}
-                                moneda={stock?.moneda ?? 'MXN'}
+                                moneda={stockCarrusel.moneda}
                                 disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                                 cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
                                 onAgregarLinea={agregarLineaPaquete}
                                 onAgregarPaquete={agregarPaqueteAlPedido}
                               />
-                            ) : tarjetas.length > 0 && stock ? (
+                            ) : tarjetas.length > 0 ? (
                               <CarruselEnChat
                                 tarjetas={tarjetas}
-                                stock={stock}
+                                stock={stockCarrusel}
                                 disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                                 aplicandoSku={aplicandoSku}
                                 onElegir={elegirProductoCarrusel}

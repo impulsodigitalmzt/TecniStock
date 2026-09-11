@@ -17,6 +17,7 @@ import {
   type ClasificacionIntencion,
   type RutaIntencion,
 } from "./intencion-ruta";
+import { CIERRE_CUENTA_ABIERTA } from "./cuenta-abierta";
 
 export { clasificarIntencionHeuristica, pareceProyecto };
 export type { ClasificacionIntencion, RutaIntencion };
@@ -244,7 +245,7 @@ export function redactarPaqueteMostrador(paquete: PaqueteBom): string {
     ? `\n\nHoy no topé en anaquel: ${paquete.faltantes.map((item) => item.query).join(", ")}.`
     : "";
   return conPaqueteBom(
-    `Claro, para ${paquete.titulo} vas a ocupar lo siguiente. Te armé el paquete con lo que tenemos en existencia.${aviso}`,
+    `Claro, para ${paquete.titulo} vas a ocupar lo siguiente. Te armé el paquete con lo que tenemos en existencia y ya lo sumé a tu cuenta.${aviso} ${CIERRE_CUENTA_ABIERTA}`,
     paquete
   );
 }

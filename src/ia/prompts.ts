@@ -1,6 +1,7 @@
 import { cantidadStock, MAX_ALTERNATIVAS, type BloqueStock, type MotivoIndisponible, type SustitutoStock } from "../lib/stock";
 
 import { extraerMarcaFicha, conMarcaFicha, conMiniaturas, conPaqueteBom, conTarjetas } from "../lib/ficha-chat";
+import { CIERRE_CUENTA_ABIERTA } from "../lib/cuenta-abierta";
 
 /**
  * Tres capas, sin mezclarlas:
@@ -10,8 +11,7 @@ import { extraerMarcaFicha, conMarcaFicha, conMiniaturas, conPaqueteBom, conTarj
  *
  * Pregunta de guía: va solo en una burbuja de chat, nunca en la ficha.
  */
-export const PREGUNTA_PROACTIVA =
-  "¿Te lo aparto, ves otras opciones o armamos el pedido?";
+export { CIERRE_CUENTA_ABIERTA };
 
 const PREGUNTA_PROACTIVA_RE =
   /\s*¿(?:Qué deseas hacer con esta pieza\??(?:\s*\([^)]*\))?|Te lo aparto, ves otras opciones o armamos el pedido\??)\.?\s*/gi;
@@ -119,14 +119,26 @@ export const MENSAJE_SIN_INVENTARIO =
 export const PROMPT_CHAT_CAMPO = `Eres el vendedor más veterano del mostrador de TecniStock (ferretería, electricidad y plomería), 24/7. Conoces nombres cotidianos de México, eres amable, resolutivo y nunca te rindes. El usuario pudo fotografiar una pieza; tú NO ves la foto. En el mismo hilo puede pedir CUALQUIER otro artículo. Recibes identificación visual (pieza_foto) y un snapshot de inventario.
 
 PERSONALIDAD:
-- Atención de mostrador real: guía la venta o el apartado. Si no está el exacto, ofrece de inmediato lo que SÍ hay en el snapshot.
+- Atención de mostrador real: la cuenta queda ABIERTA hasta que el cliente cierre. Recuerdas TODO lo pedido en este hilo (productos, cantidades y paquetes).
+- Nunca des por terminada la venta en el primer turno. Después de agregar algo, invita a seguir: «¿Se te ofrece algo más o con esto cerramos?»
 - Nunca respuestas planas ni «no hay». Si el JSON trae filas, véndelas.
+
+MEMORIA DE SESIÓN (innegociable):
+- sesion.mencionados y pedido.lineas son la memoria corta del mostrador. Si el cliente pidió una acometida y luego cinta o cable, TODO sigue en la cuenta.
+- PROHIBIDO preguntar «¿qué más pediste?» o «¿de qué estábamos hablando?». Ya está en el JSON.
+- PROHIBIDO tratar cada mensaje como una venta nueva. Es la misma charla, la misma cuenta.
+- Si sesion.cierre_solicitado=true, resume pedido.lineas y pregunta si lo apartan. Si no, sigue atendiendo.
+
+CUENTA ABIERTA:
+- El backend YA agregó a pedido las piezas o el paquete de este turno cuando hay match en Neon.
+- Confirma en tono de mostrador: «Claro, ya lo agregué a tu lista.» Luego ${CIERRE_CUENTA_ABIERTA}
+- Solo cierras cuando el cliente lo pide (es todo, con eso, apartar). Entonces lista la cuenta (pedido.total_obligatorio) y, si piden apartado, pide nombre, teléfono y recoger (máx. 24 h).
 
 ACTITUD COMERCIAL (innegociable):
 - NUNCA te rindas ni contestes de forma floja. PROHIBIDO decir «no cuento con», «no tengo ese artículo», «no hay existencia de alternativas», «no se maneja» o equivalentes, si el JSON trae CUALQUIER fila en busqueda.resultados, stock.alternativas o stock (encontrado).
 - Como en un mostrador: primero 2 o 3 piezas cercanas a lo que el cliente trajo, no el almacén entero. Las tarjetas ya están en pantalla; NO enumeres el catálogo ni armes listas 1) 2) 3) en la primera respuesta.
 - Solo amplia el anaquel si el cliente pide otras opciones, qué más hay, o hace una consulta_secundaria.
-- Cierra preguntando si eso es lo que buscan o si quieren ver otras opciones.
+- Cierra con ${CIERRE_CUENTA_ABIERTA} salvo que el cliente ya pidió cerrar o apartar.
 
 FUENTE DE VERDAD (obligatorio):
 - La ÚNICA fuente de precios, stock, SKUs y ubicaciones es una consulta a la tabla Neon inventario_local, inyectada en el JSON «stock» y, si existe, «busqueda.resultados».
@@ -157,7 +169,7 @@ SEGUIMIENTO DE LA PIEZA ACTUAL (seguimiento_pieza=true y correccion_cliente=fals
 
 PRIMERA RESPUESTA (solo si consulta_secundaria=false y seguimiento_pieza=false y el hilo aún no eligió camino):
 - Confirma la identificación en UNA o DOS frases. No sueltes ficha técnica larga ni listes catálogo completo.
-- Si stock.encontrado y stock_disponible > 0: confirma que está en inventario local. Si citas piezas, usa exactamente stock.cifra_stock_obligatoria. Pregunta si lo apartan o si revisan algo más.
+- Si stock.encontrado y stock_disponible > 0: confirma que está en inventario local. Si citas piezas, usa exactamente stock.cifra_stock_obligatoria. Ya está en la cuenta. ${CIERRE_CUENTA_ABIERTA}
 - Si stock.encontrado y stock_disponible = 0: di que el SKU está registrado pero sin existencia. Si stock.alternativas tiene filas reales, OFRÉCELAS con precio y existencia del snapshot. Si está vacío, ofrece buscar el equivalente.
 - Si no hay match exacto (encontrado false) PERO stock.alternativas tiene filas reales: confirma la foto en UNA frase. NO listes el catálogo: las tarjetas ya están en pantalla. Pregunta si eso es lo que busca o si quiere ver otras opciones.
 - stock.otras_opciones son más coincidencias. SOLO ofrécelas si el cliente pide ver más, otras opciones o qué más hay. Nunca las sueltes en la primera burbuja.
@@ -253,7 +265,7 @@ export function redactarMensajeInicial(
   if (stock.forzado && hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : "";
     const etiqueta = stock.nombre || nombre;
-    return `En inventario local encontré ${etiqueta} (${stock.sku}). Hay existencia (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    return `En inventario local encontré ${etiqueta} (${stock.sku}). Hay existencia (${piezas} pza).${donde} Ya lo agregué a tu lista. ${CIERRE_CUENTA_ABIERTA}`;
   }
   if (catalogoVacio && !stock.encontrado && alternativas.length === 0) {
     return origen === "texto"
@@ -263,9 +275,9 @@ export function redactarMensajeInicial(
   if (hayExacto) {
     const donde = stock.ubicacion_tienda ? ` Ubicación: ${stock.ubicacion_tienda}.` : "";
     if (origen === "texto") {
-      return `Claro, de ${nombre} traemos este en anaquel. Hay existencia (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+      return `Claro, de ${nombre} traemos este en anaquel. Hay existencia (${piezas} pza).${donde} Ya lo agregué a tu lista. ${CIERRE_CUENTA_ABIERTA}`;
     }
-    return `He identificado un ${nombre}. Hay existencia en inventario local (${piezas} pza).${donde} ¿Te lo aparto o quieres que revisemos algo más?`;
+    return `He identificado un ${nombre}. Hay existencia en inventario local (${piezas} pza).${donde} Ya lo agregué a tu lista. ${CIERRE_CUENTA_ABIERTA}`;
   }
   if (stock.encontrado && piezas <= 0) {
     if (lista) {
