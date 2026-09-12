@@ -531,7 +531,7 @@ function esPiezaCompuestaOInstalada(nombre: string, principal: string, claves = 
   if (/\b(tecla|palancas?)\b/.test(t) || /\b(tecla|palancas?)\b/.test(k)) return true;
   if (/\bcon\s+(apagador|interruptor|contacto|teclas?|palancas?|mecanismo)/.test(t)) return true;
   if (/\b(apagador|interruptor)\s+(sencillo|doble|triple|escalera)\b/.test(t)) return true;
-  if (/\bcontacto\s+(duplex|sencillo|doble)\b/.test(t)) return true;
+  if (/\bcontacto\s+(duplex|sencillo|doble)\b/.test(t) && !/^(placa|tapa|embellecedor)\b/.test(start)) return true;
   if (/\binstalad[oa]\b/.test(t) && /\b(apagador|interruptor|contacto)\b/.test(t)) return true;
   return false;
 }

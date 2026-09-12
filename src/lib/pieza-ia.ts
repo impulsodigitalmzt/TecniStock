@@ -213,7 +213,7 @@ function esRechazoGiro(raw: Record<string, unknown>): boolean {
 function sinMarcaVacia(valor: string): string {
   const t = valor.trim();
   if (!t) return "";
-  if (/^(no[_\s-]?visible|no determinado|n\/?a|ningun[ao]?|sin dato)$/i.test(t)) return "";
+  if (/^(no[_\s-]?visible|no determinado|n\/?a|ningun[ao]?|sin dato|no aplica|no aplicable)$/i.test(t)) return "";
   return t;
 }
 
@@ -249,7 +249,7 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
   const productoVenta = mexicanizarMostrador(texto(raw.producto_venta || raw.objeto_venta || raw.busqueda));
   const accesoriosVisibles = mexicanizarMostrador(texto(raw.accesorios_visibles || raw.accesorios));
   const mecanismo = sinMarcaVacia(mexicanizarMostrador(texto(raw.mecanismo)));
-  const extras = [raw.rosca, mecanismo, raw.acabado, raw.marca]
+  const extras = [mecanismo, raw.acabado, raw.marca]
     .map((item) => texto(item))
     .filter((item) => item && item.split(/\s+/).length <= 2);
   const palabras_clave = entidadesSueltas(
@@ -263,7 +263,7 @@ function normalizarPieza(raw: Record<string, unknown>): PiezaDetectada {
     material: texto(raw.material) || "No determinado",
     medida: mexicanizarMostrador(sinMarcaVacia(texto(raw.medida || raw.medida_detectada))),
     categoria: categoriaAbierta(raw.categoria),
-    rosca: sinMarcaVacia(texto(raw.rosca)),
+    rosca: "",
     mecanismo,
     acabado: sinMarcaVacia(texto(raw.acabado)),
     marca: sinMarcaVacia(texto(raw.marca)),

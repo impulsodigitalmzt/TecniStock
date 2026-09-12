@@ -98,17 +98,18 @@ IDENTIFICACIÓN OBJETIVA (lo que el cliente lee):
 - No inventes marca, modelo, medida. No encajes la foto en un ejemplo.
 
 BÚSQUEDA EN ANAQUEL (capa distinta; el backend consulta inventario_local):
-- producto_venta: Define el término exacto de la categoría comercial (ej. "contacto gfci", "contacto duplex", "apagador sencillo"). Nunca cruces categorías (si es contacto, jamás pongas apagador).
+- producto_venta: término de mostrador de lo que se vende. Si el objeto es una tapa/placa (aunque tenga un contacto u orificio), usa "placa …" (ej. "placa acero 1 modulo"). Si el aparato es el producto, nómbralo así (ej. "contacto duplex", "apagador sencillo"). Nunca cruces categorías.
 - palabras_clave: 3 a 5 palabras clave puramente técnicas y específicas del objeto detectado. PROHIBIDO incluir términos de familias contrarias (si el objeto es un contacto o clavija, está prohibido incluir "apagador", "interruptor" o "placa ciega" en las keywords).
 - No busques el cable ni la clavija enchuvada.
 - palabras_clave: 4 a 10 palabras SUELTAS (contacto, duplex, placa, aterrizado). PROHIBIDO frases compuestas y SKUs.
+- No inventes rosca ni campos de fontanería si no se ven.
 
 LENGUAJE Y TERMINOLOGÍA (México):
 - Usa estrictamente español de México para ferretería, electricidad y plomería (nombres cotidianos de mostrador en México: apagador, contacto dúplex, placa con jack, etc.). 
 - Prohibido usar modismos de España o anglicismos de catálogo extranjero (ganga, rocker, switch, outlet, 3-way).
 
 Si es del giro, SOLO este JSON (sin markdown):
-fuera_de_giro (false), nombre, producto_venta, accesorios_visibles, material, medida, categoria, rosca, mecanismo, acabado, marca, descripcion, pregunta (""), confianza (0 a 1), palabras_clave`;
+fuera_de_giro (false), nombre, producto_venta, accesorios_visibles, material, medida, categoria, mecanismo, acabado, marca, descripcion, pregunta (""), confianza (0 a 1), palabras_clave`;
 export const USER_PROMPT_ANALISIS_VISUAL =
   "Giro ferretería/electricidad/plomería o rechaza. Describe solo lo que SÍ se ve. Si hay dos aparatos, nómbralos los dos. Lo enchufado es accesorio. No digas lo que no hay. palabras_clave sueltas. Un solo JSON.";
 

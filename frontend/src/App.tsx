@@ -146,7 +146,6 @@ function filasFichaTecnica(pieza: PiezaDetectada, stock: BloqueStock): { etiquet
   add('Medida', pieza.medida || stock.medida);
   add('Mecanismo', pieza.mecanismo);
   add('Acabado', pieza.acabado);
-  add('Rosca', pieza.rosca);
   add('Marca', pieza.marca);
   if (typeof pieza.confianza === 'number' && pieza.confianza > 0) {
     add('Lectura de la foto', etiquetaConfianza(pieza.confianza));
@@ -156,7 +155,7 @@ function filasFichaTecnica(pieza: PiezaDetectada, stock: BloqueStock): { etiquet
 
 function clavesFicha(pieza: PiezaDetectada): string[] {
   const ya = new Set(
-    [pieza.nombre, pieza.material, pieza.medida, pieza.marca, pieza.mecanismo, pieza.acabado, pieza.rosca, pieza.categoria]
+    [pieza.nombre, pieza.material, pieza.medida, pieza.marca, pieza.mecanismo, pieza.acabado, pieza.categoria]
       .filter((item): item is string => Boolean(item))
       .map((item) => item.toLowerCase())
   );
@@ -2117,7 +2116,6 @@ export default function App() {
   const descripcion = pieza ? textoDescripcion(pieza) : '';
   const extrasPieza = pieza
     ? [
-        pieza.rosca ? `Rosca ${pieza.rosca}` : '',
         pieza.mecanismo ? textoMostrador(pieza.mecanismo) : '',
         pieza.acabado ? pieza.acabado : '',
       ].filter(Boolean)

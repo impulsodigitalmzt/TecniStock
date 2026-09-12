@@ -38,6 +38,30 @@ describe("intérprete de búsqueda TecniStock", () => {
     assert.ok(filaPerteneceAFamilia("Interruptor termomagnético 1x20A", "TMT-1P-20A", intencion.familia));
   });
 
+  it("el texto 'placa de contacto duplex' también se queda en familia placa", () => {
+    const intencion = interpretarTexto("placa de contacto duplex");
+    assert.equal(intencion.familia, "placa");
+    assert.ok(filaPerteneceAFamilia("Placa de acero inoxidable de 1 módulo", "PLAC-ACEO-01", intencion.familia));
+  });
+
+  it("una placa de contacto dúplex se busca como placa, no como contacto", () => {
+    const intencion = interpretarPieza({
+      nombre: "Placa de contacto eléctrico dúplex",
+      producto_venta: "contacto duplex",
+      material: "plástico",
+      medida: "1 módulo",
+      categoria: "electricidad",
+      mecanismo: "receptáculo dúplex",
+      palabras_clave: ["placa", "contacto", "duplex", "plateado"],
+    });
+    assert.equal(intencion.familia, "placa");
+    assert.ok(intencion.tokens.includes("placa"));
+    assert.ok(intencion.canonico.startsWith("placa"));
+    assert.ok(filaPerteneceAFamilia("Placa de acero inoxidable de 1 módulo", "PLAC-ACEO-01", intencion.familia));
+    assert.ok(filaPerteneceAFamilia("Placa de acero inoxidable de 2 módulos", "PLAC-ACEO-02", intencion.familia));
+    assert.ok(!filaPerteneceAFamilia("Contacto dúplex aterrizado", "CONT-DUP-127", intencion.familia));
+  });
+
   it("clasifica visión estructurada de un contacto sin mezclar apagadores", () => {
     const intencion = interpretarPieza({
       nombre: "Contacto dúplex",

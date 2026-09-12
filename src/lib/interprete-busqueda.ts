@@ -420,6 +420,7 @@ function atribuirFamilia(
 ): { familia: FamiliaProducto | null; rubro: RubroGiro | null } {
   const plano = plegarTexto(texto);
   if (esRedContext(plano)) return { familia: "datos", rubro: "electricidad" };
+  if (esTituloDePlacaDecorativa(plano)) return { familia: "placa", rubro: "electricidad" };
   if (esBreakerContext(plano)) return { familia: "breaker", rubro: "electricidad" };
   if (esPlomeriaContext(plano) && !esElectricoFuerte(plano)) {
     if (esMezcladoraContext(plano)) return { familia: "mezcladora", rubro: "plomeria" };
@@ -644,7 +645,32 @@ export function interpretarPieza(pieza: IdentidadPieza): IntencionBusqueda {
       intencion.familiasExcluidas = intencion.familia ? (FAMILIAS_OPUESTAS[intencion.familia] ?? []) : ["apagador", "contacto", "placa"];
     }
   }
+  const nombrePlano = plegarTexto(pieza.nombre ?? "");
+  if (
+    esTituloDePlacaDecorativa(nombrePlano) &&
+    !esRedContext(plegarTexto(fuente)) &&
+    (intencion.familia === "contacto" || intencion.familia === "apagador" || !intencion.familia)
+  ) {
+    intencion.familia = "placa";
+    intencion.familiasExcluidas = FAMILIAS_OPUESTAS.placa;
+    if (!intencion.tokens.includes("placa")) {
+      intencion.tokens = ["placa", ...intencion.tokens].slice(0, 10);
+      intencion.tokensPeso = [{ token: "placa", peso: 10 }, ...intencion.tokensPeso].slice(0, 10);
+    }
+    if (!/^(placa|tapa|embellecedor)\b/.test(intencion.canonico)) {
+      intencion.canonico = `placa ${intencion.canonico}`.replace(/\s+/g, " ").trim();
+    }
+  }
   return intencion;
+}
+
+/** «Placa de contacto dúplex» es tapa, no el aparato. «Placa con apagador» sí es el juego instalado. */
+function esTituloDePlacaDecorativa(nombrePlano: string): boolean {
+  if (!/^(placa|tapa|embellecedor)\b/.test(nombrePlano)) return false;
+  if (/\b(tecla|palancas?)\b/.test(nombrePlano)) return false;
+  if (/\bcon\s+(apagador|interruptor|contacto|teclas?|palancas?|mecanismo)\b/.test(nombrePlano)) return false;
+  if (/\b(apagador|interruptor)\s+(sencillo|doble|triple|escalera)\b/.test(nombrePlano)) return false;
+  return true;
 }
 
 const PATRON_FAMILIA: Record<FamiliaProducto, RegExp> = {
