@@ -260,7 +260,7 @@ export async function aplicarSkuConsultaCampo(
   opciones: { omitirMensajeGuia?: boolean } = {}
 ): Promise<{ consulta: ConsultaCampo; stock: BloqueStock }> {
   const codigo = sku.trim();
-  if (!codigo) throw new AppError(400, "Indica un SKU de inventario local.", "SKU_REQUIRED");
+  if (!codigo) throw new AppError(400, "Indica el código de la pieza.", "SKU_REQUIRED");
   const actual = await obtenerConsultaCampo(sql, id, dispositivoId);
   const claves = actual.pieza.palabras_clave;
   const stock = await resolverStockInventarioLocal(
@@ -275,7 +275,7 @@ export async function aplicarSkuConsultaCampo(
     { skuForzado: codigo }
   );
   if (!stock.encontrado || !stock.sku) {
-    throw new AppError(404, "Ese SKU no está en inventario local.", "SKU_NO_ENCONTRADO");
+    throw new AppError(404, "Ese código no está en inventario local.", "SKU_NO_ENCONTRADO");
   }
   stock.forzado = true;
   stock.sku_conversacion = stock.sku;
@@ -316,7 +316,7 @@ export async function aplicarSkuConsultaCampo(
   );
   const consulta = mapConsulta(rows[0] ?? {});
   if (!consulta.id || consulta.id === "undefined") {
-    throw new AppError(500, "No se pudo guardar el SKU en la consulta.", "SKU_SAVE_FAILED");
+    throw new AppError(500, "No se pudo guardar esa pieza en la consulta.", "SKU_SAVE_FAILED");
   }
   if (!opciones.omitirMensajeGuia) {
     await agregarMensajeCampo(

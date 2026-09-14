@@ -8,7 +8,7 @@
  * Este script oculta el esbuild de la raíz, instala el frontend aislado
  * (sin scripts de postinstall) y corre Vite mientras el padre sigue oculto.
  */
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,4 +70,12 @@ try {
   run("npm run build", frontend);
 } finally {
   restoreHidden(hidden);
+}
+
+const copia = spawnSync(process.execPath, [path.join(root, "scripts", "copiar-fotos-productos.mjs"), "--soft"], {
+  cwd: root,
+  stdio: "inherit",
+});
+if (copia.status !== 0) {
+  throw new Error("No se pudieron copiar las fotos de productos al SPA.");
 }

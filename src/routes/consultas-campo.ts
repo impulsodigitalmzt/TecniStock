@@ -142,7 +142,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
   );
   const q = ultimoTextoUsuario(body.messages, String(body.q ?? "")).trim().slice(0, 400);
   const sku = String(body.sku ?? "").trim();
-  if (!q && !sku) throw new AppError(400, "Escribe lo que ocupas o un SKU. La foto no es obligatoria.", "QUERY_REQUIRED");
+  if (!q && !sku) throw new AppError(400, "Escribe lo que ocupas o el código de la pieza. La foto no es obligatoria.", "QUERY_REQUIRED");
 
   const clasificacion = sku ? { ruta: "producto" as const } : await clasificarIntencion(q, c.env);
   if (!sku && clasificacion.ruta === "proyecto") {
@@ -193,7 +193,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
   let resultados: ResultadoBusquedaInventario[] = hallados;
   if (sku) {
     const fila = await obtenerInventarioPorSku(sql, sku);
-    if (!fila) throw new AppError(404, "Ese SKU no está en inventario local.", "SKU_NO_ENCONTRADO");
+    if (!fila) throw new AppError(404, "Ese código no está en inventario local.", "SKU_NO_ENCONTRADO");
     resultados = [
       {
         sku: fila.sku,
@@ -859,7 +859,7 @@ function reforzarOfertaInventario(
   }
   if (resultados.length === 0 && pideDatoInventado(texto)) {
     const pista = query.trim() || "eso";
-    return `En anaquel no hay coincidencia de ${pista} en esa familia. Si me das el nombre de mostrador o el SKU lo busco de nuevo.`;
+    return `En anaquel no hay coincidencia de ${pista} en esa familia. Si me das el nombre de mostrador o el código lo busco de nuevo.`;
   }
   return texto;
 }
@@ -1113,7 +1113,7 @@ async function responderConsultaCampo(
         { role: "system", content: PROMPT_CHAT_CAMPO },
         {
           role: "user",
-          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/SKU/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pregunta cuántos o cuáles artículos lleva, lista CADA línea de pedido.lineas (nombre, SKU, cantidad, subtotal) y copia pedido.total_obligatorio; PROHIBIDO inventar cantidades o decir solo el número. PROHIBIDO preguntar qué más pidió si ya está en pedido. Si sesion.negociacion=true, el cliente objetó cantidades o medidas: confirma el pedido YA actualizado; PROHIBIDO resumen final, apartado o «¿cerramos?». Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros SKUs de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
+          content: `Contexto (sin foto). FUENTE DE VERDAD: SELECT a inventario_local. Cita precio/código/ubicación SOLO si vienen en stock, busqueda.resultados o pedido.lineas. La cifra de piezas de anaquel es stock.cifra_stock_obligatoria; el total a cobrar es pedido.total_obligatorio. Si pedido.lineas tiene filas, ESE es lo que el cliente ya eligió (Elegir / carrito). Si pregunta cuántos o cuáles artículos lleva, lista CADA línea de pedido.lineas (nombre, código, cantidad, subtotal) y copia pedido.total_obligatorio; PROHIBIDO inventar cantidades o decir solo el número. PROHIBIDO preguntar qué más pidió si ya está en pedido. Si sesion.negociacion=true, el cliente objetó cantidades o medidas: confirma el pedido YA actualizado; PROHIBIDO resumen final, apartado o «¿cerramos?». Si correccion_cliente=true, el cliente corrigió la identificación: confirma en una frase y OFRECE busqueda.resultados; PROHIBIDO negativa plana. Si seguimiento_pieza=true, el cliente pregunta por la pieza YA en contexto: responde solo con pieza y stock actuales; PROHIBIDO citar otros códigos de catálogo. Si consulta_secundaria=true, el cliente pidió OTRO artículo: responde con busqueda/stock de esa búsqueda. Si encontrado=false, NO enumeres el anaquel en texto. Nunca digas SKU al cliente; di código. Apartado: nunca confirmes sin nombre, teléfono y recoger (máx. 24 h):\n${JSON.stringify({
           consulta_secundaria: consultaSecundaria,
           correccion_cliente: correccionCliente,
           seguimiento_pieza: seguimiento,

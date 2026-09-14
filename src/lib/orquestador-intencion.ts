@@ -60,8 +60,8 @@ Reglas innegociables:
 - Si el cliente objeta una cantidad (demasiado, solo ocupo 5 metros, quita el rollo, cambia el calibre): AJUSTA esa línea y conserva el resto que no objetó.
 - Si pide metros/tramo y el anaquel vende rollos largos (50 m / 100 m): busca query por metro o tramo corto ("cable thw calibre 10 metro"). Si no hay venta por metro, OMITE esa línea (no la pongas con cantidad 1 ni 5). Explícalo en mensaje: se vende por rollo y no cortamos, o no hay tramo en anaquel.
 - query = nombre para buscar en inventario (interruptor termomagnetico 2 polos, cinta teflon, cable thw 12, tubo conduit 1/2).
-- NO inventes SKUs, precios ni marcas.
-- mensaje: confirma el ajuste o el armado en voz de mostrador. PROHIBIDO preguntar si cerramos, apartamos o "con esto cerramos". PROHIBIDO asumir que la venta ya cerró.
+- NO inventes códigos, precios ni marcas.
+- mensaje: confirma el ajuste o el armado en voz de mostrador. PROHIBIDO decir «SKU». Di código o el nombre de la pieza. PROHIBIDO preguntar si cerramos, apartamos o "con esto cerramos". PROHIBIDO asumir que la venta ya cerró.
 - grupos útiles: protección, conductores, canalización, control, salidas, acabados, sellos, tubería, accesorios.`;
 
 export const INVITA_AJUSTE_PAQUETE = "¿Así te queda o le movemos otra línea?";
@@ -272,7 +272,7 @@ export function redactarPaqueteMostrador(paquete: PaqueteBom, opciones?: { ajust
   if (paquete.lineas.length === 0) {
     return (
       paquete.resumen?.trim() ||
-      `Para ${paquete.titulo} te puedo armar el paquete, pero en anaquel no topé esas piezas hoy. Si me das el nombre de mostrador o el SKU lo busco de una en una.`
+      `Para ${paquete.titulo} te puedo armar el paquete, pero en anaquel no topé esas piezas hoy. Si me das el nombre de mostrador o el código lo busco de una en una.`
     );
   }
   const aviso = paquete.faltantes.length

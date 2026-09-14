@@ -139,8 +139,11 @@ const sobrantes = archivos.filter((nombre) => {
   const n = norm(nombre);
   return !duplicadosOk.some((clave) => n.includes(clave));
 });
+const soft = process.argv.includes("--soft");
 if (sobrantes.length) {
-  throw new Error(`Fotos sin relacionar: ${sobrantes.join(", ")}`);
+  const msg = `Fotos sin relacionar: ${sobrantes.join(", ")}`;
+  if (soft) console.warn(msg);
+  else throw new Error(msg);
 }
 
 console.log(JSON.stringify({ ok: true, copiados, omitidos: archivos.filter((n) => !usados.has(n)), total: copiados.length }, null, 2));

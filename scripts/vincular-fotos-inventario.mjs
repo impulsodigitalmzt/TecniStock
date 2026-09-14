@@ -105,8 +105,8 @@ for (const item of copiaJson.copiados ?? []) {
   }
   await sql.query(
     `UPDATE inventario_local
-     SET url_imagen = COALESCE($1, url_imagen)
-     WHERE sku = $2 AND COALESCE(btrim(url_imagen), '') = ''`,
+     SET url_imagen = $1
+     WHERE sku = $2`,
     [url, sku]
   );
 }

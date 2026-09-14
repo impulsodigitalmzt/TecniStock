@@ -1,4 +1,5 @@
 import { Minus, Plus, ShoppingCart, Trash2, X } from 'lucide-react';
+import { FotoCatalogo } from './FotoCatalogo';
 
 export type LineaCarrito = {
   sku: string;
@@ -151,8 +152,8 @@ export function CarritoApartado({
                 lineas.map((linea) => (
                   <article key={linea.sku} className="flex gap-3 rounded-xl border border-stone-200 bg-white p-2.5">
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-stone-100">
-                      {linea.url_imagen ? (
-                        <img src={linea.url_imagen} alt="" className="h-full w-full object-contain" />
+                      {linea.url_imagen || linea.sku ? (
+                        <FotoCatalogo url={linea.url_imagen} sku={linea.sku} alt="" className="h-full w-full object-contain" />
                       ) : null}
                     </div>
                     <div className="min-w-0 flex-1">

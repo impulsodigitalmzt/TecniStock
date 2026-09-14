@@ -474,7 +474,8 @@
     height: 100%;
     object-fit: contain;
     object-position: center;
-    background-color: transparent;
+    background-color: #fff;
+    display: block;
   }
   .ficha-chat-cuerpo {
     @apply px-3 pb-3 pt-2;
@@ -522,7 +523,8 @@
     height: 100%;
     object-fit: contain;
     object-position: center;
-    background-color: transparent;
+    background-color: #fff;
+    display: block;
   }
   .tarjeta-chat-cuerpo {
     @apply px-2.5 pb-2.5 pt-2;
@@ -560,6 +562,7 @@
     opacity: 0.7;
   }
   .paquete-bom-linea img,
+  .paquete-bom-linea-foto,
   .paquete-bom-sin-foto {
     @apply h-11 w-11 shrink-0 rounded-lg object-cover bg-stone-100;
   }
@@ -1135,6 +1138,16 @@ html.dark section {
 .dark .paquete-bom {
   background-color: #1f2c34;
   border-color: #2a3942;
+}
+.dark .tarjeta-chat-foto,
+.dark .ficha-chat-foto,
+.dark .tarjeta-alt-foto {
+  background-color: #eef2f4;
+}
+.dark .tarjeta-chat-foto img,
+.dark .ficha-chat-foto img,
+.dark .tarjeta-alt-foto img {
+  background-color: #eef2f4;
 }
 .dark .paquete-bom-head {
   background-color: #3b2415;

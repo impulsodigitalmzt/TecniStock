@@ -12,6 +12,7 @@ import {
   piezasCarrito,
   type LineaCarrito,
 } from './components/CarritoApartado';
+import { FotoCatalogo } from './components/FotoCatalogo';
 import {
   avisoGuardadoMiniatura,
   borrarFotoConsulta,
@@ -107,13 +108,6 @@ function dinero(valor: number | null, moneda = 'MXN'): string {
 
 const MAX_ALTERNATIVAS = 3;
 
-function urlFotoCatalogo(url?: string): string | null {
-  const valor = (url ?? '').trim();
-  if (!valor) return null;
-  if (valor.startsWith('/')) return valor;
-  if (/^https?:\/\//i.test(valor) && !/placehold\.co|images\.unsplash\.com/i.test(valor)) return valor;
-  return null;
-}
 
 function diasRestantes(expiresAt?: string): string {
   if (!expiresAt) return '30 días';
@@ -624,7 +618,6 @@ function CarruselEnChat({
   return (
     <div className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}>
       {tarjetas.map((item) => {
-        const foto = urlFotoCatalogo(item.url);
         const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
         const eligiendo = aplicandoSku === item.sku;
         const cant = cantidadesCarrito[item.sku.toLowerCase()] ?? 0;
@@ -638,13 +631,9 @@ function CarruselEnChat({
             aria-label={`Elegir ${item.nombre}`}
             onClick={() => onElegir?.(item)}
           >
-            {foto ? (
-              <div className="tarjeta-chat-foto">
-                <img src={foto} alt="" />
-              </div>
-            ) : (
-              <div className="tarjeta-chat-foto text-[10px] font-semibold text-amber-800">Sin foto</div>
-            )}
+            <div className="tarjeta-chat-foto">
+              <FotoCatalogo url={item.url} sku={item.sku} alt={item.nombre} />
+            </div>
             <div className="tarjeta-chat-cuerpo">
               <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">{textoMostrador(item.nombre)}</h3>
               <p className="mt-1 font-mono text-[10px] text-stone-400 truncate">{item.sku}</p>
@@ -712,7 +701,6 @@ function PaqueteBomEnChat({
           <p className="paquete-bom-grupo-titulo">{grupo}</p>
           <ul>
             {lineas.map((linea) => {
-              const foto = urlFotoCatalogo(linea.url);
               const enPedido = cantidadesCarrito[linea.sku.toLowerCase()] ?? 0;
               return (
                 <li key={linea.sku}>
@@ -722,7 +710,7 @@ function PaqueteBomEnChat({
                     disabled={disabled || !onAgregarLinea || linea.existencia <= 0}
                     onClick={() => onAgregarLinea?.(linea)}
                   >
-                    {foto ? <img src={foto} alt="" /> : <span className="paquete-bom-sin-foto">Sin foto</span>}
+                    <FotoCatalogo url={linea.url} sku={linea.sku} alt="" className="paquete-bom-linea-foto" />
                     <span className="min-w-0 flex-1 text-left">
                       <span className="block text-[13px] font-semibold leading-snug text-stone-900">
                         {textoMostrador(linea.nombre)}
@@ -1690,7 +1678,7 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sku: item.sku }),
         }),
-        'No se pudo aplicar el SKU de inventario local.'
+        'No se pudo aplicar esa pieza del inventario local.'
       );
       setResultado({
         ...resultado,
@@ -1716,7 +1704,7 @@ export default function App() {
         })
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo aplicar el SKU.');
+      setError(err instanceof Error ? err.message : 'No se pudo aplicar esa pieza.');
     } finally {
       setAplicandoSku(null);
     }
@@ -2579,12 +2567,15 @@ export default function App() {
               <>
                 <article className="card h-auto p-3">
                   <div className="flex items-start gap-2">
-                    {urlFotoCatalogo(stock.url_imagen) ? (
-                      <img
-                        src={urlFotoCatalogo(stock.url_imagen) ?? ''}
-                        alt=""
-                        className="h-14 w-14 shrink-0 rounded-xl object-cover bg-stone-200"
-                      />
+                    {stock ? (
+                      <span className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-stone-200">
+                        <FotoCatalogo
+                          url={stock.url_imagen}
+                          sku={stock.sku ?? undefined}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      </span>
                     ) : null}
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-700">
@@ -2738,7 +2729,7 @@ export default function App() {
                         disabled={!consultaId}
                         onClick={abrirBuscador}
                       >
-                        Buscar por nombre o SKU
+                        Buscar por nombre o código
                       </button>
                     </p>
                   ) : null}
@@ -2815,7 +2806,7 @@ export default function App() {
                             ref={buscadorInputRef}
                             type="search"
                             className="input-field min-h-11 rounded-xl py-2.5 text-base"
-                            placeholder={transcribiendo ? 'Transcribiendo…' : 'Nombre o SKU, ej. tomo corrinte o apagodor sencillo'}
+                            placeholder={transcribiendo ? 'Transcribiendo…' : 'Nombre o código, ej. tomo corrinte o apagodor sencillo'}
                             value={queryBusqueda}
                             disabled={transcribiendo}
                             onChange={(e) => setQueryBusqueda(e.target.value)}
@@ -2862,15 +2853,12 @@ export default function App() {
                                 disabled={Boolean(aplicandoSku)}
                                 onClick={() => void aplicarSkuBusqueda(item)}
                               >
-                                {urlFotoCatalogo(item.url_imagen) ? (
-                                  <img
-                                    src={urlFotoCatalogo(item.url_imagen) ?? ''}
-                                    alt=""
-                                    className="h-12 w-12 shrink-0 rounded-lg object-cover bg-stone-200"
-                                  />
-                                ) : (
-                                  <span className="h-12 w-12 shrink-0 rounded-lg bg-stone-100" />
-                                )}
+                                <FotoCatalogo
+                                  url={item.url_imagen}
+                                  sku={item.sku}
+                                  alt=""
+                                  className="h-12 w-12 shrink-0 rounded-lg object-cover bg-stone-200"
+                                />
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-sm font-semibold leading-snug text-stone-900">{textoMostrador(item.nombre)}</span>
                                   <span className="mt-0.5 block font-mono text-[11px] text-stone-400">{item.sku}</span>

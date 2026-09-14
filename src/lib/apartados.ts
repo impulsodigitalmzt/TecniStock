@@ -532,7 +532,7 @@ export function aplicarEdicionPedido(
       lineas: actuales,
       cambio: false,
       avisoTope: edicion.pista
-        ? `No encontré ${edicion.pista} en anaquel para meterlo al pedido. ¿Me das el nombre o el SKU?\n\n`
+        ? `No encontré ${edicion.pista} en anaquel para meterlo al pedido. ¿Me das el nombre o el código?\n\n`
         : "",
     };
   }
