@@ -62,18 +62,6 @@ export async function ensureInventarioLocalSchema(sql: Sql): Promise<void> {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS inventario_local_sku_key ON inventario_local (sku)`;
   await sql`CREATE INDEX IF NOT EXISTS ix_inventario_local_categoria ON inventario_local (categoria)`;
   await ensureTrgmInventario(sql);
-  try {
-    await sql`
-      UPDATE inventario_local loc
-      SET url_imagen = espejo.url_imagen
-      FROM inventario_tienda_espejo espejo
-      WHERE loc.sku = espejo.sku
-        AND COALESCE(btrim(loc.url_imagen), '') = ''
-        AND COALESCE(btrim(espejo.url_imagen), '') <> ''
-    `;
-  } catch {
-    /* espejo puede no existir aún */
-  }
   schemaReady = true;
 }
 
