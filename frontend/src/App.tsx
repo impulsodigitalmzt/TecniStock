@@ -2114,6 +2114,8 @@ export default function App() {
         .slice(0, MAX_ALTERNATIVAS)
     : [];
   const mostrarCarrusel = alternativasStock.length > 0;
+  const dialogoConCliente = mensajes.some((msg) => msg.rol === 'user');
+  const mostrarHallazgosPc = mostrarCarrusel && !dialogoConCliente;
   const fichaTecnica = pieza && stock ? filasFichaTecnica(pieza, stock) : [];
   const clavesExtra = pieza ? clavesFicha(pieza) : [];
   const hiloChat = burbujasChat(
@@ -2896,7 +2898,7 @@ export default function App() {
       </aside>
 
       <section className="mostrador-col-der lg:flex-1 lg:flex lg:flex-col lg:h-full dark:lg:bg-[#0b141a] lg:relative lg:overflow-hidden">
-                  {mostrarCarrusel && stock ? (
+                  {mostrarHallazgosPc && stock ? (
                     <div className="mostrador-hallazgos hidden lg:block">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">
                         Lo más cercano · {alternativasStock.length}
