@@ -1139,6 +1139,7 @@ export default function App() {
   const omitirEnvioVozRef = useRef(false);
   const destinoVozRef = useRef<DestinoVoz>('chat');
   const pulsoBusquedaRef = useRef(false);
+  const enviandoRef = useRef(false);
 
   const soltarUrlsLocales = () => {
     urlsLocalesRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -1643,9 +1644,26 @@ export default function App() {
   const enviarChat = async (textoLibre?: string) => {
     const desdeBorrador = textoLibre == null;
     const texto = (desdeBorrador ? borrador : textoLibre).trim();
-    if (!consultaId || !texto) return;
+    if (!consultaId || !texto || enviandoRef.current) return;
+    enviandoRef.current = true;
     setEnviando(true);
     setError('');
+    const hiloPayload = hiloParaApi(mensajes, texto);
+    const lineasPayload = carrito.map((linea) => ({
+      sku: linea.sku,
+      nombre: linea.nombre,
+      cantidad: linea.cantidad,
+      precio: linea.precio,
+      url_imagen: linea.url_imagen,
+    }));
+    const tempId = `temp-msg-${Date.now()}`;
+    if (desdeBorrador) {
+      setMensajes((prev) => [
+        ...prev,
+        { id: tempId, rol: 'user', texto, created_at: new Date().toISOString() },
+      ]);
+      setBorrador('');
+    }
     try {
       const data = await leerJson<{ mensajes: Mensaje[]; pedido?: { lineas: LineaCarrito[] } }>(
         await fetchCampo(`/api/consultas/${consultaId}/mensajes`, {
@@ -1653,25 +1671,25 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             texto,
-            messages: hiloParaApi(mensajes, texto),
-            lineas: carrito.map((linea) => ({
-              sku: linea.sku,
-              nombre: linea.nombre,
-              cantidad: linea.cantidad,
-              precio: linea.precio,
-              url_imagen: linea.url_imagen,
-            })),
+            messages: hiloPayload,
+            lineas: lineasPayload,
           }),
         }),
         'No se pudo enviar el mensaje.'
       );
-      setMensajes((prev) => [...prev, ...(data.mensajes ?? [])]);
+      setMensajes((prev) => {
+        const sinTemp = prev.filter((msg) => msg.id !== tempId);
+        const vistos = new Set(sinTemp.map((msg) => msg.id));
+        return [...sinTemp, ...(data.mensajes ?? []).filter((msg) => !vistos.has(msg.id))];
+      });
       setCarrito((prev) => aplicarPedidoServidor(prev, data.pedido));
-      if (desdeBorrador) setBorrador('');
       if (modoCorreccion === 'describir') setModoCorreccion(null);
     } catch (err) {
+      setMensajes((prev) => prev.filter((msg) => msg.id !== tempId));
+      if (desdeBorrador) setBorrador(texto);
       setError(err instanceof Error ? err.message : 'No se pudo enviar el mensaje.');
     } finally {
+      enviandoRef.current = false;
       setEnviando(false);
     }
   };

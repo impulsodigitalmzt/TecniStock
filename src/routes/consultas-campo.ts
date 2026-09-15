@@ -909,11 +909,28 @@ async function responderConsultaCampo(
     !pideResumenPedido(texto, ultimoChat) &&
     !extraerEdicionPedido(texto);
   if (debeAjustarPaquete || debeArmarPaquete) {
-    const paquete = await armarPaqueteProyecto(sql, texto, env, {
-      historial,
-      paquetePrevio,
-      ajuste: debeAjustarPaquete,
-    });
+    let paquete;
+    try {
+      paquete = await armarPaqueteProyecto(sql, texto, env, {
+        historial,
+        paquetePrevio,
+        ajuste: debeAjustarPaquete,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "paquete_proyecto_failed",
+          message: error instanceof Error ? error.message : "unknown",
+        })
+      );
+      const assistantMsg = await agregarMensajeCampo(
+        sql,
+        consulta.id,
+        "assistant",
+        "Se me trabó el armado del paquete. Intenta otra vez o dime las piezas una por una."
+      );
+      return paqueteChat([userMsg, assistantMsg], lineasPedido);
+    }
     const resultadosBom = resultadosDesdePaquete(paquete);
     if (resultadosBom.length) {
       const stockBom = stockDesdeResultadosBusqueda(resultadosBom);
@@ -924,14 +941,14 @@ async function responderConsultaCampo(
       });
     }
     const lineasBom = lineasDesdeBom(paquete);
-    lineasPedido = debeAjustarPaquete
-      ? ponerLineasPedido(
-          lineasPedido,
-          lineasBom,
-          (paquetePrevio?.lineas ?? []).map((linea) => linea.sku)
-        )
-      : fusionarLineasPedido(lineasPedido, lineasBom);
-    await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
+    if (debeAjustarPaquete) {
+      lineasPedido = ponerLineasPedido(
+        lineasPedido,
+        lineasBom,
+        (paquetePrevio?.lineas ?? []).map((linea) => linea.sku)
+      );
+      await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
+    }
     const assistantMsg = await agregarMensajeCampo(
       sql,
       consulta.id,

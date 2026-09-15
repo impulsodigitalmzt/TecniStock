@@ -18,6 +18,7 @@ import {
   type ClasificacionIntencion,
   type RutaIntencion,
 } from "./intencion-ruta";
+import { elegirHitBom, limpiarQueryBom } from "./paquete-bom-match";
 
 export { clasificarIntencionHeuristica, pareceProyecto };
 export type { ClasificacionIntencion, RutaIntencion };
@@ -58,8 +59,9 @@ Reglas innegociables:
 - Máximo 8 líneas. Descompón el proyecto pieza por pieza según lo que el cliente pidió EN ESTE HILO.
 - cantidad = unidades de VENTA del anaquel (1 rollo, 1 pieza, 1 centro de carga). NUNCA metros lineales ni "5" sobre un rollo de 100 m.
 - Si el cliente objeta una cantidad (demasiado, solo ocupo 5 metros, quita el rollo, cambia el calibre): AJUSTA esa línea y conserva el resto que no objetó.
-- Si pide metros/tramo y el anaquel vende rollos largos (50 m / 100 m): busca query por metro o tramo corto ("cable thw calibre 10 metro"). Si no hay venta por metro, OMITE esa línea (no la pongas con cantidad 1 ni 5). Explícalo en mensaje: se vende por rollo y no cortamos, o no hay tramo en anaquel.
-- query = nombre para buscar en inventario (interruptor termomagnetico 2 polos, cinta teflon, cable thw 12, tubo conduit 1/2).
+- query de cable: "cable thw calibre 12" o "cable thw calibre 10". Calibres reales: 8, 10, 12, 14. NUNCA inventes 12.5 ni pongas "metro" en el query.
+- Si el anaquel vende rollos de 50/100 m, INCLUYE el rollo (cantidad 1) y dilo en mensaje: se vende por rollo, no cortamos. PROHIBIDO decir que no hay cable si existe el rollo THW.
+- query = nombre para buscar en inventario (interruptor termomagnetico 2 polos, cinta teflon, cable thw calibre 12, tubo conduit 1/2).
 - NO inventes códigos, precios ni marcas.
 - mensaje: confirma el ajuste o el armado en voz de mostrador. PROHIBIDO decir «SKU». Di código o el nombre de la pieza. PROHIBIDO preguntar si cerramos, apartamos o "con esto cerramos". PROHIBIDO asumir que la venta ya cerró.
 - grupos útiles: protección, conductores, canalización, control, salidas, acabados, sellos, tubería, accesorios.`;
@@ -154,31 +156,6 @@ async function borradorDesdeLlm(texto: string, env?: Env, opciones?: OpcionesPaq
   }
 }
 
-function esVentaPorRollo(nombre: string): boolean {
-  const n = nombre.toLowerCase();
-  return /\brollo\b/.test(n) || /\b(50|100|200|500)\s*m(ts?|etros?)?\b/.test(n);
-}
-
-function queryPideTramo(query: string, textoCliente: string): boolean {
-  if (/\b(metro|metros|mts?|tramo|por metro)\b/i.test(query)) return true;
-  const esCable = /\b(cable|thw|thhn|thwn|conductor)\b/i.test(query);
-  return esCable && /\b(metro|metros|mts?|tramo|por metro)\b/i.test(textoCliente);
-}
-
-function elegirHitBom(
-  linea: LineaBomBorrador,
-  resultados: ResultadoBusquedaInventario[],
-  textoCliente: string
-): ResultadoBusquedaInventario | null {
-  const conStock = resultados.filter((item) => item.stock_disponible > 0);
-  const pool = conStock.length ? conStock : resultados;
-  if (!pool.length) return null;
-  if (queryPideTramo(linea.query, textoCliente)) {
-    return pool.find((item) => !esVentaPorRollo(item.nombre)) ?? null;
-  }
-  return pool[0] ?? null;
-}
-
 function resultadoALinea(hit: ResultadoBusquedaInventario, cantidad: number, grupo: string): LineaPaqueteBom {
   return {
     sku: hit.sku,
@@ -201,18 +178,19 @@ async function validarLineasContraNeon(
   const lineas: LineaPaqueteBom[] = [];
   const faltantes: FaltantePaqueteBom[] = [];
 
-  const hallados = await Promise.all(
-    borradores.slice(0, 8).map(async (linea) => {
+  for (const linea of borradores.slice(0, 8)) {
+    let hit: ResultadoBusquedaInventario | null = null;
+    try {
       const { resultados } = await consultarInventarioUnificado(
         sql,
-        { origen: "texto", texto: linea.query, env },
+        { origen: "texto", texto: limpiarQueryBom(linea.query) || linea.query, env },
         8
       );
-      return { linea, hit: elegirHitBom(linea, resultados, textoCliente) };
-    })
-  );
-
-  for (const { linea, hit } of hallados) {
+      const elegido = elegirHitBom(linea, resultados, textoCliente);
+      hit = elegido ? resultados.find((item) => item.sku === elegido.sku) ?? null : null;
+    } catch {
+      hit = null;
+    }
     if (!hit) {
       faltantes.push({ query: linea.query, grupo: linea.grupo });
       continue;
@@ -282,7 +260,7 @@ export function redactarPaqueteMostrador(paquete: PaqueteBom, opciones?: { ajust
     paquete.resumen?.trim() ||
     (opciones?.ajuste
       ? `Listo, actualicé el paquete de ${paquete.titulo} con lo que me pediste.`
-      : `Claro, para ${paquete.titulo} vas a ocupar lo siguiente. Te armé el paquete con lo que tenemos en existencia y ya lo sumé a tu cuenta.`);
+      : `Claro, para ${paquete.titulo} vas a ocupar lo siguiente. Te armé el paquete con lo que hay en anaquel. Si te sirve, agrégalo al pedido.`);
   return conPaqueteBom(`${intro}${aviso} ${INVITA_AJUSTE_PAQUETE}`, paquete);
 }
 
