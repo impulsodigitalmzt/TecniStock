@@ -64,7 +64,7 @@ Reglas innegociables:
 - mensaje: confirma el ajuste o el armado en voz de mostrador. PROHIBIDO decir «SKU». Di código o el nombre de la pieza. PROHIBIDO preguntar si cerramos, apartamos o "con esto cerramos". PROHIBIDO asumir que la venta ya cerró.
 - grupos útiles: protección, conductores, canalización, control, salidas, acabados, sellos, tubería, accesorios.`;
 
-export const INVITA_AJUSTE_PAQUETE = "¿Así te queda o le movemos otra línea?";
+export const INVITA_AJUSTE_PAQUETE = "¿Te sirve el paquete así o buscamos otra pieza?";
 
 export async function clasificarIntencion(texto: string, env?: Env): Promise<ClasificacionIntencion> {
   const heuristica = clasificarIntencionHeuristica(texto);
@@ -272,11 +272,11 @@ export function redactarPaqueteMostrador(paquete: PaqueteBom, opciones?: { ajust
   if (paquete.lineas.length === 0) {
     return (
       paquete.resumen?.trim() ||
-      `Para ${paquete.titulo} te puedo armar el paquete, pero en anaquel no topé esas piezas hoy. Si me das el nombre de mostrador o el código lo busco de una en una.`
+      `Para ${paquete.titulo} te puedo armar el paquete, pero hoy no hay esas piezas en el inventario. Si me das el nombre o el código las busco una por una.`
     );
   }
   const aviso = paquete.faltantes.length
-    ? `\n\nHoy no topé en anaquel: ${paquete.faltantes.map((item) => item.query).join(", ")}.`
+    ? `\n\nEn el inventario no hay: ${paquete.faltantes.map((item) => item.query).join(", ")}.`
     : "";
   const intro =
     paquete.resumen?.trim() ||

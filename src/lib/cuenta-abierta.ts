@@ -175,7 +175,7 @@ export function asegurarCierreAbierto(texto: string, cerrar = false): string {
   if (cerrar) return t;
   if (!t) return CIERRE_CUENTA_ABIERTA;
   if (
-    /se te ofrece algo m[aá]s|con esto cerramos|algo m[aá]s o con esto|as[ií] te queda|le movemos otra|le falta alguna pieza|le cambiamos alguna/i.test(
+    /se te ofrece algo m[aá]s|con esto cerramos|algo m[aá]s o con esto|as[ií] te queda|le movemos otra|le falta alguna pieza|le cambiamos alguna|te sirve el paquete|buscamos otra pieza|no hay en stock|en el inventario no hay/i.test(
       t
     )
   ) {

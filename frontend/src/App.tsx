@@ -731,7 +731,7 @@ function PaqueteBomEnChat({
       ))}
       {paquete.faltantes.length > 0 ? (
         <p className="paquete-bom-faltantes">
-          Hoy no topé: {paquete.faltantes.map((item) => item.query).join(', ')}.
+          En el inventario no hay: {paquete.faltantes.map((item) => item.query).join(', ')}.
         </p>
       ) : null}
       {disponibles.length > 0 ? (

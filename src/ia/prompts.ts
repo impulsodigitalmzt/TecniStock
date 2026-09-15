@@ -278,7 +278,7 @@ export function redactarMensajeInicial(
   }
   if (catalogoVacio && !stock.encontrado && alternativas.length === 0) {
     return origen === "texto"
-      ? `De ${nombre} no topé coincidencia en anaquel. Si me das el nombre de mostrador o el código lo busco de nuevo.`
+      ? `De ${nombre} no encontré coincidencia en el inventario. Si me das el nombre o el código lo busco de nuevo.`
       : `He identificado un ${nombre}. ${MENSAJE_SIN_INVENTARIO}`;
   }
   if (hayExacto) {
