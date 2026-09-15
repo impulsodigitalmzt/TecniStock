@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
-  AlertCircle, Camera, ClipboardPaste, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
+  AlertCircle, Camera, ChevronLeft, ChevronRight, ClipboardPaste, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
   MessageCircle, Mic, Moon, MoreVertical, Pencil, Plus, RefreshCw, Search, Send, ShoppingCart, Square, Sun, Tag, Trash2, Wrench, X,
 } from 'lucide-react';
 import { fetchCampo, leerJson } from './lib/campo-api';
@@ -684,46 +684,117 @@ function CarruselEnChat({
   cantidadesCarrito?: Record<string, number>;
   onElegir?: (item: TarjetaChat) => void;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [puedeIzq, setPuedeIzq] = useState(false);
+  const [puedeDer, setPuedeDer] = useState(false);
+  const firmaTarjetas = tarjetas.map((item) => item.sku).join('|');
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+
+    const actualizarFlechas = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      const overflow = max > 4;
+      setPuedeIzq(overflow && el.scrollLeft > 4);
+      setPuedeDer(overflow && el.scrollLeft < max - 4);
+    };
+
+    actualizarFlechas();
+    el.addEventListener('scroll', actualizarFlechas, { passive: true });
+    window.addEventListener('resize', actualizarFlechas);
+    const onWheel = (evento: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth + 4) return;
+      if (Math.abs(evento.deltaY) <= Math.abs(evento.deltaX)) return;
+      el.scrollLeft += evento.deltaY;
+      evento.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(actualizarFlechas);
+      observer.observe(el);
+    }
+    return () => {
+      el.removeEventListener('scroll', actualizarFlechas);
+      el.removeEventListener('wheel', onWheel);
+      window.removeEventListener('resize', actualizarFlechas);
+      observer?.disconnect();
+    };
+  }, [firmaTarjetas]);
+
   if (tarjetas.length === 0) return null;
+
+  const desplazar = (dir: -1 | 1) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.72, 220), behavior: 'smooth' });
+  };
+
   return (
-    <div className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}>
-      {tarjetas.map((item) => {
-        const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
-        const eligiendo = aplicandoSku === item.sku;
-        const cant = cantidadesCarrito[item.sku.toLowerCase()] ?? 0;
-        const yaElegida = cant > 0;
-        return (
-          <button
-            key={item.sku}
-            type="button"
-            className="tarjeta-chat"
-            disabled={disabled || !onElegir}
-            aria-label={`Elegir ${item.nombre}`}
-            onClick={() => onElegir?.(item)}
-          >
-            <div className="tarjeta-chat-foto">
-              <FotoCatalogo url={item.url} sku={item.sku} alt={item.nombre} />
-            </div>
-            <div className="tarjeta-chat-cuerpo">
-              <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">{textoMostrador(item.nombre)}</h3>
-              <p className="mt-1 font-mono text-[10px] text-stone-400 truncate">{item.sku}</p>
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                <span className={estado.clase}>{estado.texto}</span>
-                <span className="text-sm font-semibold tabular-nums">{dinero(item.precio, stock.moneda)}</span>
+    <div className="carrusel-chat-wrap">
+      {puedeIzq ? (
+        <button
+          type="button"
+          className="carrusel-chat-flecha carrusel-chat-flecha-izq"
+          aria-label="Ver opciones anteriores"
+          onClick={() => desplazar(-1)}
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+      ) : null}
+      <div
+        ref={scrollerRef}
+        className={`carrusel-chat ${tarjetas.length === 1 ? 'carrusel-chat-uno' : ''}`}
+      >
+        {tarjetas.map((item) => {
+          const estado = etiquetaExistenciaFicha(item.existencia, item.sku === stock.sku, stock);
+          const eligiendo = aplicandoSku === item.sku;
+          const cant = cantidadesCarrito[item.sku.toLowerCase()] ?? 0;
+          const yaElegida = cant > 0;
+          return (
+            <button
+              key={item.sku}
+              type="button"
+              className="tarjeta-chat"
+              disabled={disabled || !onElegir}
+              aria-label={`Elegir ${item.nombre}`}
+              onClick={() => onElegir?.(item)}
+            >
+              <div className="tarjeta-chat-foto">
+                <FotoCatalogo url={item.url} sku={item.sku} alt={item.nombre} />
               </div>
-              <span className="tarjeta-chat-elegir">
-                {eligiendo ? (
-                  <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
-                ) : yaElegida ? (
-                  `${cant} en el pedido`
-                ) : (
-                  'Elegir'
-                )}
-              </span>
-            </div>
-          </button>
-        );
-      })}
+              <div className="tarjeta-chat-cuerpo">
+                <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-stone-900">{textoMostrador(item.nombre)}</h3>
+                <p className="mt-1 font-mono text-[10px] text-stone-400 truncate">{item.sku}</p>
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <span className={estado.clase}>{estado.texto}</span>
+                  <span className="text-sm font-semibold tabular-nums">{dinero(item.precio, stock.moneda)}</span>
+                </div>
+                <span className="tarjeta-chat-elegir">
+                  {eligiendo ? (
+                    <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin" />
+                  ) : yaElegida ? (
+                    `${cant} en el pedido`
+                  ) : (
+                    'Elegir'
+                  )}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {puedeDer ? (
+        <button
+          type="button"
+          className="carrusel-chat-flecha carrusel-chat-flecha-der"
+          aria-label="Ver más opciones"
+          onClick={() => desplazar(1)}
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -3160,7 +3231,7 @@ export default function App() {
                           sustituto: null,
                         };
                         return (
-                          <div key={msg.id} className="hilo-turno space-y-2">
+                          <div key={msg.id} className={`hilo-turno space-y-2${tarjetas.length > 0 ? ' hilo-turno-carrusel' : ''}`}>
                             {msg.texto ? (
                               <div className="bubble-bot">
                                 <p className="whitespace-pre-wrap">{msg.texto}</p>

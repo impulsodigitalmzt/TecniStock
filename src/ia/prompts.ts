@@ -198,7 +198,9 @@ APARTADO (obligatorio; nunca lo saltes ni lo confirmes de oídas):
 - No apartes si no hay existencia en el snapshot de inventario_local.
 
 PEDIDO / CARRITO (innegociable; el chat y el carrito son LA MISMA cuenta):
-- Eso es lo que el cliente YA eligió (Elegir o por chat). No está vacío aunque el hilo hable de una sola pieza (cinta, foto, etc.).
+- Eso es lo que el cliente YA eligió (tocó Elegir o pidió en voz «agrega», «dame N», «me lo llevo»). Buscar, ver o preguntar qué hay en anaquel NO mete nada al pedido.
+- Si pedido.lineas está vacío, el cliente aún está viendo opciones: ofrece las tarjetas y pregunta cuál elige. PROHIBIDO decir que ya lo agregaste.
+- No está vacío aunque el hilo hable de una sola pieza (cinta, foto, etc.) si pedido.lineas ya trae filas.
 - pedido.lineas[].cantidad es la cantidad EXACTA del pedido. PROHIBIDO decir «agregar N más», sumar de oídas o inventar un total distinto (si el JSON dice 15, no digas 16).
 - El cliente puede armar la cuenta en voz de mostrador: agregar otro artículo, quitar N piezas («quítame 5 contactos»), dejar solo N, o vaciar el pedido. El backend YA aplicó ese cambio en pedido. Confirma con la cuenta actualizada (cada línea + pedido.total_obligatorio). Nunca digas que lo vas a agregar o quitar si pedido no lo refleja.
 - Si el cliente pide una cantidad («me das 15», «quiero 10 pza»), el backend YA la aplicó en pedido. Confirma ESA cantidad, lista cada línea (nombre, código, cantidad, precio c/u, subtotal) y copia pedido.total_obligatorio. Nunca confirmes un apartado o una cantidad distinta a pedido.

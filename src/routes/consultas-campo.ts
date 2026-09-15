@@ -244,9 +244,7 @@ consultasCampoRoutes.post("/texto", async (c) => {
     mensajeUsuario: q ? q : `Seleccioné ${pieza.nombre}`,
     mensajeAsistente,
   });
-  const lineas = sku
-    ? lineasDesdeResultados(resultados, 1)
-    : lineasDesdeResultados(resultados, cantidadDesdeConsulta(q));
+  const lineas = lineasSiClienteEligio(q, resultados, sku);
   if (lineas.length) {
     await recordarPedidoCampo(sql, consulta.id, dispositivo, lineas);
   }
@@ -480,21 +478,7 @@ consultasCampoRoutes.post("/:id/foto", async (c) => {
     tarjetasFoto.slice(0, 8).map((item) => tarjetaDesdeCatalogo(item))
   );
   await agregarMensajeCampo(sql, consulta.id, "assistant", textoAsesor);
-  const lineasFoto = lineasPedidoActual(consulta, undefined);
-  const nuevasFoto = lineaDesdeInventario(
-    {
-      sku: stock.sku,
-      nombre: stock.nombre,
-      existencia: cantidadStock(stock),
-      precio: stock.precio,
-      url_imagen: stock.url_imagen,
-    },
-    1
-  );
-  const pedidoFoto = fusionarLineasPedido(lineasFoto, nuevasFoto ? [nuevasFoto] : []);
-  if (pedidoFoto.length) {
-    await recordarPedidoCampo(sql, consulta.id, dispositivo, pedidoFoto);
-  }
+  const pedidoFoto = lineasPedidoActual(consulta, undefined);
   const mensajes = await listarMensajesCampo(sql, consulta.id);
   return c.json({
     ok: true,
@@ -643,6 +627,21 @@ function lineasDesdeResultados(resultados: ResultadoBusquedaInventario[], cantid
   const primaria = resultados.find((item) => item.stock_disponible > 0);
   const linea = primaria ? lineaDesdeInventario(primaria, cantidad) : null;
   return linea ? [linea] : [];
+}
+
+/** Buscar o mostrar anaquel no mete pieza. Solo Elegir (SKU), «agrega/dame N» o «me lo llevo». */
+function lineasSiClienteEligio(
+  texto: string,
+  resultados: ResultadoBusquedaInventario[],
+  skuForzado = ""
+): LineaCarrito[] {
+  if (skuForzado.trim()) return lineasDesdeResultados(resultados, 1);
+  if (esSeleccionProducto(texto)) return lineasDesdeResultados(resultados, 1);
+  const edicion = extraerEdicionPedido(texto);
+  if (edicion && (edicion.modo === "add" || edicion.modo === "set")) {
+    return lineasDesdeResultados(resultados, edicion.cantidad ?? cantidadDesdeConsulta(texto));
+  }
+  return [];
 }
 
 function lineasDesdeBom(paquete: { lineas: Array<{ sku: string; nombre: string; cantidad: number; precio: number; existencia: number; url: string }> }): LineaCarrito[] {
@@ -1025,21 +1024,26 @@ async function responderConsultaCampo(
   const ajuste = aplicarEdicionPedido(texto, lineasPedido, stockVivo, extraPedido);
   if (ajuste.cambio) {
     lineasPedido = ajuste.lineas;
+  } else if (esSeleccionProducto(texto)) {
+    const fuente =
+      resultadosBusqueda.length > 0
+        ? resultadosBusqueda
+        : stockVivo.sku && stockVivo.nombre
+          ? [
+              {
+                sku: stockVivo.sku,
+                nombre: stockVivo.nombre,
+                categoria: "",
+                stock_disponible: cantidadStock(stockVivo),
+                precio: stockVivo.precio ?? 0,
+                ubicacion_tienda: stockVivo.ubicacion_tienda ?? "",
+                url_imagen: stockVivo.url_imagen ?? "",
+              },
+            ]
+          : [];
+    lineasPedido = fusionarLineasPedido(lineasPedido, lineasDesdeResultados(fuente, 1));
   }
-  if (
-    !ajuste.cambio &&
-    !seguimiento &&
-    !verMas &&
-    !cierraCuenta &&
-    consultaSecundaria &&
-    resultadosBusqueda.length > 0
-  ) {
-    lineasPedido = fusionarLineasPedido(
-      lineasPedido,
-      lineasDesdeResultados(resultadosBusqueda, cantidadDesdeConsulta(texto))
-    );
-  }
-  if (ajuste.cambio || consultaSecundaria) {
+  if (ajuste.cambio || consultaSecundaria || esSeleccionProducto(texto)) {
     await recordarPedidoCampo(sql, consulta.id, consulta.dispositivo_id, lineasPedido);
   }
   const pedido = snapshotPedido(lineasPedido);

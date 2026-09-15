@@ -844,7 +844,8 @@ export function esSeleccionProducto(texto: string): boolean {
   if (!t) return false;
   return (
     /^(seleccione este|seleccione|elegi este|elegi|me quedo con|quiero este|este sku)\b/.test(t) ||
-    /\bseleccione este\b/.test(t)
+    /\bseleccione este\b/.test(t) ||
+    /\bme lo (llevo|quedo)|me la (llevo|quedo)\b/.test(t)
   );
 }
 
