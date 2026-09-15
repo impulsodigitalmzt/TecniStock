@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import {
   AlertCircle, Camera, ClipboardPaste, FileSpreadsheet, FileText, History, ImagePlus, Loader2,
   MessageCircle, Mic, Moon, MoreVertical, Pencil, Plus, RefreshCw, Search, Send, ShoppingCart, Square, Sun, Tag, Trash2, Wrench, X,
@@ -332,6 +332,76 @@ type ResultadoBusquedaInventario = {
   url_imagen?: string;
   descripcion_tecnica?: string;
 };
+
+function escapeRegExp(valor: string): string {
+  return valor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resaltarConsulta(texto: string, query: string): ReactNode {
+  const tokens = query
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length >= 2);
+  if (tokens.length === 0) return texto;
+  const re = new RegExp(`(${tokens.map(escapeRegExp).join('|')})`, 'ig');
+  const out: ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(texto)) !== null) {
+    if (match.index > last) out.push(texto.slice(last, match.index));
+    out.push(
+      <mark key={`${match.index}-${match[0]}`} className="bg-transparent p-0 font-semibold text-orange-600">
+        {match[0]}
+      </mark>
+    );
+    last = match.index + match[0].length;
+  }
+  if (last < texto.length) out.push(texto.slice(last));
+  return out.length > 0 ? out : texto;
+}
+
+function FilaResultadoBusqueda({
+  item,
+  query,
+  moneda = 'MXN',
+  disabled = false,
+  eligiendo = false,
+  onElegir,
+}: {
+  item: ResultadoBusquedaInventario;
+  query: string;
+  moneda?: string;
+  disabled?: boolean;
+  eligiendo?: boolean;
+  onElegir: (item: ResultadoBusquedaInventario) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="busqueda-sugerencia-fila"
+      disabled={disabled}
+      onClick={() => onElegir(item)}
+    >
+      <span className="busqueda-sugerencia-foto">
+        <FotoCatalogo url={item.url_imagen} sku={item.sku} alt="" className="h-full w-full object-contain" />
+      </span>
+      <span className="busqueda-sugerencia-texto">
+        <span className="busqueda-sugerencia-nombre">{resaltarConsulta(textoMostrador(item.nombre), query)}</span>
+        <span className="busqueda-sugerencia-meta">
+          {item.sku}
+          {item.ubicacion_tienda ? ` · ${item.ubicacion_tienda}` : ''}
+        </span>
+      </span>
+      <span className="busqueda-sugerencia-lado">
+        <span className="busqueda-sugerencia-precio">{dinero(item.precio, moneda)}</span>
+        <span className={item.stock_disponible > 0 ? 'text-emerald-700' : 'text-stone-400'}>
+          {item.stock_disponible > 0 ? `${item.stock_disponible} pza` : 'Sin existencia'}
+        </span>
+      </span>
+      {eligiendo ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-orange-500" /> : null}
+    </button>
+  );
+}
 
 function recortarListaMostrador(texto: string): string {
   return texto
@@ -978,6 +1048,7 @@ export default function App() {
   const [queryBusqueda, setQueryBusqueda] = useState('');
   const [resultadosBusqueda, setResultadosBusqueda] = useState<ResultadoBusquedaInventario[]>([]);
   const [buscandoInventario, setBuscandoInventario] = useState(false);
+  const [sugerenciasVisibles, setSugerenciasVisibles] = useState(false);
   const [aplicandoSku, setAplicandoSku] = useState<string | null>(null);
   const [carrito, setCarrito] = useState<LineaCarrito[]>([]);
   const [carritoAbierto, setCarritoAbierto] = useState(false);
@@ -988,6 +1059,7 @@ export default function App() {
   const menuExportarRef = useRef<HTMLDivElement>(null);
   const menuCorreccionRef = useRef<HTMLDivElement>(null);
   const buscadorInputRef = useRef<HTMLInputElement>(null);
+  const busquedaLandingRef = useRef<HTMLFormElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1107,16 +1179,15 @@ export default function App() {
   }, [buscadorAbierto]);
 
   useEffect(() => {
-    if (!buscadorAbierto) return;
     const q = queryBusqueda.trim();
     if (q.length < 1) {
       setResultadosBusqueda([]);
       setBuscandoInventario(false);
       return;
     }
+    setBuscandoInventario(true);
     const ac = new AbortController();
     const t = window.setTimeout(() => {
-      setBuscandoInventario(true);
       void (async () => {
         try {
           const data = await leerJson<{ resultados?: ResultadoBusquedaInventario[] }>(
@@ -1138,7 +1209,22 @@ export default function App() {
       ac.abort();
       window.clearTimeout(t);
     };
-  }, [buscadorAbierto, queryBusqueda]);
+  }, [queryBusqueda]);
+
+  useEffect(() => {
+    if (!sugerenciasVisibles) return;
+    const cerrar = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (busquedaLandingRef.current?.contains(target)) return;
+      setSugerenciasVisibles(false);
+    };
+    document.addEventListener('mousedown', cerrar);
+    document.addEventListener('touchstart', cerrar);
+    return () => {
+      document.removeEventListener('mousedown', cerrar);
+      document.removeEventListener('touchstart', cerrar);
+    };
+  }, [sugerenciasVisibles]);
 
   const cargarHistorial = async () => {
     try {
@@ -2126,6 +2212,20 @@ export default function App() {
   );
 
   const chatListo = Boolean(consultaId);
+  const categoriasSugeridas = [
+    ...new Map(
+      resultadosBusqueda
+        .map((item) => (item.categoria ?? '').trim())
+        .filter(Boolean)
+        .map((cat) => [cat.toLowerCase(), cat] as const)
+    ).values(),
+  ].slice(0, 3);
+  const mostrarSugerenciasLanding =
+    sugerenciasVisibles &&
+    mostrarBandeja &&
+    fotos.length === 0 &&
+    !grabandoBusqueda &&
+    queryBusqueda.trim().length >= 1;
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -2391,9 +2491,11 @@ export default function App() {
                 ) : null}
                 <div className="bg-stone-950 px-3 pb-3 pt-1 space-y-3">
                   <form
+                    ref={busquedaLandingRef}
                     className="busqueda-landing"
                     onSubmit={(event) => {
                       event.preventDefault();
+                      setSugerenciasVisibles(false);
                       enviarBarraLanding();
                     }}
                   >
@@ -2461,6 +2563,7 @@ export default function App() {
                           <input
                             id="busqueda-libre-landing"
                             type="search"
+                            autoComplete="off"
                             placeholder={
                               transcribiendo
                                 ? 'Transcribiendo…'
@@ -2470,10 +2573,22 @@ export default function App() {
                             }
                             value={queryBusqueda}
                             disabled={transcribiendo || analizando}
-                            onChange={(e) => setQueryBusqueda(e.target.value)}
+                            onChange={(e) => {
+                              setQueryBusqueda(e.target.value);
+                              setSugerenciasVisibles(true);
+                            }}
+                            onFocus={() => {
+                              if (queryBusqueda.trim()) setSugerenciasVisibles(true);
+                            }}
                             onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setSugerenciasVisibles(false);
+                                return;
+                              }
                               if (e.key === 'Enter') {
                                 e.preventDefault();
+                                setSugerenciasVisibles(false);
                                 enviarBarraLanding();
                               }
                             }}
@@ -2516,6 +2631,64 @@ export default function App() {
                         )}
                       </button>
                     </div>
+                    {mostrarSugerenciasLanding ? (
+                      <div className="busqueda-sugerencias" role="listbox" aria-label="Sugerencias de inventario">
+                        {buscandoInventario && resultadosBusqueda.length === 0 ? (
+                          <p className="busqueda-sugerencias-estado">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Buscando…
+                          </p>
+                        ) : resultadosBusqueda.length === 0 ? (
+                          <p className="busqueda-sugerencias-estado">No hay coincidencias en inventario local.</p>
+                        ) : (
+                          <>
+                            <ul>
+                              {resultadosBusqueda.slice(0, 5).map((item) => (
+                                <li key={item.sku}>
+                                  <FilaResultadoBusqueda
+                                    item={item}
+                                    query={queryBusqueda}
+                                    disabled={Boolean(aplicandoSku)}
+                                    eligiendo={aplicandoSku === item.sku}
+                                    onElegir={(elegido) => {
+                                      setSugerenciasVisibles(false);
+                                      void aplicarSkuBusqueda(elegido);
+                                    }}
+                                  />
+                                </li>
+                              ))}
+                            </ul>
+                            <button
+                              type="button"
+                              className="busqueda-sugerencias-todos"
+                              onClick={() => {
+                                setSugerenciasVisibles(false);
+                                enviarBarraLanding();
+                              }}
+                            >
+                              Ver todos los resultados
+                            </button>
+                            {categoriasSugeridas.length > 0 ? (
+                              <ul className="busqueda-sugerencias-cats">
+                                {categoriasSugeridas.map((cat) => (
+                                  <li key={cat}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setQueryBusqueda(cat);
+                                        setSugerenciasVisibles(true);
+                                      }}
+                                    >
+                                      {resaltarConsulta(textoMostrador(cat), queryBusqueda)}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                     <p className="busqueda-voz-ayuda">
                       {fotos.length > 0
                         ? analizando
@@ -2846,42 +3019,17 @@ export default function App() {
                       ) : queryBusqueda.trim() && resultadosBusqueda.length === 0 ? (
                         <p className="py-3 text-sm text-stone-500">No hay coincidencias en inventario local.</p>
                       ) : (
-                        <ul className="max-h-64 divide-y divide-stone-100 overflow-y-auto">
+                        <ul className="busqueda-sugerencias-lista max-h-64 overflow-y-auto">
                           {resultadosBusqueda.map((item) => (
                             <li key={item.sku}>
-                              <button
-                                type="button"
-                                className="flex w-full items-start gap-3 px-1 py-2.5 text-left hover:bg-stone-50 disabled:opacity-50"
+                              <FilaResultadoBusqueda
+                                item={item}
+                                query={queryBusqueda}
+                                moneda={stock.moneda}
                                 disabled={Boolean(aplicandoSku)}
-                                onClick={() => void aplicarSkuBusqueda(item)}
-                              >
-                                <FotoCatalogo
-                                  url={item.url_imagen}
-                                  sku={item.sku}
-                                  alt=""
-                                  className="h-12 w-12 shrink-0 rounded-lg object-cover bg-stone-200"
-                                />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-semibold leading-snug text-stone-900">{textoMostrador(item.nombre)}</span>
-                                  <span className="mt-0.5 block font-mono text-[11px] text-stone-400">{item.sku}</span>
-                                  {item.descripcion_tecnica ? (
-                                    <span className="mt-0.5 block text-[11px] leading-snug text-stone-500 line-clamp-2">
-                                      {item.descripcion_tecnica}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <span className="shrink-0 text-right">
-                                  <span className="block text-sm font-semibold tabular-nums">
-                                    {dinero(item.precio, stock.moneda)}
-                                  </span>
-                                  <span className={`mt-0.5 block text-[11px] ${item.stock_disponible > 0 ? 'text-emerald-700' : 'text-stone-400'}`}>
-                                    {item.stock_disponible > 0 ? `${item.stock_disponible} pza` : 'Sin existencia'}
-                                  </span>
-                                </span>
-                                {aplicandoSku === item.sku ? (
-                                  <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-orange-500" />
-                                ) : null}
-                              </button>
+                                eligiendo={aplicandoSku === item.sku}
+                                onElegir={(elegido) => void aplicarSkuBusqueda(elegido)}
+                              />
                             </li>
                           ))}
                         </ul>
