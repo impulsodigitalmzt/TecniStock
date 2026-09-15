@@ -1,6 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+/**
+ * Copia fotos de public/productos al static del SPA.
+ * Si el archivo se llama como el SKU (PLAC-BLC-03.jpg), se vincula solo.
+ *
+ *   node scripts/copiar-fotos-productos.mjs
+ *   node scripts/copiar-fotos-productos.mjs --soft
+ */
+import { copyFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const srcDir = join(root, "public", "productos");
@@ -8,6 +15,8 @@ const destDirs = [
   join(root, "frontend", "public", "static", "productos"),
   join(root, "dist", "client", "static", "productos"),
 ];
+
+const SKU_ARCHIVO_RE = /^[A-Z0-9]{2,12}[-_][A-Z0-9][-_A-Z0-9.]*$/i;
 
 function norm(texto) {
   return texto
@@ -74,76 +83,121 @@ const pares = [
   { sku: "PER100-15A", claves: ["term 15a"] },
 ];
 
-const SKUS = new Set(pares.flatMap((par) => [par.sku, ...(ALIAS_ARCHIVO[norm(par.sku)] ?? [])]));
-for (const skus of Object.values(ALIAS_ARCHIVO)) {
-  for (const sku of skus) SKUS.add(sku);
-}
-
-const archivos = existsSync(srcDir)
-  ? readdirSync(srcDir).filter((nombre) => !nombre.startsWith(".") && extname(nombre))
-  : [];
-const usados = new Set();
-const copiados = [];
-const assigned = new Set();
-
-function copiarHacia(sku, archivo) {
-  const destino = `${sku}${extname(archivo).toLowerCase()}`;
-  for (const dest of destDirs) {
-    if (!existsSync(dest) && dest.includes("dist")) continue;
-    mkdirSync(dest, { recursive: true });
-    copyFileSync(join(srcDir, archivo), join(dest, destino));
+export function sincronizarFotosProductos({ soft = false } = {}) {
+  const SKUS = new Set(pares.flatMap((par) => [par.sku, ...(ALIAS_ARCHIVO[norm(par.sku)] ?? [])]));
+  for (const skus of Object.values(ALIAS_ARCHIVO)) {
+    for (const sku of skus) SKUS.add(sku);
   }
-  assigned.add(sku);
-  copiados.push({ sku, origen: archivo, destino: `/static/productos/${destino}` });
-  for (const extra of VARIANTES[sku] ?? []) {
-    if (assigned.has(extra)) continue;
-    copiarHacia(extra, archivo);
-  }
-}
 
-for (const dest of destDirs) {
-  if (dest.includes("dist") && !existsSync(join(root, "dist", "client"))) continue;
-  mkdirSync(dest, { recursive: true });
-}
-
-for (const archivo of archivos) {
-  const base = norm(archivo.replace(/\.[^.]+$/, ""));
-  const porAlias = ALIAS_ARCHIVO[base];
-  const porSku = SKUS.has(archivo.replace(/\.[^.]+$/, "").toUpperCase())
-    ? [archivo.replace(/\.[^.]+$/, "").toUpperCase()]
+  const archivos = existsSync(srcDir)
+    ? readdirSync(srcDir).filter((nombre) => !nombre.startsWith(".") && extname(nombre))
     : [];
-  const skus = porAlias ?? (porSku.length ? porSku : null);
-  if (!skus) continue;
-  usados.add(archivo);
-  for (const sku of skus) {
-    if (assigned.has(sku)) continue;
-    copiarHacia(sku, archivo);
-  }
-}
+  const usados = new Set();
+  const copiados = [];
+  const assigned = new Set();
 
-for (const par of pares) {
-  if (assigned.has(par.sku)) continue;
-  const archivo = archivos.find((nombre) => {
+  function copiarHacia(sku, archivo, { variantes = true } = {}) {
+    const destino = `${sku}${extname(archivo).toLowerCase()}`;
+    for (const dest of destDirs) {
+      if (dest.includes("dist") && !existsSync(join(root, "dist", "client"))) continue;
+      mkdirSync(dest, { recursive: true });
+      copyFileSync(join(srcDir, archivo), join(dest, destino));
+      for (const extraExt of [".png", ".jpg", ".jpeg", ".webp", ".avif"]) {
+        if (extraExt === extname(archivo).toLowerCase()) continue;
+        const viejo = join(dest, `${sku}${extraExt}`);
+        if (existsSync(viejo)) unlinkSync(viejo);
+      }
+    }
+    assigned.add(sku);
+    copiados.push({ sku, origen: archivo, destino: `/static/productos/${destino}` });
+    if (!variantes) return;
+    for (const extra of VARIANTES[sku] ?? []) {
+      if (assigned.has(extra)) continue;
+      copiarHacia(extra, archivo, { variantes: false });
+    }
+  }
+
+  for (const dest of destDirs) {
+    if (dest.includes("dist") && !existsSync(join(root, "dist", "client"))) continue;
+    mkdirSync(dest, { recursive: true });
+  }
+
+  for (const archivo of archivos) {
+    const base = archivo.replace(/\.[^.]+$/, "");
+    if (!SKU_ARCHIVO_RE.test(base)) continue;
+    usados.add(archivo);
+    const sku = base.toUpperCase();
+    if (!assigned.has(sku)) copiarHacia(sku, archivo, { variantes: false });
+    for (const extra of ALIAS_ARCHIVO[norm(base)] ?? []) {
+      if (assigned.has(extra)) continue;
+      copiarHacia(extra, archivo, { variantes: false });
+    }
+  }
+
+  for (const archivo of archivos) {
+    if (usados.has(archivo)) continue;
+    const base = norm(archivo.replace(/\.[^.]+$/, ""));
+    const porAlias = ALIAS_ARCHIVO[base];
+    const porSku = SKUS.has(archivo.replace(/\.[^.]+$/, "").toUpperCase())
+      ? [archivo.replace(/\.[^.]+$/, "").toUpperCase()]
+      : [];
+    const skus = porAlias ?? (porSku.length ? porSku : null);
+    if (!skus) continue;
+    usados.add(archivo);
+    for (const sku of skus) {
+      if (assigned.has(sku)) continue;
+      copiarHacia(sku, archivo, { variantes: false });
+    }
+  }
+
+  for (const par of pares) {
+    if (assigned.has(par.sku)) continue;
+    const archivo = archivos.find((nombre) => {
+      if (usados.has(nombre)) return false;
+      const n = norm(nombre);
+      return par.claves.every((clave) => n.includes(norm(clave)));
+    });
+    if (!archivo) continue;
+    usados.add(archivo);
+    copiarHacia(par.sku, archivo, { variantes: false });
+  }
+
+  for (const item of [...copiados]) {
+    for (const extra of VARIANTES[item.sku] ?? []) {
+      if (assigned.has(extra)) continue;
+      copiarHacia(extra, item.origen, { variantes: false });
+    }
+  }
+
+  const duplicadosOk = ["cople", "pared delgada", "tubo conduit"];
+  const sobrantes = archivos.filter((nombre) => {
     if (usados.has(nombre)) return false;
     const n = norm(nombre);
-    return par.claves.every((clave) => n.includes(norm(clave)));
+    return !duplicadosOk.some((clave) => n.includes(clave));
   });
-  if (!archivo) continue;
-  usados.add(archivo);
-  copiarHacia(par.sku, archivo);
+  if (sobrantes.length && !soft) {
+    throw new Error(`Fotos sin relacionar: ${sobrantes.join(", ")}`);
+  }
+
+  return {
+    ok: true,
+    copiados,
+    omitidos: archivos.filter((n) => !usados.has(n)),
+    total: copiados.length,
+  };
 }
 
-const duplicadosOk = ["cople", "pared delgada", "tubo conduit"];
-const sobrantes = archivos.filter((nombre) => {
-  if (usados.has(nombre)) return false;
-  const n = norm(nombre);
-  return !duplicadosOk.some((clave) => n.includes(clave));
-});
-const soft = process.argv.includes("--soft");
-if (sobrantes.length) {
-  const msg = `Fotos sin relacionar: ${sobrantes.join(", ")}`;
-  if (soft) console.warn(msg);
-  else throw new Error(msg);
-}
+const esCli = (() => {
+  const invocacion = process.argv[1];
+  if (!invocacion) return false;
+  try {
+    return import.meta.url === pathToFileURL(resolve(invocacion)).href;
+  } catch {
+    return false;
+  }
+})();
 
-console.log(JSON.stringify({ ok: true, copiados, omitidos: archivos.filter((n) => !usados.has(n)), total: copiados.length }, null, 2));
+if (esCli) {
+  const result = sincronizarFotosProductos({ soft: process.argv.includes("--soft") });
+  console.log(JSON.stringify(result, null, 2));
+}

@@ -1,9 +1,28 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { spawnSync } from 'child_process';
+
+function fotosProductosPlugin(): Plugin {
+  const sync = () => {
+    spawnSync(process.execPath, [path.resolve(__dirname, '../scripts/copiar-fotos-productos.mjs'), '--soft'], {
+      cwd: path.resolve(__dirname, '..'),
+      stdio: 'ignore',
+    });
+  };
+  return {
+    name: 'sync-product-photos',
+    buildStart() {
+      sync();
+    },
+    configureServer() {
+      sync();
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [fotosProductosPlugin(), react()],
   base: '/',
   build: {
     outDir: path.resolve(__dirname, '../dist/client'),

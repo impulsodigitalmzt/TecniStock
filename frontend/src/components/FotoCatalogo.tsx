@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const EXTENSIONES = ['png', 'jpg', 'jpeg', 'webp'];
+const EXTENSIONES = ['png', 'jpg', 'jpeg', 'webp', 'avif'];
 
 function encodeSegmento(seg: string): string {
   if (!seg) return seg;
@@ -50,8 +50,9 @@ export function candidatosFotoCatalogo(url?: string, sku?: string): string[] {
   const codigo = (sku ?? '').trim();
   if (codigo) {
     const nombre = encodeSegmento(codigo);
-    for (const ext of ['png', 'jpg', 'webp']) {
+    for (const ext of EXTENSIONES) {
       agregar(out, `/static/productos/${nombre}.${ext}`);
+      agregar(out, `/productos/${nombre}.${ext}`);
     }
   }
   return out;

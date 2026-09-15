@@ -2570,8 +2570,8 @@ export default function App() {
                     {stock ? (
                       <span className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-stone-200">
                         <FotoCatalogo
-                          url={stock.url_imagen}
-                          sku={stock.sku ?? undefined}
+                          url={stock.url_imagen || alternativasStock[0]?.url_imagen}
+                          sku={stock.sku ?? alternativasStock[0]?.sku}
                           alt=""
                           className="h-full w-full object-cover"
                         />
