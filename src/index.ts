@@ -7,6 +7,7 @@ import { allowedBrowserOrigin, applyCorsHeaders, applySecurityHeaders } from "./
 import { createSql } from "./db";
 import { ensureConsultasCampoSchema, purgarConsultasVencidas } from "./lib/consultas-campo";
 import { purgarApartadosVencidos } from "./lib/apartados";
+import { esRutaFotoCatalogo, servirFotoCatalogo } from "./lib/fotos-catalogo";
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -75,6 +76,10 @@ export default {
     const mutating = request.method !== "GET" && request.method !== "HEAD";
     if (isWorkerPath(url.pathname) || mutating) {
       return api.fetch(request, env, ctx);
+    }
+    if (esRutaFotoCatalogo(url.pathname)) {
+      const foto = await servirFotoCatalogo(request, env);
+      if (foto) return foto;
     }
     return env.ASSETS.fetch(request);
   },

@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { spawnSync } from 'child_process';
+import fs from 'fs';
 
 function fotosProductosPlugin(): Plugin {
   const sync = () => {
@@ -15,8 +16,43 @@ function fotosProductosPlugin(): Plugin {
     buildStart() {
       sync();
     },
-    configureServer() {
+    configureServer(server) {
       sync();
+      const origen = path.resolve(__dirname, '../public/productos');
+      const copiado = path.resolve(__dirname, 'public/static/productos');
+      const tipos: Record<string, string> = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp',
+        avif: 'image/avif',
+      };
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url ?? '').split('?')[0];
+        if (!url.startsWith('/static/productos/') && !url.startsWith('/productos/')) {
+          next();
+          return;
+        }
+        const pedido = decodeURIComponent(url.split('/').pop() ?? '');
+        const match = pedido.match(/^(.*)\.([a-z0-9]+)$/i);
+        if (!match) {
+          next();
+          return;
+        }
+        const base = match[1];
+        const exts = [match[2].toLowerCase(), 'jpg', 'jpeg', 'png', 'webp', 'avif'];
+        for (const ext of [...new Set(exts)]) {
+          for (const dir of [origen, copiado]) {
+            const full = path.join(dir, `${base}.${ext}`);
+            if (!fs.existsSync(full)) continue;
+            res.setHeader('Content-Type', tipos[ext] || 'application/octet-stream');
+            res.setHeader('Cache-Control', 'public, max-age=120');
+            fs.createReadStream(full).pipe(res);
+            return;
+          }
+        }
+        next();
+      });
     },
   };
 }

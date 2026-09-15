@@ -83,10 +83,11 @@ export function FotoCatalogo({ url, sku, alt = '', className }: Props) {
       </span>
     );
   }
+  const srcFinal = src.includes('?') ? src : `${src}?c=2`;
   return (
     <img
-      key={src}
-      src={src}
+      key={srcFinal}
+      src={srcFinal}
       alt={alt}
       className={className}
       decoding="async"
