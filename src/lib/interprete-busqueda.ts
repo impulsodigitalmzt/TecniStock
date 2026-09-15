@@ -285,9 +285,26 @@ const CORRECCIONES_FONETICAS: Array<[RegExp, string]> = [
   [/\btorniilos?\b/g, "tornillo"],
 ];
 
+/** Quita lo que el cliente rechazó («no ocupo la pastilla») para no buscar eso. */
+export function quitarRechazosMostrador(texto: string): string {
+  let t = texto
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+  const art = "(?:el|la|los|las|un|una)?";
+  const pieza = "[a-z0-9]+";
+  t = t.replace(new RegExp(`\\bno\\s+(?:ocupo|quiero|necesito|llevo|pido|uso|traigo)\\s+${art}\\s*${pieza}`, "gi"), " ");
+  t = t.replace(new RegExp(`\\bni\\s+tampoco\\s+${art}\\s*${pieza}`, "gi"), " ");
+  t = t.replace(new RegExp(`\\btampoco\\s+${art}\\s*${pieza}`, "gi"), " ");
+  t = t.replace(new RegExp(`\\bni\\s+(?:el|la|los|las)\\s+${pieza}`, "gi"), " ");
+  t = t.replace(new RegExp(`\\ben vez de(?:l)?\\s+(?:la|los|las|un|una)?\\s*${pieza}`, "gi"), " ");
+  t = t.replace(new RegExp(`\\ben (?:su )?lugar (?:de|del|de la)\\s+(?:los|las|un|una)?\\s*${pieza}`, "gi"), " ");
+  return t.replace(/[^a-z0-9./]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 /** Limpia acentos, muletillas fonéticas y jerga antes de tokenizar. */
 export function preprocesarConsulta(texto: string): string {
-  let t = plegarTexto(texto);
+  let t = quitarRechazosMostrador(texto);
   for (const [patron, canon] of CORRECCIONES_FONETICAS) {
     t = t.replace(patron, canon);
   }
@@ -382,6 +399,7 @@ function detectarSku(texto: string): string | null {
 }
 
 function esBreakerContext(texto: string): boolean {
+  if (/\b(apagador|tecla)\b/.test(texto) && /\b(en (?:su )?lugar|en vez)\b/.test(texto)) return false;
   return /\b(termomagnet|pastilla|breaker|amper|centro de carga|riel|din)\b/.test(texto);
 }
 

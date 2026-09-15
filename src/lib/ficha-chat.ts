@@ -32,6 +32,7 @@ export type LineaPaqueteBom = {
   existencia: number;
   grupo: string;
   url: string;
+  unidad?: "m" | "pza";
 };
 
 export type FaltantePaqueteBom = {
@@ -52,7 +53,7 @@ const MARCA_CARD_RE =
   /\[\[[\s]*card[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi;
 const MARCA_BOM_RE = /\[\[[\s]*bom[\s]*:[\s]*([^\]]+)\]\]/gi;
 const MARCA_BOMITEM_RE =
-  /\[\[[\s]*bomitem[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi;
+  /\[\[[\s]*bomitem[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)(?:\|([^\]]*))?\]\]/gi;
 const MARCA_BOMFALTANTE_RE = /\[\[[\s]*bomfaltante[\s]*:[\s]*([^|\]]*)\|([^\]]*)\]\]/gi;
 const MARCA_FOTO_HILO_RE = /\[\[[\s]*foto-hilo[\s]*\]\]/gi;
 const MARCA_RESIDUO_RE = /\[\[[^\]]*\]\]/g;
@@ -132,8 +133,21 @@ function fusionarTarjetas(items: TarjetaChat[]): TarjetaChat[] {
   return out.slice(0, 12);
 }
 
+function cantidadBom(valor: number, unidad: "m" | "pza"): number {
+  if (unidad === "m") return Math.max(0.1, Math.min(999, Math.round(valor * 10) / 10));
+  return Math.max(1, Math.trunc(valor) || 1);
+}
+
+function unidadBom(valor: string, cantidad: number, nombre: string): "m" | "pza" {
+  const u = String(valor ?? "").trim().toLowerCase();
+  if (u === "m" || u === "pza") return u;
+  if (cantidad % 1 !== 0 || /^\d/.test(nombre) && /\sm\s*·/.test(nombre)) return "m";
+  return "pza";
+}
+
 export function serializarLineaBom(linea: LineaPaqueteBom): string {
-  return `[[bomitem:${sanitizarCampo(linea.sku).replace(/\s+/g, "")}|${sanitizarCampo(linea.nombre)}|${Math.max(1, Math.trunc(linea.cantidad) || 1)}|${Number.isFinite(linea.precio) ? linea.precio : 0}|${Math.max(0, Math.trunc(linea.existencia) || 0)}|${sanitizarCampo(linea.grupo) || "materiales"}|${sanitizarCampo(linea.url)}]]`;
+  const unidad = unidadBom(linea.unidad ?? "", linea.cantidad, linea.nombre);
+  return `[[bomitem:${sanitizarCampo(linea.sku).replace(/\s+/g, "")}|${sanitizarCampo(linea.nombre)}|${cantidadBom(linea.cantidad, unidad)}|${Number.isFinite(linea.precio) ? linea.precio : 0}|${Math.max(0, Math.trunc(linea.existencia) || 0)}|${sanitizarCampo(linea.grupo) || "materiales"}|${sanitizarCampo(linea.url)}|${unidad}]]`;
 }
 
 function fusionarLineasBom(items: LineaPaqueteBom[]): LineaPaqueteBom[] {
@@ -142,17 +156,19 @@ function fusionarLineasBom(items: LineaPaqueteBom[]): LineaPaqueteBom[] {
   for (const item of items) {
     const sku = item.sku.trim();
     if (!sku) continue;
-    const clave = sku.toLowerCase();
+    const unidad = unidadBom(item.unidad ?? "", item.cantidad, item.nombre);
+    const clave = `${sku.toLowerCase()}::${unidad}`;
     if (vistos.has(clave)) continue;
     vistos.add(clave);
     out.push({
       sku,
       nombre: item.nombre.trim() || sku,
-      cantidad: Math.max(1, Math.trunc(item.cantidad) || 1),
+      cantidad: cantidadBom(item.cantidad, unidad),
       precio: Number.isFinite(item.precio) ? item.precio : 0,
       existencia: Math.max(0, Math.trunc(item.existencia) || 0),
       grupo: item.grupo.trim() || "materiales",
       url: item.url.trim(),
+      unidad,
     });
   }
   return out.slice(0, 12);
@@ -189,18 +205,23 @@ export function extraerMarcaFicha(texto: string): {
         precio: string,
         existencia: string,
         grupo: string,
-        url: string
+        url: string,
+        unidadCampo: string
       ) => {
         const clave = String(code ?? "").trim();
         if (clave) {
+          const nombreLinea = String(nombre ?? "").trim() || clave;
+          const cantidadNum = numeroTarjeta(cantidad);
+          const unidad = unidadBom(String(unidadCampo ?? ""), cantidadNum, nombreLinea);
           lineasBom.push({
             sku: clave,
-            nombre: String(nombre ?? "").trim() || clave,
-            cantidad: Math.max(1, Math.trunc(numeroTarjeta(cantidad)) || 1),
+            nombre: nombreLinea,
+            cantidad: cantidadBom(cantidadNum || (unidad === "m" ? 1 : 1), unidad),
             precio: numeroTarjeta(precio),
             existencia: Math.max(0, Math.trunc(numeroTarjeta(existencia))),
             grupo: String(grupo ?? "").trim() || "materiales",
             url: String(url ?? "").trim(),
+            unidad,
           });
           if (!sku) sku = clave;
         }

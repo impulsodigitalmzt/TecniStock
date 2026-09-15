@@ -174,6 +174,7 @@ type LineaPaqueteBom = {
   existencia: number;
   grupo: string;
   url: string;
+  unidad?: 'm' | 'pza';
 };
 
 type PaqueteBomVista = {
@@ -207,7 +208,7 @@ function extraerMarcaFicha(texto: string): {
       return '';
     })
     .replace(
-      /\[\[[\s]*bomitem[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^\]]*)\]\]/gi,
+      /\[\[[\s]*bomitem[\s]*:[\s]*([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)\|([^|\]]*)(?:\|([^\]]*))?\]\]/gi,
       (
         _: string,
         code: string,
@@ -216,18 +217,29 @@ function extraerMarcaFicha(texto: string): {
         precio: string,
         existencia: string,
         grupo: string,
-        url: string
+        url: string,
+        unidadCampo: string
       ) => {
         const clave = String(code ?? '').trim();
         if (clave) {
+          const nombreLinea = String(nombre ?? '').trim() || clave;
+          const cantidadNum = Number.parseFloat(String(cantidad ?? '').trim()) || 0;
+          const unidadRaw = String(unidadCampo ?? '').trim().toLowerCase();
+          const unidad: 'm' | 'pza' =
+            unidadRaw === 'm' || unidadRaw === 'pza'
+              ? unidadRaw
+              : cantidadNum % 1 !== 0 || (/^\d/.test(nombreLinea) && /\sm\s*·/.test(nombreLinea))
+                ? 'm'
+                : 'pza';
           lineasBom.push({
             sku: clave,
-            nombre: String(nombre ?? '').trim() || clave,
-            cantidad: Math.max(1, Math.trunc(Number.parseFloat(String(cantidad ?? '').trim()) || 1)),
+            nombre: nombreLinea,
+            cantidad: unidad === 'm' ? Math.max(0.1, Math.round(cantidadNum * 10) / 10) : Math.max(1, Math.trunc(cantidadNum) || 1),
             precio: Number.parseFloat(String(precio ?? '').trim()) || 0,
             existencia: Math.trunc(Number.parseFloat(String(existencia ?? '').trim()) || 0),
             grupo: String(grupo ?? '').trim() || 'materiales',
             url: String(url ?? '').trim(),
+            unidad,
           });
           if (!sku) sku = clave;
         }
@@ -842,9 +854,9 @@ function PaqueteBomEnChat({
           <p className="paquete-bom-grupo-titulo">{grupo}</p>
           <ul>
             {lineas.map((linea) => {
-              const enPedido = cantidadesCarrito[linea.sku.toLowerCase()] ?? 0;
+              const enPedido = cantidadesCarrito[`${linea.sku.toLowerCase()}::${linea.unidad || 'pza'}`] ?? cantidadesCarrito[linea.sku.toLowerCase()] ?? 0;
               return (
-                <li key={linea.sku}>
+                <li key={`${linea.sku}-${linea.unidad || 'pza'}`}>
                   <button
                     type="button"
                     className="paquete-bom-linea"
@@ -858,7 +870,13 @@ function PaqueteBomEnChat({
                       </span>
                       <span className="mt-0.5 block font-mono text-[10px] text-stone-400">{linea.sku}</span>
                       <span className="mt-0.5 block text-[11px] text-stone-500">
-                        {linea.cantidad} pza · {linea.existencia > 0 ? `${linea.existencia} en anaquel` : 'Sin existencia'}
+                        {linea.unidad === 'm' ? `${linea.cantidad} m` : `${linea.cantidad} pza`}
+                        {' · '}
+                        {linea.existencia > 0
+                          ? linea.unidad === 'm'
+                            ? `${linea.existencia} m en anaquel`
+                            : `${linea.existencia} en anaquel`
+                          : 'Sin existencia'}
                         {enPedido > 0 ? ` · ${enPedido} en el pedido` : ''}
                       </span>
                     </span>
@@ -1336,6 +1354,7 @@ export default function App() {
       carritoHidratadoRef.current = null;
       return;
     }
+    if (carritoHidratadoRef.current === consultaId) return;
     let loaded: LineaCarrito[] = [];
     try {
       const raw = localStorage.getItem(`tecnistock.carrito.${consultaId}`);
@@ -1368,6 +1387,7 @@ export default function App() {
           cantidad: linea.cantidad,
           precio: linea.precio,
           url_imagen: linea.url_imagen,
+          unidad: linea.unidad === 'm' ? 'm' : 'pza',
         })),
       }),
     }).catch(() => {
@@ -1655,6 +1675,7 @@ export default function App() {
       cantidad: linea.cantidad,
       precio: linea.precio,
       url_imagen: linea.url_imagen,
+      unidad: linea.unidad === 'm' ? 'm' : 'pza',
     }));
     const tempId = `temp-msg-${Date.now()}`;
     if (desdeBorrador) {
@@ -1821,12 +1842,15 @@ export default function App() {
         stock: data.stock,
       });
       setExpiresAt(data.expires_at);
-      if (data.consulta_id) setConsultaId(data.consulta_id);
+      if (data.consulta_id) {
+        carritoHidratadoRef.current = data.consulta_id;
+        setConsultaId(data.consulta_id);
+      }
       setMensajes(data.mensajes ?? []);
       setBuscadorAbierto(false);
       setQueryBusqueda('');
       setResultadosBusqueda([]);
-      setCarrito((prev) => aplicarPedidoServidor(prev, data.pedido));
+      setCarrito(aplicarPedidoServidor([], data.pedido));
       void cargarHistorial();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo buscar esa pieza.');
@@ -1902,14 +1926,15 @@ export default function App() {
   const agregarLineaPaquete = (linea: LineaPaqueteBom) => {
     setError('');
     setCarrito((prev) =>
-      agregarAlCarrito(prev, {
-        sku: linea.sku,
-        nombre: linea.nombre,
-        cantidad: linea.cantidad,
-        precio: linea.precio,
-        url_imagen: linea.url || undefined,
-        existencia: linea.existencia,
-      })
+        agregarAlCarrito(prev, {
+          sku: linea.sku,
+          nombre: linea.nombre,
+          cantidad: linea.cantidad,
+          precio: linea.precio,
+          url_imagen: linea.url || undefined,
+          existencia: linea.existencia,
+          unidad: linea.unidad === 'm' ? 'm' : 'pza',
+        })
     );
   };
 
@@ -1925,6 +1950,7 @@ export default function App() {
             precio: linea.precio,
             url_imagen: linea.url || undefined,
             existencia: linea.existencia,
+            unidad: linea.unidad === 'm' ? 'm' : 'pza',
           }),
         prev
       )
@@ -1957,6 +1983,7 @@ export default function App() {
               cantidad: linea.cantidad,
               precio: linea.precio,
               url_imagen: linea.url_imagen,
+              unidad: linea.unidad === 'm' ? 'm' : 'pza',
             })),
           }),
         }),
@@ -2021,6 +2048,7 @@ export default function App() {
             cantidad: linea.cantidad,
             precio: linea.precio,
             url_imagen: linea.url_imagen,
+            unidad: linea.unidad === 'm' ? 'm' : 'pza',
           }))
         )
       );
@@ -2359,17 +2387,23 @@ export default function App() {
                 abierto={carritoAbierto}
                 enviando={enviandoApartado}
                 onToggle={() => setCarritoAbierto((prev) => !prev)}
-                onCambiarCantidad={(sku, cantidad) => {
+                onCambiarCantidad={(sku, cantidad, unidad) => {
                   setCarrito((prev) => {
-                    if (cantidad <= 0) return prev.filter((linea) => linea.sku !== sku);
+                    const misma = (linea: LineaCarrito) =>
+                      linea.sku === sku && (linea.unidad || 'pza') === (unidad || 'pza');
+                    if (cantidad <= 0) return prev.filter((linea) => !misma(linea));
                     return prev.map((linea) => {
-                      if (linea.sku !== sku) return linea;
+                      if (!misma(linea)) return linea;
                       const tope = linea.existencia ?? 999;
                       return { ...linea, cantidad: Math.min(tope, cantidad) };
                     });
                   });
                 }}
-                onQuitar={(sku) => setCarrito((prev) => prev.filter((linea) => linea.sku !== sku))}
+                onQuitar={(sku, unidad) =>
+                  setCarrito((prev) =>
+                    prev.filter((linea) => !(linea.sku === sku && (linea.unidad || 'pza') === (unidad || 'pza')))
+                  )
+                }
                 onVaciar={() => setCarrito([])}
                 onGenerarApartado={() => void generarApartadoCarrito()}
               />
@@ -3037,7 +3071,9 @@ export default function App() {
                         disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                         aplicandoSku={aplicandoSku}
                         onElegir={elegirProductoCarrusel}
-                        cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
+                        cantidadesCarrito={Object.fromEntries(
+                          carrito.map((linea) => [`${linea.sku.toLowerCase()}::${linea.unidad || 'pza'}`, linea.cantidad])
+                        )}
                       />
                     </div>
                   ) : null}
@@ -3153,7 +3189,9 @@ export default function App() {
                         disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                         aplicandoSku={aplicandoSku}
                         onElegir={elegirProductoCarrusel}
-                        cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
+                        cantidadesCarrito={Object.fromEntries(
+                          carrito.map((linea) => [`${linea.sku.toLowerCase()}::${linea.unidad || 'pza'}`, linea.cantidad])
+                        )}
                       />
                     </div>
                   ) : null}
@@ -3260,7 +3298,9 @@ export default function App() {
                                 paquete={paquete}
                                 moneda={stockCarrusel.moneda}
                                 disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
-                                cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
+                                cantidadesCarrito={Object.fromEntries(
+                          carrito.map((linea) => [`${linea.sku.toLowerCase()}::${linea.unidad || 'pza'}`, linea.cantidad])
+                        )}
                                 onAgregarLinea={agregarLineaPaquete}
                                 onAgregarPaquete={agregarPaqueteAlPedido}
                               />
@@ -3271,7 +3311,9 @@ export default function App() {
                                 disabled={enviando || transcribiendo || grabando || Boolean(aplicandoSku)}
                                 aplicandoSku={aplicandoSku}
                                 onElegir={elegirProductoCarrusel}
-                                cantidadesCarrito={Object.fromEntries(carrito.map((linea) => [linea.sku.toLowerCase(), linea.cantidad]))}
+                                cantidadesCarrito={Object.fromEntries(
+                          carrito.map((linea) => [`${linea.sku.toLowerCase()}::${linea.unidad || 'pza'}`, linea.cantidad])
+                        )}
                               />
                             ) : null}
                           </div>

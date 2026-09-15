@@ -19,6 +19,7 @@ import {
   type RutaIntencion,
 } from "./intencion-ruta";
 import { elegirHitBom, limpiarQueryBom } from "./paquete-bom-match";
+import { cotizarVentaMetro } from "./venta-metro";
 
 export { clasificarIntencionHeuristica, pareceProyecto };
 export type { ClasificacionIntencion, RutaIntencion };
@@ -57,10 +58,11 @@ Responde SOLO JSON:
 
 Reglas innegociables:
 - Máximo 8 líneas. Descompón el proyecto pieza por pieza según lo que el cliente pidió EN ESTE HILO.
-- cantidad = unidades de VENTA del anaquel (1 rollo, 1 pieza, 1 centro de carga). NUNCA metros lineales ni "5" sobre un rollo de 100 m.
-- Si el cliente objeta una cantidad (demasiado, solo ocupo 5 metros, quita el rollo, cambia el calibre): AJUSTA esa línea y conserva el resto que no objetó.
-- query de cable: "cable thw calibre 12" o "cable thw calibre 10". Calibres reales: 8, 10, 12, 14. NUNCA inventes 12.5 ni pongas "metro" en el query.
-- Si el anaquel vende rollos de 50/100 m, INCLUYE el rollo (cantidad 1) y dilo en mensaje: se vende por rollo, no cortamos. PROHIBIDO decir que no hay cable si existe el rollo THW.
+- cantidad = piezas de anaquel, EXCEPTO cable/tubo/conduit/PVC/cobre: ahí cantidad = METROS que ocupa ESTE trabajo (3 m para un foco, no 1 rollo de 100 m).
+- Si el cliente pide el rollo o el tubo completo, cantidad 1 de esa pieza.
+- Si pide metros o centímetros («3 metros del 10», «30 cm de cobre»), usa ESA medida.
+- query de cable: "cable thw calibre 12" o "cable thw calibre 10". Calibres reales: 8, 10, 12, 14. NUNCA inventes 12.5.
+- El backend calcula el precio por metro a partir del rollo o tramo. NUNCA pongas el precio del rollo de 100 m para 3 m.
 - query = nombre para buscar en inventario (interruptor termomagnetico 2 polos, cinta teflon, cable thw calibre 12, tubo conduit 1/2).
 - NO inventes códigos, precios ni marcas.
 - mensaje: confirma el ajuste o el armado en voz de mostrador. PROHIBIDO decir «SKU». Di código o el nombre de la pieza. PROHIBIDO preguntar si cerramos, apartamos o "con esto cerramos". PROHIBIDO asumir que la venta ya cerró.
@@ -96,7 +98,9 @@ function parsearLineasLlm(valor: unknown): LineaBomBorrador[] {
     const row = item as Record<string, unknown>;
     const query = String(row.query ?? row.nombre ?? "").trim();
     if (query.length < 3) continue;
-    const cantidad = Math.max(1, Math.trunc(Number(row.cantidad) || 1));
+    const n = Number(row.cantidad);
+    const cantidad =
+      Number.isFinite(n) && n > 0 ? (n < 1 ? Math.max(0.3, Math.round(n * 10) / 10) : Math.min(99, n)) : 1;
     const grupo = String(row.grupo ?? "materiales").trim() || "materiales";
     out.push({ query: query.slice(0, 80), cantidad, grupo: grupo.slice(0, 40) });
   }
@@ -128,7 +132,7 @@ function promptUsuarioBom(texto: string, opciones?: OpcionesPaqueteProyecto): st
   partes.push(`Último mensaje del cliente:\n${texto.slice(0, 500)}`);
   if (opciones?.ajuste) {
     partes.push(
-      "El cliente está objetando o cambiando medidas/cantidades. Recalcula el paquete. Conserva lo que no objetó. Nunca dejes un rollo de 100 m si pidió pocos metros."
+      "El cliente está objetando o cambiando medidas/cantidades. Recalcula el paquete. Conserva lo que no objetó. Si pidió pocos metros de cable o tubo, corta esa medida: NUNCA dejes un rollo de 100 m ni un tramo de 3 m si solo ocupa 3 m o 30 cm."
     );
   }
   return partes.join("\n\n").slice(0, 3800);
@@ -156,15 +160,31 @@ async function borradorDesdeLlm(texto: string, env?: Env, opciones?: OpcionesPaq
   }
 }
 
-function resultadoALinea(hit: ResultadoBusquedaInventario, cantidad: number, grupo: string): LineaPaqueteBom {
+function resultadoALinea(
+  hit: ResultadoBusquedaInventario,
+  linea: LineaBomBorrador,
+  textoCliente: string
+): LineaPaqueteBom {
+  const corte = cotizarVentaMetro(
+    {
+      sku: hit.sku,
+      nombre: hit.nombre,
+      precio: hit.precio,
+      existencia: hit.stock_disponible,
+      descripcion: hit.descripcion_tecnica,
+    },
+    textoCliente,
+    { cantidadLlm: linea.cantidad }
+  );
   return {
-    sku: hit.sku,
-    nombre: hit.nombre,
-    cantidad: Math.min(Math.max(1, cantidad), Math.max(1, hit.stock_disponible || 1)),
-    precio: hit.precio,
-    existencia: hit.stock_disponible,
-    grupo,
+    sku: corte.sku,
+    nombre: corte.nombre,
+    cantidad: corte.cantidad,
+    precio: corte.precio,
+    existencia: corte.existencia,
+    grupo: linea.grupo,
     url: hit.url_imagen || "",
+    unidad: corte.unidad,
   };
 }
 
@@ -198,7 +218,7 @@ async function validarLineasContraNeon(
     const clave = hit.sku.toLowerCase();
     if (vistos.has(clave)) continue;
     vistos.add(clave);
-    lineas.push(resultadoALinea(hit, linea.cantidad, linea.grupo));
+    lineas.push(resultadoALinea(hit, linea, textoCliente));
   }
   return { lineas, faltantes };
 }

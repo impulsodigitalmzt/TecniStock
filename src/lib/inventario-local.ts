@@ -9,6 +9,7 @@ import {
 import { mexicanizarMostrador } from "../ia/prompts";
 import {
   filaPerteneceAFamilia,
+  quitarRechazosMostrador,
   type IntencionBusqueda,
 } from "./interprete-busqueda";
 import { normalizarConsulta, type EntradaPipeline } from "./pipeline-busqueda";
@@ -265,6 +266,12 @@ const RELLENO_CONSULTA = new Set([
   "buscando",
   "estoy",
   "pero",
+  "ocupo",
+  "tampoco",
+  "lugar",
+  "vez",
+  "su",
+  "ni",
   "solo",
   "quiero",
   "quisiera",
@@ -754,7 +761,7 @@ function terminosDesdePieza(pieza: IdentidadPieza): string[] {
 }
 
 function limpiarNegacionesCatalogo(texto: string): string {
-  return texto
+  return quitarRechazosMostrador(texto)
     .replace(/\bno solo(?:\s+la)?\s+(placa|tapa|embellecedor)s?\b/gi, " ")
     .replace(/\bno(?:\s+es)?(?:\s+la)?\s+(placa|tapa)s?\b/gi, " ")
     .replace(/\bno(?:\s+es)?(?:\s+eso|\s+esa|\s+este|\s+esta)\b/gi, " ");
@@ -767,7 +774,7 @@ const SEGUIMIENTO_RE =
   /\b(de que tipo|que tipo|que clase|que es|como es|como funciona|para que sirve|de que material|que material|que medida|que voltaje|cuantos modulos|cuantas ventanas|cuantos espacios|cuantas gangas|cuantos botones|caracteristicas?|descripcion|se instala|como se instala|es de [123]|es sencillo|es doble|es triple|la ficha|mas datos|mas info|informacion|detalles)\b/;
 
 const CORRECCION_RE =
-  /\b(no solo(?: la)? placa|no es(?: la)? placa|no la placa|no(?: es)? la tapa|el completo|apagador completo|interruptor completo|estoy buscando|lo que (?:busco|quiero|necesito|estoy buscando)|en realidad|me referia|no es (?:eso|esa|este|esta|una placa)|te equivoc|no esa|armado|con mecanismo|el kit)\b/;
+  /\b(no solo(?: la)? placa|no es(?: la)? placa|no la placa|no(?: es)? la tapa|el completo|apagador completo|interruptor completo|estoy buscando|lo que (?:busco|quiero|necesito|estoy buscando)|en realidad|me referia|no es (?:eso|esa|este|esta|una placa)|te equivoc|no esa|armado|con mecanismo|el kit|en (?:su )?lugar|en vez de|no ocupo (?:la|el)|tampoco (?:el|la))\b/;
 
 /** El cliente corrige la identificación o pide el aparato completo en vez del accesorio. */
 export function esCorreccionCliente(texto: string): boolean {

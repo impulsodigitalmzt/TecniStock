@@ -4,7 +4,24 @@ export type LineaCuenta = {
   cantidad: number;
   precio: number;
   url_imagen?: string;
+  unidad?: "m" | "pza";
+  existencia?: number;
 };
+
+function unidadDe(valor: unknown): "m" | "pza" {
+  return String(valor ?? "").trim().toLowerCase() === "m" ? "m" : "pza";
+}
+
+function claveDe(sku: string, unidad?: string | null): string {
+  return `${sku.trim().toLowerCase()}::${unidadDe(unidad)}`;
+}
+
+function cantidadDe(valor: unknown, unidad: "m" | "pza"): number {
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  if (unidad === "m") return Math.max(0.1, Math.min(999, Math.round(n * 10) / 10));
+  return Math.max(1, Math.min(999, Math.trunc(n) || 1));
+}
 
 export const CIERRE_CUENTA_ABIERTA = "¿Se te ofrece algo más o con esto cerramos?";
 
@@ -92,8 +109,9 @@ export function fusionarLineasPedido(prev: LineaCuenta[], extra: LineaCuenta[]):
     const sku = item.sku.trim();
     const nombre = item.nombre.trim();
     if (!sku || !nombre) return;
-    const clave = sku.toLowerCase();
-    const cantidad = Math.max(1, Math.min(999, Math.trunc(item.cantidad) || 1));
+    const unidad = unidadDe(item.unidad);
+    const clave = claveDe(sku, unidad);
+    const cantidad = cantidadDe(item.cantidad, unidad);
     const precio = Number.isFinite(item.precio) ? item.precio : 0;
     const i = indice.get(clave);
     if (i == null) {
@@ -104,12 +122,14 @@ export function fusionarLineasPedido(prev: LineaCuenta[], extra: LineaCuenta[]):
         cantidad,
         precio,
         url_imagen: item.url_imagen?.trim() || undefined,
+        unidad,
+        existencia: item.existencia,
       });
       return;
     }
     const actual = out[i];
     if (!actual) return;
-    actual.cantidad = Math.min(999, actual.cantidad + cantidad);
+    actual.cantidad = cantidadDe(actual.cantidad + cantidad, unidad);
     if (!actual.url_imagen && item.url_imagen) actual.url_imagen = item.url_imagen;
   };
   for (const item of prev) meter(item);
@@ -126,15 +146,18 @@ export function ponerLineasPedido(prev: LineaCuenta[], siguientes: LineaCuenta[]
   const vistos = new Set<string>();
   for (const item of siguientes) {
     const sku = item.sku.trim();
-    const clave = sku.toLowerCase();
+    const unidad = unidadDe(item.unidad);
+    const clave = claveDe(sku, unidad);
     if (!sku || vistos.has(clave)) continue;
     vistos.add(clave);
     nuevas.push({
       sku,
       nombre: item.nombre.trim() || sku,
-      cantidad: Math.max(1, Math.min(999, Math.trunc(item.cantidad) || 1)),
+      cantidad: cantidadDe(item.cantidad, unidad),
       precio: Number.isFinite(item.precio) ? item.precio : 0,
       url_imagen: item.url_imagen?.trim() || undefined,
+      unidad,
+      existencia: item.existencia,
     });
   }
   return [...kept, ...nuevas].slice(0, 20);
@@ -167,6 +190,7 @@ export function lineaDesdeInventario(
     cantidad: Math.min(Math.max(1, Math.trunc(cantidad) || 1), existencia),
     precio: typeof item.precio === "number" && Number.isFinite(item.precio) ? item.precio : 0,
     url_imagen: String(item.url_imagen || item.url || "").trim() || undefined,
+    unidad: "pza",
   };
 }
 

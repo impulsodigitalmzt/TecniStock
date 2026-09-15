@@ -3,6 +3,16 @@ import { toJsonbParam } from "../db.js";
 import { AppError } from "./errors";
 import { candidatosFicha, type FichaCatalogo } from "./ficha-chat";
 import { cantidadStock, familiaCatalogo, type BloqueStock } from "./stock";
+import {
+  cantidadVenta,
+  claveVenta,
+  cotizarVentaMetro,
+  etiquetaCantidad,
+  extraerMetrosPedido,
+  normalizarUnidad,
+  pideRolloCompleto,
+  type UnidadVenta,
+} from "./venta-metro";
 
 export const HORAS_APARTADO = 24;
 
@@ -12,6 +22,8 @@ export type LineaCarrito = {
   cantidad: number;
   precio: number;
   url_imagen?: string;
+  unidad?: UnidadVenta;
+  existencia?: number;
 };
 
 export type BorradorApartado = {
@@ -60,12 +72,13 @@ export function normalizarLineasCarrito(raw: unknown): LineaCarrito[] {
     const sku = String(row.sku ?? "").trim();
     const nombre = String(row.nombre ?? row.nombre_pieza ?? "").trim();
     if (!sku || !nombre) continue;
-    const cantidad = Math.max(1, Math.min(999, Math.trunc(Number(row.cantidad ?? 1)) || 1));
+    const unidad = normalizarUnidad(row.unidad);
+    const cantidad = cantidadVenta(row.cantidad ?? 1, unidad);
     const precio = Number(row.precio ?? 0);
-    const clave = sku.toLowerCase();
+    const clave = claveVenta(sku, unidad);
     const previa = seen.get(clave);
     if (previa) {
-      previa.cantidad = Math.min(999, previa.cantidad + cantidad);
+      previa.cantidad = cantidadVenta(previa.cantidad + cantidad, unidad);
       continue;
     }
     const linea: LineaCarrito = {
@@ -74,6 +87,8 @@ export function normalizarLineasCarrito(raw: unknown): LineaCarrito[] {
       cantidad,
       precio: Number.isFinite(precio) ? precio : 0,
       url_imagen: String(row.url_imagen ?? row.url ?? "").trim() || undefined,
+      unidad,
+      existencia: Number.isFinite(Number(row.existencia)) ? Number(row.existencia) : undefined,
     };
     seen.set(clave, linea);
     out.push(linea);
@@ -87,20 +102,29 @@ export function totalCarrito(lineas: LineaCarrito[]): number {
 
 export function etiquetaPedido(lineas: LineaCarrito[]): string {
   if (lineas.length === 0) return "el pedido";
-  if (lineas.length === 1) return `${lineas[0].nombre} x${lineas[0].cantidad}`;
-  const piezas = lineas.reduce((n, linea) => n + linea.cantidad, 0);
-  return `${piezas} piezas (${lineas.map((linea) => linea.nombre).join(", ")})`;
+  if (lineas.length === 1) {
+    const linea = lineas[0];
+    return `${linea.nombre} · ${etiquetaCantidad(linea.cantidad, linea.unidad)}`;
+  }
+  return `${lineas.length} artículos (${lineas.map((linea) => linea.nombre).join(", ")})`;
 }
 
 export function textoPedidoCarrito(lineas: LineaCarrito[]): string {
   const lista = lineas
-    .map((linea, i) => `${i + 1}) ${linea.nombre} (${linea.sku}) x${linea.cantidad} — ${precioMx(linea.precio)}`)
+    .map((linea, i) => `${i + 1}) ${linea.nombre} (${linea.sku}) · ${etiquetaCantidad(linea.cantidad, linea.unidad)} — ${precioMx(linea.precio)}`)
     .join("\n");
   return `Quiero apartar este pedido para recoger en tienda:\n${lista}\n\nTotal: ${precioMx(totalCarrito(lineas))}`;
 }
 
 export type SnapshotPedido = {
-  lineas: Array<{ sku: string; nombre: string; cantidad: number; precio: number; subtotal: number }>;
+  lineas: Array<{
+    sku: string;
+    nombre: string;
+    cantidad: number;
+    precio: number;
+    subtotal: number;
+    unidad?: UnidadVenta;
+  }>;
   piezas: number;
   total: number;
   total_obligatorio: string;
@@ -117,6 +141,7 @@ export function snapshotPedido(lineas: LineaCarrito[]): SnapshotPedido {
       cantidad: linea.cantidad,
       precio: linea.precio,
       subtotal: Number(linea.precio) * linea.cantidad,
+      unidad: normalizarUnidad(linea.unidad),
     })),
     piezas,
     total,
@@ -132,11 +157,11 @@ export function textoCuentaPedido(lineas: LineaCarrito[]): string {
   const lista = snap.lineas
     .map(
       (linea, i) =>
-        `${i + 1}) ${linea.nombre} (${linea.sku}) — ${linea.cantidad} pza · ${precioMx(linea.precio)} c/u · ${precioMx(linea.subtotal)}`
+        `${i + 1}) ${linea.nombre} (${linea.sku}) — ${etiquetaCantidad(linea.cantidad, linea.unidad)} · ${precioMx(linea.precio)} c/u · ${precioMx(linea.subtotal)}`
     )
     .join("\n");
   const articulos = snap.lineas.length === 1 ? "1 artículo" : `${snap.lineas.length} artículos`;
-  return `Esta es tu cuenta (${articulos}, ${snap.piezas} pza):\n\n${lista}\n\nTotal a pagar: ${snap.total_obligatorio}\n\n¿Se te ofrece algo más o con esto cerramos?`;
+  return `Esta es tu cuenta (${articulos}):\n\n${lista}\n\nTotal a pagar: ${snap.total_obligatorio}\n\n¿Se te ofrece algo más o con esto cerramos?`;
 }
 
 export type ItemCatalogoPedido = {
@@ -151,6 +176,7 @@ export type EdicionPedido = {
   modo: "add" | "set" | "remove" | "clear";
   cantidad: number | null;
   pista: string;
+  unidad?: UnidadVenta;
 };
 
 const STOP_EDICION = new Set([
@@ -201,13 +227,17 @@ const STOP_EDICION = new Set([
   "otra",
   "otros",
   "otras",
-  "articulo",
-  "articulos",
-  "pieza",
-  "piezas",
-  "pza",
-  "unidad",
-  "unidades",
+  "metros",
+  "metro",
+  "mts",
+  "cms",
+  "cm",
+  "centimetros",
+  "centimetro",
+  "rollo",
+  "rollos",
+  "tramo",
+  "completo",
   "al",
   "pedido",
   "carrito",
@@ -255,8 +285,9 @@ const STOP_EDICION = new Set([
 function extraerPistaProducto(texto: string): string {
   const t = norm(texto)
     .replace(/\b\d{1,3}\s*(horas?|hrs?|minutos?|min|dias?)\b/g, " ")
-    .replace(/\b\d{1,3}\b/g, " ")
-    .replace(/\b(pza|piezas?|unidades?|mas|menos)\b/g, " ");
+    .replace(/\b\d+(?:\.\d+)?\s*(cms?|centimetros?|metros?|mts?)\b/g, " ")
+    .replace(/\b(pza|piezas?|unidades?|mas|menos|cms?|centimetros?|metros?|mts?)\b/g, " ")
+    .replace(/\b\d{1,3}\b/g, " ");
   return t
     .split(" ")
     .filter((tok) => tok.length >= 2 && !STOP_EDICION.has(tok))
@@ -280,6 +311,19 @@ export function extraerEdicionPedido(texto: string): EdicionPedido | null {
   const sinTiempo = t.replace(/\b\d{1,3}\s*(horas?|hrs?|minutos?|min|dias?)\b/g, " ");
   if (/\b(vacia(?:me)?|borra(?:me)?|limpia(?:me)?)\s+(el |la )?(pedido|carrito|cuenta)\b/.test(sinTiempo)) {
     return { modo: "clear", cantidad: null, pista: "" };
+  }
+  const metros = extraerMetrosPedido(sinTiempo);
+  if (metros != null) {
+    const pista = extraerPistaProducto(sinTiempo);
+    const modo: EdicionPedido["modo"] = /\b(quita|saca|elimina|resta|baja)\b/.test(sinTiempo)
+      ? "remove"
+      : /\b(agrega|suma|anade|tambien|ademas)\b/.test(sinTiempo) || /\bmetros?\s+mas\b/.test(sinTiempo)
+        ? "add"
+        : "set";
+    return { modo, cantidad: metros, pista, unidad: "m" };
+  }
+  if (pideRolloCompleto(sinTiempo) && /\b(dame|me das|quiero|necesito|agrega|llevame)\b/.test(sinTiempo)) {
+    return { modo: "add", cantidad: 1, pista: extraerPistaProducto(sinTiempo), unidad: "pza" };
   }
   const quitaNum =
     sinTiempo.match(
@@ -455,6 +499,10 @@ function catalogoDesdeContexto(stock: BloqueStock, extra: ItemCatalogoPedido[] =
   return out;
 }
 
+function mismaVenta(a: { sku: string; unidad?: string | null }, b: { sku: string; unidad?: string | null }): boolean {
+  return claveVenta(a.sku, a.unidad) === claveVenta(b.sku, b.unidad);
+}
+
 export function aplicarEdicionPedido(
   texto: string,
   lineas: LineaCarrito[],
@@ -485,6 +533,11 @@ export function aplicarEdicionPedido(
 
   let destinoLinea = edicion.pista ? mejorLineaPorPista(edicion.pista, actuales) : actuales[actuales.length - 1] ?? null;
   if (!destinoLinea && mismo) destinoLinea = actuales[actuales.length - 1] ?? null;
+  if (edicion.unidad === "m" && destinoLinea && destinoLinea.unidad !== "m") {
+    const destinoSku = destinoLinea.sku.toLowerCase();
+    const metro = actuales.find((linea) => linea.sku.toLowerCase() === destinoSku && linea.unidad === "m");
+    if (metro) destinoLinea = metro;
+  }
 
   if (edicion.modo === "remove") {
     if (!destinoLinea) {
@@ -496,20 +549,25 @@ export function aplicarEdicionPedido(
           : "No hay una línea que quitar. Toca Elegir o dime qué artículo.\n\n",
       };
     }
+    const unidad = normalizarUnidad(destinoLinea.unidad);
     const quitar = edicion.cantidad ?? destinoLinea.cantidad;
-    const queda = destinoLinea.cantidad - quitar;
+    const queda = Math.round((destinoLinea.cantidad - quitar) * 10) / 10;
     if (queda <= 0) {
-      const nuevas = actuales.filter((linea) => linea.sku.toLowerCase() !== destinoLinea.sku.toLowerCase());
+      const nuevas = actuales.filter((linea) => !mismaVenta(linea, destinoLinea));
       const aviso =
         destinoLinea.cantidad < quitar
-          ? `Solo había ${destinoLinea.cantidad} pza de ${destinoLinea.nombre}; las quité todas.\n\n`
+          ? `Solo había ${etiquetaCantidad(destinoLinea.cantidad, unidad)} de ${destinoLinea.nombre}; las quité todas.\n\n`
           : `Quité ${destinoLinea.nombre} del pedido.\n\n`;
       return { lineas: nuevas, cambio: true, avisoTope: aviso };
     }
     const nuevas = actuales.map((linea) =>
-      linea.sku.toLowerCase() === destinoLinea.sku.toLowerCase() ? { ...linea, cantidad: queda } : linea
+      mismaVenta(linea, destinoLinea) ? { ...linea, cantidad: cantidadVenta(queda, unidad) } : linea
     );
-    return { lineas: nuevas, cambio: true, avisoTope: `Quité ${quitar} pza de ${destinoLinea.nombre}.\n\n` };
+    return {
+      lineas: nuevas,
+      cambio: true,
+      avisoTope: `Quité ${etiquetaCantidad(quitar, unidad)} de ${destinoLinea.nombre}.\n\n`,
+    };
   }
 
   let semilla: LineaCarrito | null = destinoLinea;
@@ -524,6 +582,8 @@ export function aplicarEdicionPedido(
         cantidad: 0,
         precio: delCatalogo.precio,
         url_imagen: "url_imagen" in delCatalogo ? delCatalogo.url_imagen : undefined,
+        unidad: edicion.unidad,
+        existencia: delCatalogo.existencia,
       };
     }
   }
@@ -537,24 +597,47 @@ export function aplicarEdicionPedido(
     };
   }
 
-  const enPedido = actuales.some((linea) => linea.sku.toLowerCase() === semilla.sku.toLowerCase());
-  const base = enPedido ? actuales : [...actuales, { ...semilla, cantidad: 0 }];
-  const actual = base.find((linea) => linea.sku.toLowerCase() === semilla.sku.toLowerCase()) ?? semilla;
-  const catalogoHit = catalogoSku(stock, semilla.sku) ?? catalogo.find((item) => item.sku.toLowerCase() === semilla.sku.toLowerCase());
-  const max = catalogoHit && catalogoHit.existencia > 0 ? catalogoHit.existencia : topeExistenciaSku(stock, semilla.sku);
+  const filaCatalogo = catalogo.find((item) => item.sku.toLowerCase() === semilla.sku.toLowerCase());
+  const stockSku = catalogoSku(stock, semilla.sku);
+  const cotizado = cotizarVentaMetro(
+    {
+      sku: semilla.sku,
+      nombre: filaCatalogo?.nombre || semilla.nombre,
+      precio: filaCatalogo?.precio || stockSku?.precio || semilla.precio,
+      existencia: filaCatalogo?.existencia ?? stockSku?.existencia ?? semilla.existencia ?? 0,
+    },
+    texto,
+    { cantidadLlm: edicion.cantidad ?? undefined, unidad: edicion.unidad }
+  );
+  const unidad = cotizado.unidad;
+  const clave = claveVenta(cotizado.sku, unidad);
+  const enPedido = actuales.some((linea) => claveVenta(linea.sku, linea.unidad) === clave);
+  const base = enPedido ? actuales : [...actuales, { ...semilla, sku: cotizado.sku, cantidad: 0, unidad, precio: cotizado.precio }];
+  const actual = base.find((linea) => claveVenta(linea.sku, linea.unidad) === clave) ?? semilla;
+  const max = cotizado.existencia > 0 ? cotizado.existencia : topeExistenciaSku(stock, semilla.sku);
+  const minQty = unidad === "m" ? 0.1 : 1;
   const pedida =
-    edicion.modo === "add" ? actual.cantidad + (edicion.cantidad ?? 1) : Math.max(1, edicion.cantidad ?? 1);
-  const cantidad = Math.max(1, Math.min(max, pedida));
+    edicion.modo === "add"
+      ? actual.cantidad + (edicion.cantidad ?? cotizado.cantidad)
+      : Math.max(minQty, edicion.cantidad ?? cotizado.cantidad);
+  const cantidad = cantidadVenta(Math.min(max, pedida), unidad);
   const avisoTope =
-    pedida > max ? `Solo hay ${max} pza en anaquel de ${semilla.nombre}. Dejé ${cantidad} en el pedido.\n\n` : "";
+    pedida > max
+      ? `Solo hay ${etiquetaCantidad(max, unidad)} en anaquel de ${cotizado.nombre}. Dejé ${etiquetaCantidad(cantidad, unidad)} en el pedido.\n\n`
+      : "";
+  const reemplazaRollo =
+    unidad === "m" && actuales.some((linea) => linea.sku.toLowerCase() === cotizado.sku.toLowerCase() && linea.unidad !== "m");
   const nuevas = base
+    .filter((linea) => !(reemplazaRollo && linea.sku.toLowerCase() === cotizado.sku.toLowerCase() && linea.unidad !== "m"))
     .map((linea) =>
-      linea.sku.toLowerCase() === semilla.sku.toLowerCase()
+      claveVenta(linea.sku, linea.unidad) === clave
         ? {
             ...linea,
             cantidad,
-            nombre: semilla.nombre || linea.nombre,
-            precio: linea.precio > 0 ? linea.precio : catalogoHit?.precio || linea.precio,
+            nombre: cotizado.nombre,
+            precio: cotizado.precio,
+            unidad,
+            existencia: cotizado.existencia,
             url_imagen: linea.url_imagen || semilla.url_imagen,
           }
         : linea
@@ -563,8 +646,8 @@ export function aplicarEdicionPedido(
   const cambio =
     nuevas.length !== actuales.length ||
     nuevas.some((linea) => {
-      const prev = actuales.find((item) => item.sku.toLowerCase() === linea.sku.toLowerCase());
-      return !prev || prev.cantidad !== linea.cantidad;
+      const prev = actuales.find((item) => mismaVenta(item, linea));
+      return !prev || prev.cantidad !== linea.cantidad || prev.precio !== linea.precio || prev.unidad !== linea.unidad;
     }) ||
     avisoTope !== "";
   return { lineas: nuevas, cambio, avisoTope };

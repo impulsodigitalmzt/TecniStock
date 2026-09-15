@@ -69,6 +69,7 @@ import {
   ponerLineasPedido,
   ultimoTextoUsuario,
 } from "../lib/cuenta-abierta";
+import { cotizarVentaMetro, extraerMetrosPedido } from "../lib/venta-metro";
 import { createSql } from "../db";
 import { extractAudioFromBody, parseMultipartBody } from "../lib/audio";
 import {
@@ -233,8 +234,11 @@ consultasCampoRoutes.post("/texto", async (c) => {
   if (resultados[0]?.categoria) pieza.categoria = resultados[0].categoria;
   else if (intencion.rubro) pieza.categoria = intencion.rubro;
 
+  const lineas = lineasSiClienteEligio(q, resultados, sku);
   const mensajeAsistente = conTarjetas(
-    asegurarCierreAbierto(redactarMensajeInicial(pieza.nombre, stock, "texto")),
+    lineas.length
+      ? textoCuentaPedido(lineas)
+      : asegurarCierreAbierto(redactarMensajeInicial(pieza.nombre, stock, "texto")),
     catalogo.slice(0, 8).map((item) => tarjetaDesdeCatalogo(item))
   );
   const consulta = await crearConsultaCampo(sql, {
@@ -244,7 +248,6 @@ consultasCampoRoutes.post("/texto", async (c) => {
     mensajeUsuario: q ? q : `Seleccioné ${pieza.nombre}`,
     mensajeAsistente,
   });
-  const lineas = lineasSiClienteEligio(q, resultados, sku);
   if (lineas.length) {
     await recordarPedidoCampo(sql, consulta.id, dispositivo, lineas);
   }
@@ -623,9 +626,40 @@ function lineasPedidoActual(consulta: ConsultaCampo, raw: unknown): LineaCarrito
   return normalizarLineasCarrito(guardado);
 }
 
-function lineasDesdeResultados(resultados: ResultadoBusquedaInventario[], cantidad = 1): LineaCarrito[] {
+function lineasDesdeResultados(
+  resultados: ResultadoBusquedaInventario[],
+  cantidad = 1,
+  texto = "",
+  unidad?: "m" | "pza"
+): LineaCarrito[] {
   const primaria = resultados.find((item) => item.stock_disponible > 0);
-  const linea = primaria ? lineaDesdeInventario(primaria, cantidad) : null;
+  if (!primaria) return [];
+  if (unidad === "m" || (unidad !== "pza" && extraerMetrosPedido(texto) != null)) {
+    const corte = cotizarVentaMetro(
+      {
+        sku: primaria.sku,
+        nombre: primaria.nombre,
+        precio: primaria.precio,
+        existencia: primaria.stock_disponible,
+        descripcion: primaria.descripcion_tecnica,
+      },
+      texto,
+      { cantidadLlm: cantidad, unidad }
+    );
+    if (corte.existencia <= 0) return [];
+    return [
+      {
+        sku: corte.sku,
+        nombre: corte.nombre,
+        cantidad: corte.cantidad,
+        precio: corte.precio,
+        url_imagen: primaria.url_imagen || undefined,
+        unidad: corte.unidad,
+        existencia: corte.existencia,
+      },
+    ];
+  }
+  const linea = lineaDesdeInventario(primaria, cantidad);
   return linea ? [linea] : [];
 }
 
@@ -635,30 +669,45 @@ function lineasSiClienteEligio(
   resultados: ResultadoBusquedaInventario[],
   skuForzado = ""
 ): LineaCarrito[] {
-  if (skuForzado.trim()) return lineasDesdeResultados(resultados, 1);
-  if (esSeleccionProducto(texto)) return lineasDesdeResultados(resultados, 1);
+  if (skuForzado.trim()) {
+    const edicion = extraerEdicionPedido(texto);
+    return lineasDesdeResultados(
+      resultados,
+      edicion?.cantidad ?? 1,
+      texto,
+      edicion?.unidad === "m" ? "m" : "pza"
+    );
+  }
+  if (esSeleccionProducto(texto)) return lineasDesdeResultados(resultados, 1, texto, "pza");
   const edicion = extraerEdicionPedido(texto);
   if (edicion && (edicion.modo === "add" || edicion.modo === "set")) {
-    return lineasDesdeResultados(resultados, edicion.cantidad ?? cantidadDesdeConsulta(texto));
+    return lineasDesdeResultados(resultados, edicion.cantidad ?? cantidadDesdeConsulta(texto), texto, edicion.unidad);
   }
   return [];
 }
 
-function lineasDesdeBom(paquete: { lineas: Array<{ sku: string; nombre: string; cantidad: number; precio: number; existencia: number; url: string }> }): LineaCarrito[] {
+function lineasDesdeBom(paquete: {
+  lineas: Array<{
+    sku: string;
+    nombre: string;
+    cantidad: number;
+    precio: number;
+    existencia: number;
+    url: string;
+    unidad?: "m" | "pza";
+  }>;
+}): LineaCarrito[] {
   return paquete.lineas
-    .map((linea) =>
-      lineaDesdeInventario(
-        {
-          sku: linea.sku,
-          nombre: linea.nombre,
-          existencia: linea.existencia,
-          precio: linea.precio,
-          url: linea.url,
-        },
-        linea.cantidad
-      )
-    )
-    .filter((item): item is LineaCarrito => Boolean(item));
+    .filter((linea) => linea.sku && linea.nombre && linea.existencia > 0)
+    .map((linea) => ({
+      sku: linea.sku,
+      nombre: linea.nombre,
+      cantidad: linea.unidad === "m" ? Math.max(0.1, linea.cantidad) : Math.max(1, Math.trunc(linea.cantidad) || 1),
+      precio: linea.precio,
+      url_imagen: linea.url || undefined,
+      unidad: linea.unidad === "m" ? ("m" as const) : ("pza" as const),
+      existencia: linea.existencia,
+    }));
 }
 
 function queryRespaldoCorreccion(consulta: ConsultaCampo): string {
@@ -828,17 +877,20 @@ function esNegativaFloja(texto: string): boolean {
   const t = texto.toLowerCase();
   return (
     /\bno cuento con\b/.test(t) ||
+    /\bno contamos con\b/.test(t) ||
     /\bno tengo (ese|el) art[ií]culo\b/.test(t) ||
     /\bni con una alternativa\b/.test(t) ||
     /\bno se maneja\b/.test(t) ||
-    /\bno hay (ese art[ií]culo|alternativas?)\b/.test(t)
+    /\bno hay (ese art[ií]culo|alternativas?|apagadores?|contactos?)\b/.test(t) ||
+    /\ben (el )?anaquel no (contamos|hay|tenemos)\b/.test(t)
   );
 }
 
 function reforzarActitudComercial(texto: string, resultados: ResultadoBusquedaInventario[]): string {
   if (!resultados.length) return texto;
   if (!esNegativaFloja(texto)) return texto;
-  return "En anaquel sí hay opciones cercanas; te las muestro para que elijas. ¿Cuál apartamos?";
+  const nombres = resultados.slice(0, 3).map((item) => item.nombre).join(", ");
+  return `Sí hay en anaquel: ${nombres}. ¿Cuál te aparto?`;
 }
 
 function pideDatoInventado(texto: string): boolean {

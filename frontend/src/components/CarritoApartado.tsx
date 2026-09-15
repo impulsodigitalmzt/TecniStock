@@ -8,7 +8,30 @@ export type LineaCarrito = {
   precio: number;
   url_imagen?: string;
   existencia?: number;
+  unidad?: 'm' | 'pza';
 };
+
+function unidadLinea(linea: { unidad?: string | null }): 'm' | 'pza' {
+  return linea.unidad === 'm' ? 'm' : 'pza';
+}
+
+function claveLinea(linea: { sku: string; unidad?: string | null }): string {
+  return `${linea.sku.trim().toLowerCase()}::${unidadLinea(linea)}`;
+}
+
+function cantidadLinea(valor: number, unidad: 'm' | 'pza'): number {
+  if (!Number.isFinite(valor) || valor <= 0) return unidad === 'm' ? 1 : 1;
+  if (unidad === 'm') return Math.max(0.1, Math.round(valor * 10) / 10);
+  return Math.max(1, Math.trunc(valor) || 1);
+}
+
+function etiquetaCantidad(cantidad: number, unidad: 'm' | 'pza'): string {
+  if (unidad === 'm') {
+    const n = Number.isInteger(cantidad) ? String(cantidad) : String(Math.round(cantidad * 10) / 10);
+    return `${n} m`;
+  }
+  return String(cantidad);
+}
 
 function dinero(valor: number): string {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(valor);
@@ -35,47 +58,51 @@ export function piezasCarrito(lineas: LineaCarrito[]): number {
 
 export function aplicarPedidoServidor(
   prev: LineaCarrito[],
-  pedido: { lineas?: Array<{ sku: string; nombre: string; cantidad: number; precio: number }> } | null | undefined
+  pedido: { lineas?: Array<{ sku: string; nombre: string; cantidad: number; precio: number; unidad?: 'm' | 'pza' }> } | null | undefined
 ): LineaCarrito[] {
   if (!pedido || !Array.isArray(pedido.lineas)) return prev;
   if (pedido.lineas.length === 0) return [];
   return pedido.lineas
     .filter((linea) => linea && linea.sku && linea.nombre)
     .map((linea) => {
-      const clave = linea.sku.trim().toLowerCase();
-      const actual = prev.find((item) => item.sku.toLowerCase() === clave);
+      const unidad = unidadLinea(linea);
+      const actual = prev.find((item) => claveLinea(item) === claveLinea(linea));
       return {
         sku: linea.sku.trim(),
         nombre: linea.nombre.trim() || actual?.nombre || linea.sku.trim(),
-        cantidad: Math.max(1, Number(linea.cantidad) || 1),
+        cantidad: cantidadLinea(Number(linea.cantidad) || 1, unidad),
         precio: Number.isFinite(linea.precio) ? linea.precio : actual?.precio ?? 0,
         url_imagen: actual?.url_imagen,
         existencia: actual?.existencia,
+        unidad,
       };
     });
 }
 
 export function agregarAlCarrito(prev: LineaCarrito[], item: LineaCarrito): LineaCarrito[] {
-  const clave = item.sku.trim().toLowerCase();
-  if (!clave) return prev;
-  const tope = Math.max(1, item.existencia ?? 999);
-  const existe = prev.find((linea) => linea.sku.toLowerCase() === clave);
+  const sku = item.sku.trim();
+  if (!sku) return prev;
+  const unidad = unidadLinea(item);
+  const clave = claveLinea({ sku, unidad });
+  const tope = Math.max(unidad === 'm' ? 0.1 : 1, item.existencia ?? 999);
+  const existe = prev.find((linea) => claveLinea(linea) === clave);
   if (existe) {
     return prev.map((linea) =>
-      linea.sku.toLowerCase() === clave
-        ? { ...linea, cantidad: Math.min(tope, linea.cantidad + (item.cantidad || 1)) }
+      claveLinea(linea) === clave
+        ? { ...linea, cantidad: Math.min(tope, cantidadLinea(linea.cantidad + (item.cantidad || (unidad === 'm' ? 1 : 1)), unidad)) }
         : linea
     );
   }
   return [
     ...prev,
     {
-      sku: item.sku.trim(),
-      nombre: item.nombre.trim() || item.sku.trim(),
-      cantidad: Math.min(tope, Math.max(1, item.cantidad || 1)),
+      sku,
+      nombre: item.nombre.trim() || sku,
+      cantidad: Math.min(tope, cantidadLinea(item.cantidad || 1, unidad)),
       precio: Number.isFinite(item.precio) ? item.precio : 0,
       url_imagen: item.url_imagen,
       existencia: item.existencia,
+      unidad,
     },
   ];
 }
@@ -114,8 +141,8 @@ export function CarritoApartado({
   abierto: boolean;
   enviando?: boolean;
   onToggle: () => void;
-  onCambiarCantidad: (sku: string, cantidad: number) => void;
-  onQuitar: (sku: string) => void;
+  onCambiarCantidad: (sku: string, cantidad: number, unidad?: 'm' | 'pza') => void;
+  onQuitar: (sku: string, unidad?: 'm' | 'pza') => void;
   onVaciar: () => void;
   onGenerarApartado: () => void;
 }) {
@@ -150,7 +177,7 @@ export function CarritoApartado({
                 </p>
               ) : (
                 lineas.map((linea) => (
-                  <article key={linea.sku} className="flex gap-3 rounded-xl border border-stone-200 bg-white p-2.5">
+                  <article key={claveLinea(linea)} className="flex gap-3 rounded-xl border border-stone-200 bg-white p-2.5">
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-stone-100">
                       {linea.url_imagen || linea.sku ? (
                         <FotoCatalogo url={linea.url_imagen} sku={linea.sku} alt="" className="h-full w-full object-contain" />
@@ -159,24 +186,29 @@ export function CarritoApartado({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold leading-snug text-stone-900 line-clamp-2">{textoMostrador(linea.nombre)}</p>
                       <p className="mt-0.5 font-mono text-[10px] text-stone-400">{linea.sku}</p>
-                      <p className="mt-1 text-sm font-semibold tabular-nums">{dinero(linea.precio)}</p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums">
+                        {dinero(linea.precio)}
+                        {unidadLinea(linea) === 'm' ? ' / m' : ''}
+                      </p>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="inline-flex items-center rounded-full border border-stone-200">
                           <button
                             type="button"
                             className="px-2 py-1 text-stone-600"
-                            aria-label="Quitar una"
-                            onClick={() => onCambiarCantidad(linea.sku, linea.cantidad - 1)}
+                            aria-label={unidadLinea(linea) === 'm' ? 'Quitar un metro' : 'Quitar una'}
+                            onClick={() => onCambiarCantidad(linea.sku, linea.cantidad - 1, unidadLinea(linea))}
                           >
                             <Minus className="h-3.5 w-3.5" />
                           </button>
-                          <span className="min-w-6 text-center text-sm font-semibold tabular-nums">{linea.cantidad}</span>
+                          <span className="min-w-6 text-center text-sm font-semibold tabular-nums">
+                            {etiquetaCantidad(linea.cantidad, unidadLinea(linea))}
+                          </span>
                           <button
                             type="button"
                             className="px-2 py-1 text-stone-600"
-                            aria-label="Agregar una"
+                            aria-label={unidadLinea(linea) === 'm' ? 'Agregar un metro' : 'Agregar una'}
                             disabled={Boolean(linea.existencia && linea.cantidad >= linea.existencia)}
-                            onClick={() => onCambiarCantidad(linea.sku, linea.cantidad + 1)}
+                            onClick={() => onCambiarCantidad(linea.sku, linea.cantidad + 1, unidadLinea(linea))}
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </button>
@@ -185,7 +217,7 @@ export function CarritoApartado({
                           type="button"
                           className="text-stone-400 hover:text-red-600"
                           aria-label={`Quitar ${linea.nombre}`}
-                          onClick={() => onQuitar(linea.sku)}
+                          onClick={() => onQuitar(linea.sku, unidadLinea(linea))}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

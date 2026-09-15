@@ -31,6 +31,17 @@ describe("intérprete de búsqueda TecniStock", () => {
     assert.ok(filaPerteneceAFamilia("Contacto dúplex aterrizado", "CONT-DUP-127", intencion.familia));
   });
 
+  it("si rechaza la pastilla y pide apagador, busca apagador de pared", () => {
+    const intencion = interpretarTexto(
+      "pero no ocupo la pastilla, ni tampoco el contacto, ocupo en su lugar un apagador"
+    );
+    assert.equal(intencion.familia, "apagador");
+    assert.ok(intencion.tokens.includes("apagador"));
+    assert.ok(!intencion.tokens.includes("pastilla"));
+    assert.ok(filaPerteneceAFamilia("Apagador sencillo 127 V", "INT-SENC-127", intencion.familia));
+    assert.ok(!filaPerteneceAFamilia("Interruptor termomagnético 1x20A", "TMT-1P-20A", intencion.familia));
+  });
+
   it("no cruza interruptor termomagnético con un apagador de pared", () => {
     const intencion = interpretarTexto("pastilla termomagnetica 20A");
     assert.equal(intencion.familia, "breaker");
