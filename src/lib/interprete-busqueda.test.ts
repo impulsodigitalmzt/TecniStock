@@ -12,6 +12,7 @@ describe("intérprete de búsqueda TecniStock", () => {
     assert.equal(intencion.familia, "apagador");
     assert.equal(intencion.rubro, "electricidad");
     assert.ok(intencion.tokens.includes("apagador"));
+    assert.ok(intencion.tokens.includes("sencillo"));
     assert.ok(!intencion.tokens.includes("contacto"));
     assert.equal(intencion.canonico.split(" ")[0], "apagador");
     assert.ok(filaPerteneceAFamilia("Apagador sencillo 127 V", "INT-SENC-127", intencion.familia));
@@ -71,6 +72,30 @@ describe("intérprete de búsqueda TecniStock", () => {
     assert.ok(filaPerteneceAFamilia("Placa de acero inoxidable de 1 módulo", "PLAC-ACEO-01", intencion.familia));
     assert.ok(filaPerteneceAFamilia("Placa de acero inoxidable de 2 módulos", "PLAC-ACEO-02", intencion.familia));
     assert.ok(!filaPerteneceAFamilia("Contacto dúplex aterrizado", "CONT-DUP-127", intencion.familia));
+  });
+
+  it("un contacto dúplex de 1 módulo se busca como dúplex, no como placa ni como sencillo", () => {
+    const intencion = interpretarPieza({
+      nombre: "Contacto dúplex con placa metálica",
+      producto_venta: "contacto duplex",
+      material: "Placa metálica (acero o aluminio)",
+      medida: "1 módulo",
+      categoria: "electricidad",
+      mecanismo: "Receptáculo dúplex (dos tomas apiladas verticalmente)",
+      palabras_clave: ["contacto", "duplex", "placa", "metalica"],
+    });
+    assert.equal(intencion.familia, "contacto");
+    assert.ok(intencion.tokens.includes("duplex"));
+    assert.ok(intencion.canonico.includes("duplex"));
+    assert.ok(filaPerteneceAFamilia("Contacto dúplex aterrizado", "CONT-DUP-127", intencion.familia));
+    assert.ok(!filaPerteneceAFamilia("Apagador sencillo 127 V", "INT-SENC-127", intencion.familia));
+  });
+
+  it("un contacto sencillo pide una toma, no un dúplex", () => {
+    const intencion = interpretarTexto("contacto sencillo");
+    assert.equal(intencion.familia, "contacto");
+    assert.ok(intencion.tokens.includes("sencillo"));
+    assert.ok(!intencion.tokens.includes("duplex"));
   });
 
   it("clasifica visión estructurada de un contacto sin mezclar apagadores", () => {

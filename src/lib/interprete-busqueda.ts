@@ -113,6 +113,9 @@ const LEXICO: Record<string, EntradaLexico> = {
   duplex: { canonico: "duplex", familia: "contacto", rubro: "electricidad", peso: 7 },
   duplez: { canonico: "duplex", familia: "contacto", rubro: "electricidad", peso: 7 },
   duple: { canonico: "duplex", familia: "contacto", rubro: "electricidad", peso: 6 },
+  // Variante de tomas, no de módulos. «Apagador sencillo» sigue ganando por peso de apagador.
+  sencillo: { canonico: "sencillo", familia: "contacto", rubro: "electricidad", peso: 7 },
+  simple: { canonico: "sencillo", familia: "contacto", rubro: "electricidad", peso: 5 },
   gfci: { canonico: "gfci", familia: "contacto", rubro: "electricidad", peso: 8 },
   aterrizado: { canonico: "aterrizado", familia: "contacto", rubro: "electricidad", peso: 5 },
 
@@ -386,8 +389,11 @@ function detectarModulos(texto: string): number | null {
   const t = plegarTexto(texto);
   if (/\b(4 (modulos?|espacios?|ventanas?)|cuatro (modulos?|espacios?)|cuadruple)\b/.test(t)) return 4;
   if (/\b(3 (modulos?|espacios?|ventanas?)|tres (modulos?|espacios?)|triple)\b/.test(t)) return 3;
-  if (/\b(2 (modulos?|espacios?|ventanas?)|dos (modulos?|espacios?)|doble)\b/.test(t)) return 2;
-  if (/\b(sencillo|1 (modulo|espacio|ventana)|simple)\b/.test(t)) return 1;
+  if (/\b(2 (modulos?|espacios?|ventanas?)|dos (modulos?|espacios?))\b/.test(t)) return 2;
+  if (/\b(apagador|interruptor)\s+doble\b/.test(t) || /\bdoble\s+(apagador|interruptor)\b/.test(t)) return 2;
+  if (/\b(1 (modulo|espacio|ventana)|placa de 1)\b/.test(t)) return 1;
+  // «sencillo» en un contacto es una toma, no 1 módulo. Un dúplex también cabe en 1 módulo.
+  if (/\b(sencillo|simple)\b/.test(t) && !/\b(contacto|tomacorriente|enchufe|duplex|duplez)\b/.test(t)) return 1;
   return null;
 }
 

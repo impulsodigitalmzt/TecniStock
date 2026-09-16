@@ -153,6 +153,35 @@ function esFuncionTresVias(texto: string): boolean {
   return /\b(paso doble|3 vias|tres vias|escalera|3 way)\b/.test(t);
 }
 
+export type VarianteContacto = "duplex" | "sencillo";
+
+/**
+ * Receptáculo (tomas), no huecos de la placa.
+ * Un dúplex ocupa 1 módulo y tiene dos tomas; «sencillo» es una sola toma.
+ */
+export function varianteContacto(texto: string, sku = ""): VarianteContacto | null {
+  const t = normalizar(`${texto} ${sku}`);
+  const codigo = normalizar(sku).replace(/\s+/g, "-");
+  if (/\b(duplex|duplez|duple)\b/.test(t) || /\b(dos tomas|2 tomas|dos receptaculos|2 receptaculos)\b/.test(t)) {
+    return "duplex";
+  }
+  if (/(^|[-_])dup([-_]|$)/.test(codigo)) return "duplex";
+  if (/\b(contacto|tomacorriente|enchufe|receptaculo)\b/.test(t) && /\b(sencillo|simple|una toma|1 toma)\b/.test(t)) {
+    return "sencillo";
+  }
+  if (/(^|[-_])sen([-_]|$)/.test(codigo) && /\b(cont|contacto|enchufe)\b/.test(`${t} ${codigo}`)) return "sencillo";
+  return null;
+}
+
+/** Bonus/penalización de mostrador: dúplex y sencillo no se intercambian. */
+export function ajusteVarianteContacto(foto: string, nombre: string, sku = ""): number {
+  const varianteFoto = varianteContacto(foto);
+  const varianteItem = varianteContacto(nombre, sku);
+  if (varianteFoto && varianteItem) return varianteFoto === varianteItem ? 14 : -18;
+  if (varianteFoto && !varianteItem) return -6;
+  return 0;
+}
+
 /** Cuenta de módulos/espacios/ventanas de la placa. Acepta «gangas» solo como sinónimo de entrada. */
 export function gangasEnTexto(texto: string): number | null {
   const t = textoSinFuncionTresVias(normalizar(texto));
@@ -164,6 +193,12 @@ export function gangasEnTexto(texto: string): number | null {
     )
   ) {
     return 2;
+  }
+  const esContacto = /\b(contacto|tomacorriente|enchufe|receptaculo|duplex|duplez)\b/.test(t);
+  // En contactos, «sencillo» es una toma, no «1 módulo». Un dúplex también va en 1 módulo.
+  if (esContacto) {
+    if (/\b(1 (m[oó]dulo|espacio|ventana|ganga)|placa de 1)\b/.test(t)) return 1;
+    return null;
   }
   if (/\b(sencillo|1 (m[oó]dulo|espacio|ventana|ganga)|una (ganga|ventana)|simple|1 palanca|1 boton|placa de 1)\b/.test(t)) return 1;
   return null;

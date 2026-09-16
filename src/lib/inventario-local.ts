@@ -1,6 +1,8 @@
 ﻿import type { Sql } from "../db.js";
 import {
+  ajusteVarianteContacto,
   gangasEnTexto,
+  varianteContacto,
   type BloqueStock,
   type IdentidadPieza,
   estadoDesdeStock,
@@ -586,7 +588,23 @@ export function nombreMostradorCompuesto(pieza: IdentidadPieza): string {
   const start = textoPlano(pieza.nombre);
   if ((objeto === "apagador" || objeto === "contacto") && /^(placa|tapa|embellecedor)\b/.test(start)) {
     const mods = gangasEnTexto(blobIdentidad(pieza));
-    const calibre = mods === 4 ? "cuádruple" : mods === 3 ? "triple" : mods === 2 ? "doble" : mods === 1 ? "sencillo" : "";
+    const receptaculo = objeto === "contacto" ? varianteContacto(blobIdentidad(pieza)) : null;
+    const calibre =
+      receptaculo === "duplex"
+        ? "dúplex"
+        : receptaculo === "sencillo"
+          ? "sencillo"
+          : objeto === "contacto"
+            ? ""
+            : mods === 4
+              ? "cuádruple"
+              : mods === 3
+                ? "triple"
+                : mods === 2
+                  ? "doble"
+                  : mods === 1
+                    ? "sencillo"
+                    : "";
     const base = objeto === "contacto" ? "Contacto" : "Apagador";
     const acero = /\bacero\b/.test(textoPlano(`${pieza.nombre} ${pieza.material ?? ""}`));
     const extra = acero ? " en placa de acero" : " con placa";
@@ -654,7 +672,9 @@ function puntuarFilaMostrador(
   nombre: string,
   sku: string,
   modulosFoto: number | null,
-  objetoFoto: string | null
+  objetoFoto: string | null,
+  varianteFoto: ReturnType<typeof varianteContacto>,
+  blobFoto: string
 ): { score: number; misma: boolean; hits: number } {
   const hay = plegarHaystack(`${nombre} ${sku}`);
   const plano = textoPlano(nombre);
@@ -667,8 +687,13 @@ function puntuarFilaMostrador(
   }
   const misma = !objetoFoto || itemEsObjeto(nombre, objetoFoto, sku);
   score += misma ? 8 : -8;
+  const varianteItem = objetoFoto === "contacto" ? varianteContacto(nombre, sku) : null;
+  if (objetoFoto === "contacto") {
+    score += ajusteVarianteContacto(`${blobFoto} ${tokens.join(" ")}`, nombre, sku);
+  }
   const modulosItem = gangasEnTexto(nombre);
-  if (modulosFoto && modulosItem) {
+  const ignoraModulos = objetoFoto === "contacto" && Boolean(varianteFoto && varianteItem && varianteFoto !== varianteItem);
+  if (modulosFoto && modulosItem && !ignoraModulos) {
     const dist = Math.abs(modulosFoto - modulosItem);
     score += dist === 0 ? 6 : -(dist * 4);
   }
@@ -698,9 +723,10 @@ function rankearHallazgosMostrador(
   const blobFoto = blobIdentidad(pieza);
   const modulosFoto = gangasEnTexto(blobFoto);
   const objetoFoto = objetoMostrador(pieza);
+  const varianteFoto = objetoFoto === "contacto" ? varianteContacto(`${blobFoto} ${tokens.join(" ")}`) : null;
   return resultados
     .map((fila) => {
-      const puntos = puntuarFilaMostrador(tokens, fila.nombre, fila.sku, modulosFoto, objetoFoto);
+      const puntos = puntuarFilaMostrador(tokens, fila.nombre, fila.sku, modulosFoto, objetoFoto, varianteFoto, blobFoto);
       const conFoto = (fila.url_imagen ?? "").trim() ? 3 : 0;
       return { fila, ...puntos, score: puntos.score + conFoto };
     })
@@ -874,14 +900,22 @@ function filaAResultado(fila: FilaInventarioLocal, relevancia?: number): Resulta
   };
 }
 
-function sqlCandadoFamilia(intencion: Pick<IntencionBusqueda, "familia" | "subtipo">): string {
+function sqlCandadoFamilia(intencion: Pick<IntencionBusqueda, "familia" | "subtipo" | "tokens">): string {
   const familia = intencion.familia;
   if (!familia) return "";
   const n = NOMBRE_PLEGADO;
   const s = SKU_PLEGADO;
+  const tokens = intencion.tokens ?? [];
   switch (familia) {
-    case "contacto":
-      return ` AND (${n} ~ '(contacto|tomacorriente|enchufe)' OR ${s} LIKE 'cont%') AND ${n} !~ '(apagador|interruptor|tecla|palanca|termomagnet|pastilla|timbre)'`;
+    case "contacto": {
+      let sql = ` AND (${n} ~ '(contacto|tomacorriente|enchufe)' OR ${s} LIKE 'cont%') AND ${n} !~ '(apagador|interruptor|tecla|palanca|termomagnet|pastilla|timbre)'`;
+      if (tokens.includes("duplex")) {
+        sql += ` AND (${n} ~ '(duplex|duplez|dos tomas|2 tomas)' OR ${s} ~ '(^|[-_])dup([-_]|$)' OR ${n} !~ 'sencillo')`;
+      } else if (tokens.includes("sencillo")) {
+        sql += ` AND (${n} ~ '(sencillo|simple|una toma|1 toma)' OR ${s} ~ '(^|[-_])sen([-_]|$)' OR ${n} !~ '(duplex|duplez)')`;
+      }
+      return sql;
+    }
     case "apagador":
       return ` AND (${n} ~ '(apagador|interruptor|tecla|palanca)') AND ${n} !~ '(contacto|tomacorriente|enchufe|termomagnet|pastilla|timbre|cargador usb|grifo|mezcladora|monomando|lavabo)'`;
     case "datos":
@@ -927,6 +961,25 @@ function sqlCandadoFamilia(intencion: Pick<IntencionBusqueda, "familia" | "subti
     default:
       return "";
   }
+}
+
+/** Si la foto/consulta pide dúplex, no servir un sencillo (y al revés) cuando hay de la variante pedida. */
+function preferirVarianteContacto(
+  resultados: ResultadoBusquedaInventario[],
+  intencion: Pick<IntencionBusqueda, "familia" | "tokens">
+): ResultadoBusquedaInventario[] {
+  if (intencion.familia !== "contacto" || resultados.length === 0) return resultados;
+  const tokens = intencion.tokens ?? [];
+  const pide: ReturnType<typeof varianteContacto> = tokens.includes("duplex")
+    ? "duplex"
+    : tokens.includes("sencillo")
+      ? "sencillo"
+      : null;
+  if (!pide) return resultados;
+  const conVariante = resultados.map((fila) => ({ fila, variante: varianteContacto(fila.nombre, fila.sku) }));
+  const estrictos = conVariante.filter((row) => row.variante === pide).map((row) => row.fila);
+  if (estrictos.length > 0) return estrictos;
+  return conVariante.filter((row) => row.variante !== (pide === "duplex" ? "sencillo" : "duplex")).map((row) => row.fila);
 }
 
 function sqlCandadoRubro(rubro: IntencionBusqueda["rubro"]): { sql: string; valor?: string } {
@@ -1018,11 +1071,19 @@ async function buscarPorIntencion(
   const scoreTrgm = usaTrgm
     ? ` + (similarity(${NOMBRE_PLEGADO}, $${qIdx}) * 45) + (word_similarity($${qIdx}, ${NOMBRE_PLEGADO}) * 35) + (word_similarity($${qIdx}, ${DESC_PLEGADO}) * 12)`
     : "";
+  const pideDuplex = tokensSql.includes("duplex");
+  const pideSencillo = tokensSql.includes("sencillo") && !pideDuplex;
+  const scoreVariante = pideDuplex
+    ? ` + CASE WHEN ${NOMBRE_PLEGADO} ~ '(duplex|duplez|dos tomas|2 tomas)' OR ${SKU_PLEGADO} ~ '(^|[-_])dup([-_]|$)' THEN 28 WHEN ${NOMBRE_PLEGADO} ~ 'sencillo' THEN -22 ELSE 0 END`
+    : pideSencillo
+      ? ` + CASE WHEN ${NOMBRE_PLEGADO} ~ '(sencillo|simple|una toma|1 toma)' OR ${SKU_PLEGADO} ~ '(^|[-_])sen([-_]|$)' THEN 18 WHEN ${NOMBRE_PLEGADO} ~ '(duplex|duplez)' THEN -22 ELSE 0 END`
+      : "";
   const relevanciaSql = `(
       ${scoreTokens}
       + CASE WHEN ${SKU_PLEGADO} = $${qIdx} THEN 80 ELSE 0 END
       + CASE WHEN ${NOMBRE_PLEGADO} LIKE $${qIdx} || '%' THEN 18 ELSE 0 END
       ${scoreTrgm}
+      ${scoreVariante}
     )`;
 
   const limitIdx = push(tope * 2);
@@ -1053,7 +1114,7 @@ async function buscarPorIntencion(
     })
     .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
 
-  const directos = filtrados.slice(0, tope);
+  const directos = preferirVarianteContacto(filtrados, intencion).slice(0, tope);
   if (directos.length > 0) return directos;
   return buscarRespaldoFamilia(sql, intencion, tope, usaTrgm);
 }
@@ -1091,7 +1152,7 @@ async function buscarRespaldoFamilia(
      LIMIT $${params.length}`,
     params
   );
-  return rows
+  const filas = rows
     .map((row) => {
       const fila = mapFila(row);
       if (!fila) return null;
@@ -1105,8 +1166,8 @@ async function buscarRespaldoFamilia(
       if (score < 2) return null;
       return filaAResultado(fila, score);
     })
-    .filter((item): item is ResultadoBusquedaInventario => Boolean(item))
-    .slice(0, tope);
+    .filter((item): item is ResultadoBusquedaInventario => Boolean(item));
+  return preferirVarianteContacto(filas, intencion).slice(0, tope);
 }
 
 /** SELECT ponderado a partir de una intención ya normalizada. */
