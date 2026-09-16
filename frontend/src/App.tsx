@@ -2394,8 +2394,10 @@ export default function App() {
                     if (cantidad <= 0) return prev.filter((linea) => !misma(linea));
                     return prev.map((linea) => {
                       if (!misma(linea)) return linea;
+                      const unidadLinea = linea.unidad || 'pza';
                       const tope = linea.existencia ?? 999;
-                      return { ...linea, cantidad: Math.min(tope, cantidad) };
+                      const n = unidadLinea === 'm' ? Math.max(0.1, Math.round(cantidad * 10) / 10) : Math.max(1, Math.trunc(cantidad) || 1);
+                      return { ...linea, cantidad: Math.min(tope, n) };
                     });
                   });
                 }}

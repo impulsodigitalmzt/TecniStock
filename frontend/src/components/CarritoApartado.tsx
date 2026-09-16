@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Minus, Plus, ShoppingCart, Trash2, X } from 'lucide-react';
 import { FotoCatalogo } from './FotoCatalogo';
 
@@ -25,12 +26,69 @@ function cantidadLinea(valor: number, unidad: 'm' | 'pza'): number {
   return Math.max(1, Math.trunc(valor) || 1);
 }
 
-function etiquetaCantidad(cantidad: number, unidad: 'm' | 'pza'): string {
+function textoCantidad(cantidad: number, unidad: 'm' | 'pza'): string {
   if (unidad === 'm') {
-    const n = Number.isInteger(cantidad) ? String(cantidad) : String(Math.round(cantidad * 10) / 10);
-    return `${n} m`;
+    return Number.isInteger(cantidad) ? String(cantidad) : String(Math.round(cantidad * 10) / 10);
   }
   return String(cantidad);
+}
+
+function leerCantidadEscrita(crudo: string, unidad: 'm' | 'pza', tope: number): number | null {
+  const t = crudo.trim().replace(',', '.');
+  if (!t) return null;
+  const n = unidad === 'm' ? Number.parseFloat(t) : Number.parseInt(t, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(tope, cantidadLinea(n, unidad));
+}
+
+function CampoCantidad({
+  cantidad,
+  unidad,
+  tope,
+  onCambiar,
+}: {
+  cantidad: number;
+  unidad: 'm' | 'pza';
+  tope: number;
+  onCambiar: (cantidad: number) => void;
+}) {
+  const [borrador, setBorrador] = useState(textoCantidad(cantidad, unidad));
+  useEffect(() => {
+    setBorrador(textoCantidad(cantidad, unidad));
+  }, [cantidad, unidad]);
+
+  const confirmar = () => {
+    const leida = leerCantidadEscrita(borrador, unidad, tope);
+    if (leida == null) {
+      setBorrador(textoCantidad(cantidad, unidad));
+      return;
+    }
+    setBorrador(textoCantidad(leida, unidad));
+    if (leida !== cantidad) onCambiar(leida);
+  };
+
+  return (
+    <span className="inline-flex items-center gap-0.5 px-0.5">
+      <input
+        type="text"
+        inputMode={unidad === 'm' ? 'decimal' : 'numeric'}
+        pattern={unidad === 'm' ? '[0-9]*[.,]?[0-9]*' : '[0-9]*'}
+        aria-label={unidad === 'm' ? 'Metros' : 'Cantidad'}
+        className="h-7 w-12 bg-transparent text-center text-sm font-semibold tabular-nums text-stone-900 outline-none ring-0 focus:rounded-md focus:bg-stone-100"
+        value={borrador}
+        onChange={(evento) => setBorrador(evento.target.value)}
+        onFocus={(evento) => evento.currentTarget.select()}
+        onBlur={confirmar}
+        onKeyDown={(evento) => {
+          if (evento.key === 'Enter') {
+            evento.preventDefault();
+            evento.currentTarget.blur();
+          }
+        }}
+      />
+      {unidad === 'm' ? <span className="text-[11px] font-semibold text-stone-500">m</span> : null}
+    </span>
+  );
 }
 
 function dinero(valor: number): string {
@@ -200,9 +258,12 @@ export function CarritoApartado({
                           >
                             <Minus className="h-3.5 w-3.5" />
                           </button>
-                          <span className="min-w-6 text-center text-sm font-semibold tabular-nums">
-                            {etiquetaCantidad(linea.cantidad, unidadLinea(linea))}
-                          </span>
+                          <CampoCantidad
+                            cantidad={linea.cantidad}
+                            unidad={unidadLinea(linea)}
+                            tope={linea.existencia ?? 999}
+                            onCambiar={(cantidad) => onCambiarCantidad(linea.sku, cantidad, unidadLinea(linea))}
+                          />
                           <button
                             type="button"
                             className="px-2 py-1 text-stone-600"
