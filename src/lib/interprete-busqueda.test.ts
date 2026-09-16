@@ -187,6 +187,15 @@ describe("intérprete de búsqueda TecniStock", () => {
     const cable = interpretarTexto("cabre thw 12");
     assert.equal(cable.familia, "cable");
     assert.equal(cable.rubro, "electricidad");
+    assert.ok(cable.tokens.includes("12"));
+    assert.ok(cable.canonico.includes("12"));
+    const cuanto12 = interpretarTexto("cuanto cuesta el cable del 12");
+    assert.equal(cuanto12.familia, "cable");
+    assert.ok(cuanto12.tokens.includes("12"));
+    assert.ok(cuanto12.canonico.includes("12"));
+    const del10 = interpretarTexto("cuanto cuesta el cable del 10");
+    assert.ok(del10.tokens.includes("10"));
+    assert.ok(!del10.tokens.includes("12"));
     const tubo = interpretarTexto("tubo pvc 1/2");
     assert.equal(tubo.familia, "tubo");
     assert.equal(tubo.rubro, "plomeria");

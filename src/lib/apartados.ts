@@ -287,7 +287,7 @@ function extraerPistaProducto(texto: string): string {
     .replace(/\b\d{1,3}\s*(horas?|hrs?|minutos?|min|dias?)\b/g, " ")
     .replace(/\b\d+(?:\.\d+)?\s*(cms?|centimetros?|metros?|mts?)\b/g, " ")
     .replace(/\b(pza|piezas?|unidades?|mas|menos|cms?|centimetros?|metros?|mts?)\b/g, " ")
-    .replace(/\b\d{1,3}\b/g, " ");
+    .replace(/\b(?!8\b|10\b|12\b|14\b)\d{1,3}\b/g, " ");
   return t
     .split(" ")
     .filter((tok) => tok.length >= 2 && !STOP_EDICION.has(tok))

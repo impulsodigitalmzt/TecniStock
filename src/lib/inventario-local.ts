@@ -349,6 +349,12 @@ const RELLENO_CONSULTA = new Set([
   "cual",
   "cuales",
   "porque",
+  "cuanto",
+  "cuesta",
+  "costo",
+  "precio",
+  "vale",
+  "sale",
   "sirve",
   "funciona",
   "funcion",
@@ -928,8 +934,14 @@ function sqlCandadoFamilia(intencion: Pick<IntencionBusqueda, "familia" | "subti
       return ` AND (${n} ~ '(timbre|pulsador)' OR ${s} LIKE '%tim%')`;
     case "foco":
       return ` AND (${n} ~ '(foco|lampara|luminaria|bombilla|led)' OR ${s} ~ '^(foco|lamp|led)[-_]')`;
-    case "cable":
-      return ` AND (${n} ~ '(cable|conductor|thw|thhn)' OR ${s} LIKE 'cab%')`;
+    case "cable": {
+      let sql = ` AND (${n} ~ '(cable|conductor|thw|thhn)' OR ${s} LIKE 'cab%')`;
+      const calibre = (intencion.tokens ?? []).find((token) => /^(8|10|12|14)$/.test(token));
+      if (calibre) {
+        sql += ` AND (${n} ~ '(^|[^0-9])${calibre}([^0-9]|$)' OR ${s} ~ '(^|[-_])${calibre}([-_]|$)')`;
+      }
+      return sql;
+    }
     case "cinta":
       if (intencion.subtipo === "teflon") {
         return ` AND (${n} ~ '(teflon|ptfe)' OR ${s} LIKE 'tef%') AND ${n} !~ '(aislar|aislante|vinil|metrica|flexometro)'`;

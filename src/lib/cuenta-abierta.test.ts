@@ -46,6 +46,7 @@ describe("cuenta abierta de mostrador", () => {
     const objecion = "pero un rollo de cable es demasiado, solo ocupo como uso 5 metros nada mas";
     assert.equal(esNegociacionMostrador(objecion), true);
     assert.equal(pideCerrarCuenta(objecion), false);
+    assert.equal(esNegociacionMostrador("cuanto cuesta el cable del 12 por metro"), false);
     assert.equal(esNegociacionMostrador("el rollo de 100m es mucho, ocupo 5 metros"), true);
     assert.equal(pideCerrarCuenta("el rollo de 100m es mucho, ocupo 5 metros"), false);
     assert.equal(pideCerrarCuenta("¿me puedes dejar solo 5 metros?"), false);

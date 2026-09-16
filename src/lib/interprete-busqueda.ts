@@ -68,6 +68,7 @@ const RELLENO = new Set([
   "traeme", "pasame", "ver", "mira", "mirame", "checa", "checame",
   "tres", "dos", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez",
   "opciones", "alternativas", "disponibles", "stock", "anaquel", "inventario",
+  "cuanto", "cuesta", "costo", "precio", "vale", "sale",
 ]);
 
 type EntradaLexico = {
@@ -543,6 +544,18 @@ const TOKENS_PROHIBIDOS_SUBTIPO: Record<string, string[]> = {
   conduit: ["pvc", "cpvc"],
 };
 
+function detectarCalibreAwg(texto: string): string | null {
+  const t = plegarTexto(texto)
+    .replace(/\bocho\b/g, "8")
+    .replace(/\bdiez\b/g, "10")
+    .replace(/\bdoce\b/g, "12")
+    .replace(/\bcatorce\b/g, "14");
+  const hayCable = /\b(cable|thw|thhn|thwn|conductor|calibre|awg)\b/.test(t) || /\bdel\s+(8|10|12|14)\b/.test(t);
+  if (!hayCable) return null;
+  const m = t.match(/\b(?:calibre\s*|awg\s*|numero\s*|num\s+|del\s+)?(8|10|12|14)\b/);
+  return m?.[1] ?? null;
+}
+
 function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusqueda {
   const normalizado = preprocesarConsulta(textoFuente);
   const skuHint = detectarSku(crudo) ?? detectarSku(textoFuente);
@@ -586,6 +599,8 @@ function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusque
     if (!tokensPeso.some((item) => item.token === "cinta")) meter("cinta", 8);
     if (!tokensPeso.some((item) => item.token === "teflon")) meter("teflon", 12);
   }
+  const calibreAwg = detectarCalibreAwg(textoFuente);
+  if (calibreAwg) meter(calibreAwg, 9);
 
   const cabezaCanon =
     subtipo === "teflon"
@@ -594,9 +609,11 @@ function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusque
         ? ["contacto"]
         : familia === "apagador"
           ? ["apagador"]
-          : familia === "tubo"
-            ? ["tubo"]
-            : [];
+          : familia === "cable"
+            ? ["cable"]
+            : familia === "tubo"
+              ? ["tubo"]
+              : [];
   const canonico =
     cabezaCanon.length > 0
       ? [...cabezaCanon, ...tokensPeso.filter((item) => !cabezaCanon.includes(item.token)).map((item) => item.token)]

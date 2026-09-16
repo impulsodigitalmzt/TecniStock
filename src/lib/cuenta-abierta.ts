@@ -38,6 +38,9 @@ function plano(texto: string): string {
 export function esNegociacionMostrador(texto: string): boolean {
   const t = plano(texto);
   if (!t) return false;
+  if (/\bcuanto\s+(cuesta|sale|vale|es|cobra)\b/.test(t) && !/\b(demasiado|es mucho|solo ocupo|nomas ocupo)\b/.test(t)) {
+    return false;
+  }
   if (
     /\b(demasiado|es mucho|muy (grande|largo|caro)|de mas|demas)\b/.test(t) ||
     /\b(solo ocupo|nomas ocupo|nomás ocupo|solo uso|nomas uso|ocupo (como )?(uso )?\d+)\b/.test(t) ||
