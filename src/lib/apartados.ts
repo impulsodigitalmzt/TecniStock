@@ -2,7 +2,8 @@ import type { Sql } from "../db.js";
 import { toJsonbParam } from "../db.js";
 import { AppError } from "./errors";
 import { candidatosFicha, type FichaCatalogo } from "./ficha-chat";
-import { cantidadStock, familiaCatalogo, type BloqueStock } from "./stock";
+import { cantidadStock, familiaCatalogo, varianteContacto, type BloqueStock } from "./stock";
+import { calibreAwgEnTexto } from "./interprete-busqueda";
 import {
   cantidadVenta,
   claveVenta,
@@ -173,7 +174,7 @@ export type ItemCatalogoPedido = {
 };
 
 export type EdicionPedido = {
-  modo: "add" | "set" | "remove" | "clear";
+  modo: "add" | "set" | "remove" | "clear" | "replace";
   cantidad: number | null;
   pista: string;
   unidad?: UnidadVenta;
@@ -278,28 +279,71 @@ const STOP_EDICION = new Set([
   "igual",
   "mismo",
   "misma",
+  "pero",
+  "vez",
+  "sean",
+  "sea",
+  "cambia",
+  "cambialo",
+  "cambiala",
+  "cambialos",
+  "cambialas",
+  "cambiar",
+  "cambiame",
   "llevame",
   "apartame",
 ]);
 
-function extraerPistaProducto(texto: string): string {
-  const t = norm(texto)
+const NUM_EDICION = String.raw`(?:un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|\d{1,3})`;
+
+function extraerPistaProducto(texto: string, cantidad: number | null = null): string {
+  let t = norm(texto)
     .replace(/\b\d{1,3}\s*(horas?|hrs?|minutos?|min|dias?)\b/g, " ")
     .replace(/\b\d+(?:\.\d+)?\s*(cms?|centimetros?|metros?|mts?)\b/g, " ")
-    .replace(/\b(pza|piezas?|unidades?|mas|menos|cms?|centimetros?|metros?|mts?)\b/g, " ")
-    .replace(/\b(?!8\b|10\b|12\b|14\b)\d{1,3}\b/g, " ");
+    .replace(/\bno (los |las )?(sencillos?|duplex|duplez|simples?)\b/g, " ")
+    .replace(/\b(pza|piezas?|unidades?|mas|menos|cms?|centimetros?|metros?|mts?)\b/g, " ");
+  if (cantidad != null) t = t.replace(new RegExp(`\\b${cantidad}\\b`), " ");
   return t
     .split(" ")
-    .filter((tok) => tok.length >= 2 && !STOP_EDICION.has(tok))
+    .filter((tok) => {
+      if (!tok || STOP_EDICION.has(tok)) return false;
+      if (/^(8|10|12|14|15|20|30|40|50|60|70)$/.test(tok)) return true;
+      if (/^\d+$/.test(tok)) return false;
+      return tok.length >= 2;
+    })
     .join(" ")
     .trim();
 }
 
 function numeroCantidad(raw: string | undefined): number | null {
   if (!raw) return null;
+  const pal: Record<string, number> = {
+    un: 1,
+    una: 1,
+    uno: 1,
+    dos: 2,
+    tres: 3,
+    cuatro: 4,
+    cinco: 5,
+    seis: 6,
+    siete: 7,
+    ocho: 8,
+    nueve: 9,
+    diez: 10,
+  };
+  if (pal[raw]) return pal[raw] ?? null;
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1 || n > 999) return null;
   return n;
+}
+
+function esSustitucionVariante(texto: string): boolean {
+  return (
+    /\bque sean\b/.test(texto) ||
+    /\b(cambia(?:me|los?|las?|r)?|cambiemos)\s+(a|por|los?|las?|el|la)\b/.test(texto) ||
+    /\ben vez (de|del)\b/.test(texto) ||
+    /\bno (los |las )?(sencillos?|duplex|duplez|simples?)\b/.test(texto)
+  );
 }
 
 /** «me das 15», «agrega 5 contactos», «quítame 5 contactos», «también cinta». */
@@ -314,7 +358,7 @@ export function extraerEdicionPedido(texto: string): EdicionPedido | null {
   }
   const metros = extraerMetrosPedido(sinTiempo);
   if (metros != null) {
-    const pista = extraerPistaProducto(sinTiempo);
+    const pista = extraerPistaProducto(sinTiempo, Number.isInteger(metros) ? metros : null);
     const modo: EdicionPedido["modo"] = /\b(quita|saca|elimina|resta|baja)\b/.test(sinTiempo)
       ? "remove"
       : /\b(agrega|suma|anade|tambien|ademas)\b/.test(sinTiempo) || /\bmetros?\s+mas\b/.test(sinTiempo)
@@ -323,15 +367,15 @@ export function extraerEdicionPedido(texto: string): EdicionPedido | null {
     return { modo, cantidad: metros, pista, unidad: "m" };
   }
   if (pideRolloCompleto(sinTiempo) && /\b(dame|me das|quiero|necesito|agrega|llevame)\b/.test(sinTiempo)) {
-    return { modo: "add", cantidad: 1, pista: extraerPistaProducto(sinTiempo), unidad: "pza" };
+    return { modo: "add", cantidad: 1, pista: extraerPistaProducto(sinTiempo, 1), unidad: "pza" };
   }
   const quitaNum =
     sinTiempo.match(
-      /\b(?:quita(?:me|le)?|sacar?|saca(?:me)?|elimina(?:me)?|baja(?:me)?|resta(?:me)?|menos)\s+(\d{1,3})\b/
-    ) || sinTiempo.match(/\b(\d{1,3})\s*(?:pza|piezas?|unidades?)?\s+menos\b/);
+      new RegExp(String.raw`\b(?:quita(?:me|le)?|sacar?|saca(?:me)?|elimina(?:me)?|baja(?:me)?|resta(?:me)?|menos)\s+(${NUM_EDICION})\b`)
+    ) || sinTiempo.match(new RegExp(String.raw`\b(${NUM_EDICION})\s*(?:pza|piezas?|unidades?)?\s+menos\b`));
   if (quitaNum) {
     const cantidad = numeroCantidad(quitaNum[1]);
-    if (cantidad) return { modo: "remove", cantidad, pista: extraerPistaProducto(sinTiempo) };
+    if (cantidad) return { modo: "remove", cantidad, pista: extraerPistaProducto(sinTiempo, cantidad) };
   }
   if (
     /\b(?:quita(?:me|le)?|saca(?:me)?|elimina(?:me)?|ya no (?:quiero|llevo|van|van a ir)|sin los|sin las)\b/.test(
@@ -340,24 +384,30 @@ export function extraerEdicionPedido(texto: string): EdicionPedido | null {
   ) {
     return { modo: "remove", cantidad: null, pista: extraerPistaProducto(sinTiempo) };
   }
+  if (esSustitucionVariante(sinTiempo)) {
+    return { modo: "replace", cantidad: null, pista: extraerPistaProducto(sinTiempo) };
+  }
   const addMas =
-    sinTiempo.match(/\b(?:agrega(?:me|le)?|suma(?:me)?|anade(?:me)?)\s+(\d{1,3})\s*(?:pza|piezas?|unidades?)?\s+mas\b/) ||
-    sinTiempo.match(/\b(\d{1,3})\s*(?:pza|piezas?|unidades?)?\s+mas\b/);
+    sinTiempo.match(
+      new RegExp(String.raw`\b(?:agrega(?:me|le)?|suma(?:me)?|anade(?:me)?)\s+(${NUM_EDICION})\s*(?:pza|piezas?|unidades?)?\s+mas\b`)
+    ) || sinTiempo.match(new RegExp(String.raw`\b(${NUM_EDICION})(?:\s+(?:pza|piezas?|unidades?|[a-z]{3,}))?\s+mas\b`));
   if (addMas) {
     const cantidad = numeroCantidad(addMas[1]);
-    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(sinTiempo) };
+    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(sinTiempo, cantidad) };
   }
   const addNum = sinTiempo.match(
-    /\b(?:agrega(?:me|le)?|suma(?:me)?|anade(?:me)?|tambien|ademas|incluye(?:me)?|meteme|y tambien)\s+(\d{1,3})\b/
+    new RegExp(
+      String.raw`\b(?:agrega(?:me|le)?|suma(?:me)?|anade(?:me)?|tambien|ademas|incluye(?:me)?|meteme|y tambien)\s+(${NUM_EDICION})\b`
+    )
   );
   if (addNum) {
     const cantidad = numeroCantidad(addNum[1]);
-    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(sinTiempo) };
+    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(sinTiempo, cantidad) };
   }
-  const yNum = sinTiempo.match(/\by(?:\s+tambien)?\s+(\d{1,3})\s+([a-z0-9][a-z0-9.\-]{2,})/);
+  const yNum = sinTiempo.match(new RegExp(String.raw`\by(?:\s+tambien)?\s+(${NUM_EDICION})\s+([a-z0-9][a-z0-9.\-]{2,})`));
   if (yNum) {
     const cantidad = numeroCantidad(yNum[1]);
-    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(yNum[2]) };
+    if (cantidad) return { modo: "add", cantidad, pista: extraerPistaProducto(yNum[2], cantidad) };
   }
   if (
     /\b(?:agrega(?:me|le|r)?|suma(?:me)?|anade(?:me)?|tambien|ademas|incluye(?:me)?|meteme)\b/.test(sinTiempo) &&
@@ -367,24 +417,26 @@ export function extraerEdicionPedido(texto: string): EdicionPedido | null {
   }
   const set =
     sinTiempo.match(
-      /\b(?:me das|dame|deme|quiero|necesito|ponme(?:le)?|son|van a ser|de eso|de ese|de esa|de estos|deja(?:me|le)?(?:lo|la|los|las)?(?: en)?|que sean|llevame|apartame)\s+(\d{1,3})\b/
+      new RegExp(
+        String.raw`\b(?:me das|dame|deme|quiero|necesito|ponme(?:le)?|son|van a ser|de eso|de ese|de esa|de estos|deja(?:me|le)?(?:lo|la|los|las)?(?: en)?|llevame|apartame)\s+(${NUM_EDICION})\b`
+      )
     ) || sinTiempo.match(/\b(\d{1,3})\s*(?:pza|piezas?|unidades?)\b/);
   if (!set) return null;
   const cantidad = numeroCantidad(set[1]);
   if (!cantidad) return null;
   if (cantidad === 127 && /\b(127|volt|v\b)/.test(sinTiempo)) return null;
-  return { modo: "set", cantidad, pista: extraerPistaProducto(sinTiempo) };
+  return { modo: "set", cantidad, pista: extraerPistaProducto(sinTiempo, cantidad) };
 }
 
 export function extraerCambioCantidad(texto: string): { cantidad: number; modo: "set" | "add" } | null {
   const edicion = extraerEdicionPedido(texto);
-  if (!edicion || edicion.modo === "remove" || edicion.modo === "clear") return null;
+  if (!edicion || edicion.modo === "remove" || edicion.modo === "clear" || edicion.modo === "replace") return null;
   return { cantidad: edicion.cantidad ?? 1, modo: edicion.modo };
 }
 
 export function edicionPideBusqueda(texto: string): boolean {
   const edicion = extraerEdicionPedido(texto);
-  return Boolean(edicion && (edicion.modo === "add" || edicion.modo === "set") && edicion.pista);
+  return Boolean(edicion && (edicion.modo === "add" || edicion.modo === "set" || edicion.modo === "replace") && edicion.pista);
 }
 
 function catalogoSku(stock: BloqueStock, sku: string): { existencia: number; precio: number } | null {
@@ -414,12 +466,35 @@ function semillaPedidoDesdeStock(stock: BloqueStock): LineaCarrito | null {
   return { sku: alt.sku, nombre: alt.nombre, cantidad: 1, precio: alt.precio };
 }
 
-function scorePistaProducto(pista: string, nombre: string, sku: string): number {
+function varianteIluminacion(texto: string): "foco" | "lampara" | null {
+  const t = norm(texto);
+  if (/\b(foco|focos|bombilla|bombillo)\b/.test(t)) return "foco";
+  if (/\b(lampara|lamparas|luminaria)\b/.test(t)) return "lampara";
+  return null;
+}
+
+function scorePistaProducto(
+  pista: string,
+  nombre: string,
+  sku: string,
+  opts?: { ignorarVariante?: boolean }
+): number {
   const p = norm(pista);
   const n = norm(nombre);
   const s = norm(sku).replace(/\s+/g, "");
   if (!p) return 0;
   if (s && (p.includes(s) || s.includes(p.replace(/\s+/g, "")))) return 100;
+  if (!opts?.ignorarVariante) {
+    const calP = calibreAwgEnTexto(p);
+    const calN = calibreAwgEnTexto(`${n} ${s}`);
+    if (calP && calN && calP !== calN) return 0;
+    const varP = varianteContacto(p);
+    const varN = varianteContacto(n, sku);
+    if (varP && varN && varP !== varN) return 0;
+    const luzP = varianteIluminacion(p);
+    const luzN = varianteIluminacion(`${n} ${s}`);
+    if (luzP && luzN && luzP !== luzN) return 0;
+  }
   const famP = familiaCatalogo(p);
   const famN = familiaCatalogo(n);
   const combo =
@@ -429,28 +504,43 @@ function scorePistaProducto(pista: string, nombre: string, sku: string): number 
   if (combo && (famP === "contacto" || famP === "interruptor") && !/\bkit\b/.test(p)) {
     return menciona ? 25 : 0;
   }
-  if (menciona) return 80 + Math.min(n.length, 20);
-  if (famP && famN && famP === famN) return 55;
-  const tokens = p.split(" ").filter((tok) => tok.length >= 3);
-  let hits = 0;
-  for (const tok of tokens) {
-    if (n.includes(tok) || s.includes(tok)) hits += 1;
+  let score = 0;
+  if (menciona) score = 80 + Math.min(n.length, 20);
+  else {
+    const tokens = p.split(" ").filter((tok) => tok.length >= 3 || /^(8|10|12|14|15|20|30|40|50|60|70)$/.test(tok));
+    let hits = 0;
+    for (const tok of tokens) {
+      if (n.includes(tok) || s.includes(tok)) hits += 1;
+    }
+    if (hits === 0) score = 0;
+    else score = hits * 18;
   }
-  return hits === 0 ? 0 : hits * 18;
+  if (famP && famN && famP === famN) score += 15;
+  const calP = calibreAwgEnTexto(p);
+  const calN = calibreAwgEnTexto(`${n} ${s}`);
+  if (calP && calN && calP === calN) score += 25;
+  const varP = varianteContacto(p);
+  const varN = varianteContacto(n, sku);
+  if (varP && varN && varP === varN) score += 20;
+  return score;
 }
 
-function mejorLineaPorPista(pista: string, lineas: LineaCarrito[]): LineaCarrito | null {
+function mejorLineaPorPista(
+  pista: string,
+  lineas: LineaCarrito[],
+  opts?: { mismaFamilia?: boolean }
+): LineaCarrito | null {
   if (!pista || lineas.length === 0) return null;
   let mejor: LineaCarrito | null = null;
   let score = 0;
   for (const linea of lineas) {
-    const n = scorePistaProducto(pista, linea.nombre, linea.sku);
+    const n = scorePistaProducto(pista, linea.nombre, linea.sku, { ignorarVariante: opts?.mismaFamilia });
     if (n > score) {
       mejor = linea;
       score = n;
     }
   }
-  return score >= 40 ? mejor : null;
+  return score >= (opts?.mismaFamilia ? 30 : 70) ? mejor : null;
 }
 
 function mejorCatalogoPorPista(pista: string, items: ItemCatalogoPedido[]): ItemCatalogoPedido | null {

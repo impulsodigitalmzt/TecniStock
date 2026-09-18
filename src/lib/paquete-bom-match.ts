@@ -1,3 +1,5 @@
+import { calibreAwgEnTexto } from "./interprete-busqueda";
+
 export type HitBom = {
   sku: string;
   nombre: string;
@@ -23,8 +25,7 @@ export function limpiarQueryBom(query: string): string {
 }
 
 function calibreDe(texto: string): string | null {
-  const m = texto.toLowerCase().match(/\b(?:calibre\s*)?(8|10|12|14)\b/);
-  return m?.[1] ?? null;
+  return calibreAwgEnTexto(texto);
 }
 
 function queryPideTramo(query: string, textoCliente: string): boolean {

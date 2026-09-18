@@ -544,16 +544,26 @@ const TOKENS_PROHIBIDOS_SUBTIPO: Record<string, string[]> = {
   conduit: ["pvc", "cpvc"],
 };
 
-function detectarCalibreAwg(texto: string): string | null {
+/** Calibre AWG (8/10/12/14). Ignora cantidades («10 metros») y prefiere «del 12» / «calibre 12». */
+export function calibreAwgEnTexto(texto: string): string | null {
   const t = plegarTexto(texto)
     .replace(/\bocho\b/g, "8")
     .replace(/\bdiez\b/g, "10")
     .replace(/\bdoce\b/g, "12")
-    .replace(/\bcatorce\b/g, "14");
-  const hayCable = /\b(cable|thw|thhn|thwn|conductor|calibre|awg)\b/.test(t) || /\bdel\s+(8|10|12|14)\b/.test(t);
+    .replace(/\bcatorce\b/g, "14")
+    .replace(/\b\d+(?:\.\d+)?\s*(cms?|centimetros?|metros?|mts?|pza|piezas?|unidades?|rollos?)\b/g, " ");
+  const hayCable =
+    /\b(cable|thw|thhn|thwn|conductor|calibre|awg)\b/.test(t) || /\bdel\s+(8|10|12|14)\b/.test(t);
   if (!hayCable) return null;
-  const m = t.match(/\b(?:calibre\s*|awg\s*|numero\s*|num\s+|del\s+)?(8|10|12|14)\b/);
-  return m?.[1] ?? null;
+  const explicito =
+    t.match(/\b(?:calibre|awg|numero|num)\s*(8|10|12|14)\b/) || t.match(/\bdel\s+(8|10|12|14)\b/);
+  if (explicito?.[1]) return explicito[1];
+  const todos = [...t.matchAll(/\b(8|10|12|14)\b/g)].map((m) => m[1]).filter(Boolean);
+  return todos.length ? (todos[todos.length - 1] ?? null) : null;
+}
+
+function detectarCalibreAwg(texto: string): string | null {
+  return calibreAwgEnTexto(texto);
 }
 
 function ensamblarIntencion(crudo: string, textoFuente: string): IntencionBusqueda {

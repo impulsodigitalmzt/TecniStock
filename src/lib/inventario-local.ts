@@ -355,6 +355,14 @@ const RELLENO_CONSULTA = new Set([
   "precio",
   "vale",
   "sale",
+  "metro",
+  "metros",
+  "mts",
+  "pza",
+  "piezas",
+  "unidades",
+  "rollo",
+  "rollos",
   "sirve",
   "funciona",
   "funcion",
@@ -374,7 +382,10 @@ const RELLENO_CONSULTA = new Set([
 
 /** Quita muletillas de mostrador y deja el término a buscar en inventario_local. */
 export function extraerConsultaInventario(texto: string): string {
-  const q = normalizarBusqueda(limpiarNegacionesCatalogo(texto));
+  const q = normalizarBusqueda(limpiarNegacionesCatalogo(texto))
+    .replace(/\b\d+(?:\.\d+)?\s*(cms?|centimetros?|metros?|mts?|pza|piezas?|unidades?|rollos?)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!q) return "";
   const tokens = q.split(" ").filter((token) => token && (!RELLENO_CONSULTA.has(token) || /^\d+$/.test(token)));
   return tokens.join(" ").trim();
